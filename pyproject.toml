@@ -1,0 +1,16 @@
+[project]
+name = "bajptr"
+version = "0.1.0"
+description = "蔚蓝档案日服（JP）译名替换 / 文本补丁工具"
+requires-python = ">=3.10"
+dependencies = ["pycryptodome>=3.19"]
+
+[project.scripts]
+bajptr = "bajptr.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
