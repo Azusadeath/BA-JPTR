@@ -256,7 +256,6 @@ pub fn tables(con: &Connection, pattern: &str) -> Result<Vec<String>> {
 
 pub struct Database {
     pub con: Connection,
-    pub in_memory: bool,
     _temporary: Option<tempfile::TempDir>,
 }
 impl Database {
@@ -264,7 +263,6 @@ impl Database {
         path: &Path,
         encrypted: bool,
         key: &[u8; 32],
-        max_bytes: u64,
         control: &Control<'_>,
     ) -> Result<Self> {
         let temporary = if encrypted {
@@ -280,33 +278,15 @@ impl Database {
             path.to_path_buf()
         };
         let con = Connection::open_with_flags(&plain, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-        if plain.metadata()?.len() <= max_bytes {
-            let mut memory = Connection::open_in_memory()?;
-            {
-                let backup = rusqlite::backup::Backup::new(&con, &mut memory)?;
-                loop {
-                    control.check()?;
-                    if matches!(backup.step(256)?, rusqlite::backup::StepResult::Done) {
-                        break;
-                    }
-                }
-            }
-            memory.execute_batch("PRAGMA query_only=ON; PRAGMA cache_size=-8192;")?;
-            drop(con);
-            drop(temporary);
-            Ok(Self {
-                con: memory,
-                in_memory: true,
-                _temporary: None,
-            })
-        } else {
-            con.execute_batch("PRAGMA query_only=ON;")?;
-            Ok(Self {
-                con,
-                in_memory: false,
-                _temporary: temporary,
-            })
-        }
+        // Keep the decrypted database on the temporary file and let SQLite's
+        // page cache do the bounded caching. Copying a 200+ MiB database into
+        // a second in-memory connection adds latency and resident memory while
+        // providing no reliable scan benefit on the target workload.
+        con.execute_batch("PRAGMA query_only=ON; PRAGMA cache_size=-65536;")?;
+        Ok(Self {
+            con,
+            _temporary: temporary,
+        })
     }
 }
 

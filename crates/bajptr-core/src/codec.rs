@@ -76,6 +76,7 @@ pub fn inspect(path: &Path, key: &[u8; 32], control: &Control<'_>) -> Result<Ins
     };
     for number in 1..=count {
         if number % 128 == 1 {
+            control.log(&format!("正在校验数据库：第 {number}/{count} 页…"))?;
             control.check()?;
         }
         stream.read_exact(&mut page)?;
@@ -121,6 +122,7 @@ pub fn decrypt(input: &Path, output: &Path, key: &[u8; 32], control: &Control<'_
     let mut ivs = Vec::with_capacity(count as usize);
     for number in 1..=count {
         if number % 128 == 1 {
+            control.log(&format!("正在解密数据库：第 {number}/{count} 页…"))?;
             control.check()?;
         }
         stream.read_exact(&mut page)?;
@@ -169,6 +171,19 @@ pub fn encrypt(
     ivs: &[Vec<u8>],
     control: &Control<'_>,
 ) -> Result<Info> {
+    encrypt_checked(input, output, key, salt, ivs, control).map(|(info, _)| info)
+}
+
+/// Encrypt a database and return the inspection values established while
+/// writing it. This avoids a second full read of the generated resource.
+pub fn encrypt_checked(
+    input: &Path,
+    output: &Path,
+    key: &[u8; 32],
+    salt: &[u8],
+    ivs: &[Vec<u8>],
+    control: &Control<'_>,
+) -> Result<(Info, Inspection)> {
     let size = input.metadata()?.len();
     if input == output || salt.len() != 16 || size < PAGE as u64 || size % PAGE as u64 != 0 {
         return Err(invalid("明文数据库页不完整、salt 长度无效或输出覆盖输入。"));
@@ -181,8 +196,10 @@ pub fn encrypt(
     let mut stream = BufReader::new(File::open(input)?);
     let mut out = BufWriter::new(File::create(output)?);
     let mut page = [0u8; PAGE];
+    let mut crc = crc32fast::Hasher::new();
     for number in 1..=count {
         if number % 128 == 1 {
+            control.log(&format!("正在加密数据库：第 {number}/{count} 页…"))?;
             control.check()?;
         }
         stream.read_exact(&mut page)?;
@@ -199,20 +216,30 @@ pub fn encrypt(
             .map_err(|_| invalid("明文页长度无效。"))?;
         if number == 1 {
             out.write_all(salt)?;
+            crc.update(salt);
         }
         out.write_all(&page[off..USABLE])?;
+        crc.update(&page[off..USABLE]);
         out.write_all(&iv)?;
-        out.write_all(
-            &mac(&key_mac, &page[off..USABLE], &iv, number as u32)
-                .finalize()
-                .into_bytes(),
-        )?;
+        crc.update(&iv);
+        let digest = mac(&key_mac, &page[off..USABLE], &iv, number as u32)
+            .finalize()
+            .into_bytes();
+        out.write_all(&digest)?;
+        crc.update(&digest);
     }
     out.flush()?;
     out.get_ref().sync_all()?;
-    Ok(Info {
-        pages: count,
-        salt: B64.encode(salt),
-        ivs: Vec::new(),
-    })
+    Ok((
+        Info {
+            pages: count,
+            salt: B64.encode(salt),
+            ivs: Vec::new(),
+        },
+        Inspection {
+            ok: count,
+            bad: 0,
+            crc: crc.finalize(),
+        },
+    ))
 }

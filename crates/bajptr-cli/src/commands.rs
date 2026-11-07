@@ -56,7 +56,6 @@ impl Source {
             &path,
             is_encrypted(&path)?,
             &codec::key(&self.key)?,
-            384 * 1024 * 1024,
             control,
         )
     }
@@ -260,7 +259,7 @@ fn standalone_patch(
         json!({"skip_kana":config.skip_kana,"ascii_exact":config.ascii_exact,"tables":config.tables,"explain":true}),
     )?;
     if dry_run {
-        let db = Database::open(input, encrypted, &key, 384 * 1024 * 1024, control)?;
+        let db = Database::open(input, encrypted, &key, control)?;
         return Ok(
             json!({"stats":database::patch_database(&db.con,None,None,&rules,&options,false,control)?}),
         );
@@ -293,20 +292,9 @@ fn standalone_patch(
             .iter()
             .map(|v| B64.decode(v).map_err(|_| invalid("IV 无效。")))
             .collect::<Result<Vec<_>>>()?;
-        codec::encrypt(&plain, &result, &key, &salt, &ivs, control)?;
-        let checked = codec::inspect(&result, &key, control)?;
+        let (_, checked) = codec::encrypt_checked(&plain, &result, &key, &salt, &ivs, control)?;
         if checked.ok == 0 || checked.bad > 0 {
             return Err(invalid("输出数据库 HMAC 校验失败。"));
-        }
-        let verification = stage.join("verified.db");
-        codec::decrypt(&result, &verification, &key, control)?;
-        let con = rusqlite::Connection::open_with_flags(
-            &verification,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )?;
-        let check: String = con.query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
-        if check != "ok" {
-            return Err(invalid("回读完整性校验失败。"));
         }
     } else {
         baseline::copy_sync(&plain, &result)?;

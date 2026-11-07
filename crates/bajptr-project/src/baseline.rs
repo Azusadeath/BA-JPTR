@@ -170,7 +170,6 @@ impl Baselines {
             &stage.join(name),
             true,
             &codec::key(region::KEY)?,
-            0,
             control,
         )?;
         let integrity: String = db

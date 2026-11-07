@@ -418,6 +418,16 @@ impl Engine {
                 json!({"op":"patch_file","input":plain,"rules":config.rules,"options":options}),
                 control,
             )?;
+            let connection = rusqlite::Connection::open_with_flags(
+                &plain,
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+            )?;
+            let integrity: String =
+                connection.query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
+            drop(connection);
+            if integrity != "ok" {
+                return Err(invalid("生成数据库完整性校验失败，未发布补丁。"));
+            }
             let encrypted = stage.join("encrypted.db");
             let salt = B64
                 .decode(&info.salt)
@@ -427,23 +437,11 @@ impl Engine {
                 .iter()
                 .map(|v| B64.decode(v).map_err(|_| invalid("底稿 IV 无效。")))
                 .collect::<Result<Vec<_>>>()?;
-            control.log("正在加密并回读校验…")?;
-            codec::encrypt(&plain, &encrypted, &key, &salt, &ivs, control)?;
-            let checked = codec::inspect(&encrypted, &key, control)?;
+            control.log("正在加密并校验 HMAC…")?;
+            let (_, checked) =
+                codec::encrypt_checked(&plain, &encrypted, &key, &salt, &ivs, control)?;
             if checked.ok == 0 || checked.bad > 0 {
                 return Err(invalid("生成资源 HMAC 校验失败，未发布补丁。"));
-            }
-            let verification = stage.join("verified.db");
-            codec::decrypt(&encrypted, &verification, &key, control)?;
-            let connection = rusqlite::Connection::open_with_flags(
-                &verification,
-                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-            )?;
-            let integrity: String =
-                connection.query_row("PRAGMA integrity_check", [], |r| r.get(0))?;
-            drop(connection);
-            if integrity != "ok" {
-                return Err(invalid("生成数据库完整性校验失败，未发布补丁。"));
             }
             let _rules_lock = config
                 .rules_path
@@ -624,8 +622,15 @@ fn publish_resource(
         target.file_name().unwrap().to_string_lossy(),
         uuid::Uuid::new_v4().simple()
     ));
-    baseline::copy_sync(source, &pending)?;
-    checks.checked(&pending, &entry, control)?;
+    let copied = fs::copy(source, &pending)?;
+    if copied != size || pending.metadata()?.len() != size {
+        let _ = fs::remove_file(&pending);
+        return Err(invalid("发布暂存资源大小不一致，未发布补丁。"));
+    }
+    fs::OpenOptions::new()
+        .write(true)
+        .open(&pending)?
+        .sync_all()?;
     // All cooperating writers hold the catalog lock. Never replace an unrelated resource.
     if target.exists() {
         return Err(invalid("目标资源在发布前出现，请重新预览。"));

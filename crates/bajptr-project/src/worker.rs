@@ -31,7 +31,7 @@ pub struct Worker {
 fn cancellable(action: &str) -> bool {
     matches!(
         action,
-        "check" | "search" | "preview" | "tables" | "baseline"
+        "check" | "search" | "preview" | "tables" | "baseline" | "generate" | "apply"
     )
 }
 impl Worker {

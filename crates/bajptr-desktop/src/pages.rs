@@ -229,7 +229,7 @@ impl Desktop {
                             self.submit("preview", json!({}), "正在比较本次最终变化…", true);
                         }
                         if action(ui, ready, "仅生成补丁", ButtonKind::Quiet).clicked() {
-                            self.submit("generate", json!({}), "正在生成并校验补丁…", false);
+                            self.submit("generate", json!({}), "正在生成并校验补丁…", true);
                         }
                     });
                 });

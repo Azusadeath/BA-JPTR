@@ -833,7 +833,7 @@ if ui.button("取消").clicked(){close=true;}});
                             "apply",
                             json!({"nonce":text(&preview,"nonce")}),
                             "正在从底稿生成并校验补丁…",
-                            false,
+                            true,
                         );
                         close = true;
                     }

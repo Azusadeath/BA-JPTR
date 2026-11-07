@@ -107,14 +107,9 @@ pub fn execute(session: &mut Session, v: Value, control: &Control<'_>) -> Result
                 Path::new(text(&v, "input")?),
                 v.get("encrypted").and_then(Value::as_bool).unwrap_or(true),
                 &key,
-                v.get("max_bytes")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(384 * 1024 * 1024),
                 control,
             )?);
-            Ok(
-                json!({"ready":true,"cached_in_memory":session.database.as_ref().unwrap().in_memory}),
-            )
+            Ok(json!({"ready":true,"cached_in_memory":false}))
         }
         "close" => {
             session.database = None;
@@ -170,7 +165,6 @@ pub fn execute(session: &mut Session, v: Value, control: &Control<'_>) -> Result
                         Path::new(path),
                         true,
                         &codec::key(text(&v, "key")?)?,
-                        0,
                         control,
                     )?;
                     let overrides = database::current_overrides(
