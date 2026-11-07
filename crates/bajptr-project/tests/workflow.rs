@@ -500,6 +500,51 @@ fn late_cancel_rebases_later_background_snapshots_and_accept_releases_results() 
     assert_eq!(result(&worker, 12)["search"]["nonce"], accepted["nonce"]);
 }
 #[test]
+fn cancelling_apply_during_encryption_leaves_game_unchanged_and_preview_reusable() {
+    let f = Fixture::new();
+    let mut project = f.ready_project();
+    let preview = call(&mut project, "preview", json!({}));
+    let cancelled = project.dispatch(
+        "apply",
+        &json!({"nonce":preview["nonce"]}),
+        &Control {
+            callback: &|message| !message.is_some_and(|m| m.starts_with("正在加密数据库：")),
+        },
+    );
+    assert!(matches!(cancelled, Err(bajptr_project::Error::Cancelled)));
+    f.unchanged();
+    let applied = call(&mut project, "apply", json!({"nonce":preview["nonce"]}));
+    assert_eq!(applied["application"], "已应用，与当前词表一致");
+}
+
+#[test]
+fn late_cancel_after_apply_never_rewinds_committed_state() {
+    let f = Fixture::new();
+    drop(f.ready_project());
+    let worker = Worker::start(f.data.clone(), Arc::new(|| {})).unwrap();
+    worker.send(1, "load", json!({})).unwrap();
+    result(&worker, 1);
+    worker.send(2, "preview", json!({})).unwrap();
+    let preview = result(&worker, 2);
+    worker.send(3, "accept", json!({"target":2})).unwrap();
+    worker
+        .send(4, "apply", json!({"nonce":preview["nonce"]}))
+        .unwrap();
+    let applied = result(&worker, 4);
+    assert_eq!(applied["application"], "已应用，与当前词表一致");
+    worker.send(5, "cancel", json!({"target":4})).unwrap();
+    worker
+        .send(
+            6,
+            "settings",
+            json!({"game":f.game,"skip_kana":true,"revision":0}),
+        )
+        .unwrap();
+    assert_eq!(result(&worker, 6)["application"], applied["application"]);
+    assert_ne!(fs::read(f.game.join(region::CATALOG)).unwrap(), f.before);
+}
+
+#[test]
 fn file_locks_refuse_a_second_writer() {
     let f = Fixture::new();
     let path = f.data.join(".gui/rules.tsv");

@@ -29,9 +29,12 @@ pub struct Worker {
     thread: Option<JoinHandle<()>>,
 }
 fn cancellable(action: &str) -> bool {
+    read_only(action) || matches!(action, "generate" | "apply")
+}
+fn read_only(action: &str) -> bool {
     matches!(
         action,
-        "check" | "search" | "preview" | "tables" | "baseline" | "generate" | "apply"
+        "check" | "search" | "preview" | "tables" | "baseline"
     )
 }
 impl Worker {
@@ -59,8 +62,8 @@ impl Worker {
                         project.restore_snapshot(&current);
                     }continue;
                 }
-                let read=cancellable(&request.action);let before=project.snapshot();let revision=project.revision;
-                let callback=|message:Option<&str>|{if let Some(message)=message{send(json!({"id":request.id,"event":"progress","message":message}));} !read || !request.token.load(Ordering::Relaxed)};
+                let read=read_only(&request.action);let can_cancel=cancellable(&request.action);let before=project.snapshot();let revision=project.revision;
+                let callback=|message:Option<&str>|{if let Some(message)=message{send(json!({"id":request.id,"event":"progress","message":message}));} !can_cancel || !request.token.load(Ordering::Relaxed)};
                 let result=std::panic::catch_unwind(std::panic::AssertUnwindSafe(||project.dispatch(&request.action,&request.payload,&Control{callback:&callback})));
                 match result{
                     Ok(Ok(data))=>{if read{completed.push_back(Completed{id:request.id,revision,before,after:project.snapshot()});if completed.len()>32{completed.pop_front();}}send(json!({"id":request.id,"event":"result","data":data}));},

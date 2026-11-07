@@ -622,15 +622,10 @@ fn publish_resource(
         target.file_name().unwrap().to_string_lossy(),
         uuid::Uuid::new_v4().simple()
     ));
-    let copied = fs::copy(source, &pending)?;
-    if copied != size || pending.metadata()?.len() != size {
-        let _ = fs::remove_file(&pending);
-        return Err(invalid("发布暂存资源大小不一致，未发布补丁。"));
-    }
-    fs::OpenOptions::new()
-        .write(true)
-        .open(&pending)?
-        .sync_all()?;
+    baseline::copy_sync(source, &pending)?;
+    // Verify the bytes that reached the destination, including restore copies.
+    // The encryption-time digest alone cannot detect a damaged copied file.
+    checks.checked(&pending, &entry, control)?;
     // All cooperating writers hold the catalog lock. Never replace an unrelated resource.
     if target.exists() {
         return Err(invalid("目标资源在发布前出现，请重新预览。"));

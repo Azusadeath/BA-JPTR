@@ -116,7 +116,13 @@ impl Desktop {
         count(&self.state, "revision")
     }
     pub fn write_busy(&self) -> bool {
-        self.busy.as_ref().is_some_and(|b| !b.cancellable)
+        self.busy.as_ref().is_some_and(|b| {
+            !b.cancellable
+                || self
+                    .pending
+                    .get(&b.id)
+                    .is_some_and(|action| matches!(action.as_str(), "generate" | "apply"))
+        })
     }
     pub fn healthy(&self) -> bool {
         self.state
@@ -188,11 +194,24 @@ impl Desktop {
         if let Some(busy) = &self.busy
             && busy.cancellable
         {
-            self.obsolete.insert(busy.id);
+            let writes = self
+                .pending
+                .get(&busy.id)
+                .is_some_and(|action| matches!(action.as_str(), "generate" | "apply"));
+            // A write may already have passed its commit point. Wait for the
+            // actual result instead of discarding it and claiming cancellation.
+            if !writes {
+                self.obsolete.insert(busy.id);
+            }
             if let Some(backend) = &mut self.backend {
                 let _ = backend.send("cancel", json!({"target":busy.id}));
             }
-            self.status = "正在取消，保留上次结果…".into();
+            self.status = if writes {
+                "正在请求取消；已进入提交阶段时将完成写入。"
+            } else {
+                "正在取消，保留上次结果…"
+            }
+            .into();
         }
     }
     pub fn save_settings(&mut self) {
