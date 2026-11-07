@@ -759,8 +759,65 @@ if ui.button("取消").clicked(){close=true;}});
                         },
                     );
                 }
+                let diagnostics = list(stats, "diagnostics");
+                if !diagnostics.is_empty() {
+                    if count(stats, "parse_failed") == 0 {
+                        let mut skipped = Vec::new();
+                        if count(stats, "tables_skipped") > 0 {
+                            skipped.push(format!("{} 张来源表", count(stats, "tables_skipped")));
+                        }
+                        if count(stats, "fields_skipped") > 0 {
+                            skipped.push(format!("{} 个异常字段", count(stats, "fields_skipped")));
+                        }
+                        if !skipped.is_empty() {
+                            ui.colored_label(
+                                egui::Color32::from_rgb(139, 91, 21),
+                                format!("已跳过{}，原始数据保留。", skipped.join("、")),
+                            );
+                        }
+                    }
+                    egui::CollapsingHeader::new(format!(
+                        "处理详情（{}项，最多显示20项）",
+                        diagnostics.len()
+                    ))
+                    .show(ui, |ui| {
+                        egui::ScrollArea::vertical()
+                            .max_height(110.)
+                            .show(ui, |ui| {
+                                for diagnostic in &diagnostics {
+                                    let mut location =
+                                        bajptr_project::model::title(&text(diagnostic, "table"));
+                                    if let Some(id) =
+                                        diagnostic.get("row_id").filter(|v| !v.is_null())
+                                    {
+                                        location.push_str(&format!(
+                                            " / 记录 {}",
+                                            id.as_str()
+                                                .map(str::to_string)
+                                                .unwrap_or_else(|| id.to_string())
+                                        ));
+                                    }
+                                    if let Some(slot) =
+                                        diagnostic.get("slot").and_then(Value::as_u64)
+                                    {
+                                        location.push_str(&format!(" / 字段 {slot}"));
+                                    }
+                                    ui.add(
+                                        egui::Label::new(format!(
+                                            "{location}：{}",
+                                            text(diagnostic, "message")
+                                        ))
+                                        .wrap(),
+                                    );
+                                }
+                            });
+                    });
+                }
                 if count(stats, "parse_failed") > 0 {
-                    ui.colored_label(RED, "存在无法解析的记录，已禁止应用。请检查运行详情。");
+                    ui.colored_label(
+                        RED,
+                        "存在无法解析的记录，已禁止应用。展开“处理详情”查看位置与原因。",
+                    );
                 }
                 ui.horizontal(|ui| {
                     if primary(

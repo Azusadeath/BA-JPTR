@@ -1,5 +1,5 @@
 //! Byte-preserving FlatBuffer patching, ported from the project's GPL-3.0 implementation.
-use crate::{Result, invalid};
+use crate::{Error, Result};
 use serde::Serialize;
 
 pub const MAX_STRING: usize = 1 << 20;
@@ -9,7 +9,8 @@ pub fn has_cjk(text: &str) -> bool {
         .any(|c| matches!(c as u32, 0x3400..=0x9fff | 0xf900..=0xfaff | 0x20000..=0x2fa1f))
 }
 pub fn has_kana(text: &str) -> bool {
-    text.chars().any(|c| matches!(c as u32, 0x3040..=0x30ff))
+    text.chars()
+        .any(|c| matches!(c as u32, 0x3040..=0x30ff | 0x31f0..=0x31ff | 0xff66..=0xff9f))
 }
 pub fn forbidden(text: &str) -> bool {
     text.chars().any(|c| matches!(c as u32, 0..=9 | 11..=31))
@@ -29,7 +30,21 @@ pub struct Field<'a> {
     pub text: &'a str,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct FieldIssue {
+    pub slot: usize,
+    pub message: String,
+}
+pub struct Parsed<'a> {
+    pub fields: Vec<Field<'a>>,
+    pub issues: Vec<FieldIssue>,
+    pub skipped: u64,
+}
 pub fn parse(blob: &[u8], allow_ascii: bool) -> Result<Vec<Field<'_>>> {
+    Ok(parse_with_issues(blob, allow_ascii)?.fields)
+}
+pub fn parse_with_issues(blob: &[u8], allow_ascii: bool) -> Result<Parsed<'_>> {
+    let invalid = |message: &str| Error::Parse(message.into());
     let n = blob.len();
     if n < 16 {
         return Err(invalid("blob too small"));
@@ -56,13 +71,22 @@ pub fn parse(blob: &[u8], allow_ascii: bool) -> Result<Vec<Field<'_>>> {
         return Err(invalid("vtable overlaps table object"));
     }
     let mut out = Vec::new();
+    let mut issues = Vec::new();
+    let mut skipped = 0;
     for k in 2..len / 2 {
         let off = u16_at(blob, vt + k * 2);
         if off == 0 {
             continue;
         }
         if off < 4 || off >= object {
-            return Err(invalid("field outside table object"));
+            skipped += 1;
+            if issues.len() < 20 {
+                issues.push(FieldIssue {
+                    slot: k - 2,
+                    message: "字段偏移超出表对象，已保留该槽的原始数据。".into(),
+                });
+            }
+            continue;
         }
         let fpos = root + off;
         if fpos + 4 > root + object {
@@ -97,7 +121,11 @@ pub fn parse(blob: &[u8], allow_ascii: bool) -> Result<Vec<Field<'_>>> {
             text,
         });
     }
-    Ok(out)
+    Ok(Parsed {
+        fields: out,
+        issues,
+        skipped,
+    })
 }
 
 #[derive(Default, Debug, Serialize)]
@@ -106,4 +134,11 @@ pub struct BlobStats {
     pub appended: u64,
     pub bytes_appended: u64,
     pub kana_skipped: u64,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub fields_skipped: u64,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub issues: Vec<FieldIssue>,
+}
+fn is_zero(value: &u64) -> bool {
+    *value == 0
 }

@@ -69,14 +69,14 @@ $template=@'
 <span class="bar-note">仅在本地 · 尚未发布到 GitHub</span>
 </div></header>
 <div class="shell">
-<aside class="sidebar" aria-label="文章目录"><p class="side-title">本文目录</p><nav class="toc">{{TOC}}</nav><p class="side-foot">README.md<strong>开源介绍与使用说明</strong>v0.3.2 · Windows x64</p></aside>
+<aside class="sidebar" aria-label="文章目录"><p class="side-title">本文目录</p><nav class="toc">{{TOC}}</nav><p class="side-foot">README.md<strong>开源介绍与使用说明</strong>v0.3.3 · Windows x64</p></aside>
 <main id="readme">
 <div class="paper">
 <div class="paper-bar"><div class="tabs" role="tablist" aria-label="查看方式"><button id="read-tab" type="button" role="tab" aria-selected="true" aria-controls="rendered">阅读预览</button><button id="source-tab" type="button" role="tab" aria-selected="false" aria-controls="source">Markdown 原文</button></div><button id="copy" class="copy" type="button">复制 Markdown</button></div>
 <article id="rendered" class="doc" role="tabpanel" aria-labelledby="read-tab"><details class="mobile-toc"><summary>展开目录</summary><nav class="toc">{{TOC}}</nav></details>{{BODY}}</article>
 <pre id="source" class="raw" role="tabpanel" aria-labelledby="source-tab" tabindex="0" hidden>{{SOURCE}}</pre>
 </div>
-<details class="plan"><summary>待发布内容</summary><dl><dt>拟用仓库</dt><dd>Azusadeath/BA-JPTR（名称可调整）</dd><dt>仓库介绍</dt><dd>适用于已安装汉化补丁的蔚蓝档案日服 PC 客户端的译名替换工具，支持来源筛选、单条及批量修改、预览与恢复。</dd><dt>开源许可</dt><dd>GPL-3.0-only，保留上游署名与第三方许可。</dd><dt>上传范围</dt><dd>应用源码、文档、构建脚本和许可文件。个人词表、游戏底稿、游戏资源、开发工具链与构建缓存不上传。</dd><dt>发行版本</dt><dd>v0.3.2 · Windows x64；程序与配套源码分别打包。</dd></dl><div class="files"><a href="release/蔚蓝档案日服译名替换-v0.3.2-Windows-x64.zip" download>下载待发布的用户 ZIP</a><a href="release/bajptr-0.3.2-source.zip" download>下载配套源码 ZIP</a><a href="RELEASE_NOTES.md">查看发行说明草稿</a></div></details>
+<details class="plan"><summary>待发布内容</summary><dl><dt>拟用仓库</dt><dd>Azusadeath/BA-JPTR（名称可调整）</dd><dt>仓库介绍</dt><dd>适用于已安装汉化补丁的蔚蓝档案日服 PC 客户端的译名替换工具，支持来源筛选、单条及批量修改、预览与恢复。</dd><dt>开源许可</dt><dd>GPL-3.0-only，保留上游署名与第三方许可。</dd><dt>上传范围</dt><dd>应用源码、文档、构建脚本和许可文件。个人词表、游戏底稿、游戏资源、开发工具链与构建缓存不上传。</dd><dt>发行版本</dt><dd>v0.3.3 · Windows x64；程序与配套源码分别打包。</dd></dl><div class="files"><a href="release/蔚蓝档案日服译名替换-v0.3.3-Windows-x64.zip" download>下载待发布的用户 ZIP</a><a href="release/bajptr-0.3.3-source.zip" download>下载配套源码 ZIP</a><a href="RELEASE_NOTES.md">查看发行说明草稿</a></div></details>
 <p class="foot">此页用于审阅介绍与发布内容。确认后，在聊天中告诉我再发布；本页不会创建仓库或上传文件。</p>
 </main></div><div id="toast" class="toast" role="status" aria-live="polite"></div>
 <script>

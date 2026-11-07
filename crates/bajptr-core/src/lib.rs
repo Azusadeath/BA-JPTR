@@ -12,6 +12,24 @@ use thiserror::Error;
 pub enum Error {
     #[error("{0}")]
     Invalid(String),
+    #[error("FlatBuffer 解析失败：{0}")]
+    Parse(String),
+    #[error("来源表结构暂不支持：{0}")]
+    UnsupportedTable(String),
+    #[error("第 {index} 条词条（{original}）：{source}")]
+    Rule {
+        index: usize,
+        original: String,
+        source: Box<Error>,
+    },
+    #[error("字段 {slot}：{source}")]
+    Field { slot: usize, source: Box<Error> },
+    #[error("来源表 {table}，记录 {record}：{source}")]
+    Record {
+        table: String,
+        record: String,
+        source: Box<Error>,
+    },
     #[error("{0}")]
     Regex(String),
     #[error("已取消处理。")]

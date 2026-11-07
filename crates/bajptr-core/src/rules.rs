@@ -1,4 +1,4 @@
-use crate::fields::MAX_STRING;
+use crate::fields::{MAX_STRING, forbidden};
 use crate::{Error, Result, invalid};
 use fancy_regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};
@@ -594,6 +594,17 @@ pub struct View {
     excluded: Vec<(usize, &'static str)>,
 }
 
+fn rule_error(index: usize, original: &str, error: Error) -> Error {
+    match error {
+        Error::Cancelled | Error::Rule { .. } => error,
+        _ => Error::Rule {
+            index: index + 1,
+            original: original.chars().take(80).collect(),
+            source: Box::new(error),
+        },
+    }
+}
+
 impl Rules {
     pub fn new(values: Vec<Rule>) -> Result<Self> {
         let mut scopes = Vec::new();
@@ -813,14 +824,16 @@ impl View {
             return Ok(None);
         }
         let mut occupied = vec![false; text.len() + 1];
-        let mut zeroes = HashSet::new();
+        let mut zeroes = HashMap::new();
         let mut edits = Vec::new();
         let mut result_size = text.len();
         let mut accept = |start: usize, end: usize, replacement: String, i: usize| -> Result<()> {
-            if (start == end && (zeroes.contains(&start) || occupied[start]))
+            if (start == end && (zeroes.contains_key(&start) || occupied[start]))
                 || (start != end
                     && (occupied[start..end].iter().any(|v| *v)
-                        || zeroes.iter().any(|p| start <= *p && *p < end)))
+                        || zeroes.iter().any(|(p, owner)| {
+                            start <= *p && *p < end && !(*p == start && *owner == i)
+                        })))
             {
                 e.miss(
                     i,
@@ -830,12 +843,23 @@ impl View {
                 );
                 return Ok(());
             }
+            if forbidden(&replacement) {
+                return Err(rule_error(
+                    i,
+                    &rules.values[i].old,
+                    invalid("替换文字包含控制字符。"),
+                ));
+            }
             result_size = result_size - (end - start) + replacement.len();
             if result_size > MAX_STRING {
-                return Err(invalid("替换结果过长，请缩短替换文字。"));
+                return Err(rule_error(
+                    i,
+                    &rules.values[i].old,
+                    invalid("替换结果过长，请缩短替换文字。"),
+                ));
             }
             if start == end {
-                zeroes.insert(start);
+                zeroes.insert(start, i);
             } else {
                 occupied[start..end].fill(true);
             }
@@ -855,7 +879,8 @@ impl View {
                 let m = caps.get(0).unwrap();
                 accept(m.start(), m.end(), re.expand(caps)?, i)?;
                 Ok(())
-            })?;
+            })
+            .map_err(|error| rule_error(i, &rules.values[i].old, error))?;
         }
         if edits.is_empty() {
             return Ok(None);

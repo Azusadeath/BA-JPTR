@@ -1,5 +1,5 @@
 use crate::{
-    Control, Result,
+    Control, Error, Result,
     fields::{self, BlobStats},
     invalid,
     rules::{Evidence, Miss, Rules, View},
@@ -75,6 +75,12 @@ pub struct Stats {
     pub bytes_appended: u64,
     pub kana_skipped: u64,
     pub parse_failed: u64,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub tables_skipped: u64,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub fields_skipped: u64,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics: Vec<Diagnostic>,
     pub tables: Vec<String>,
     pub hits: Vec<u64>,
     pub zero_reasons: Vec<Miss>,
@@ -82,6 +88,83 @@ pub struct Stats {
     pub updated: u64,
     pub reverted: u64,
     pub changes: Vec<Change>,
+}
+fn is_zero(value: &u64) -> bool {
+    *value == 0
+}
+#[derive(Debug, Clone, Serialize)]
+pub struct Diagnostic {
+    pub kind: &'static str,
+    pub table: String,
+    pub row_id: Option<RowId>,
+    pub slot: Option<usize>,
+    pub message: String,
+}
+impl Diagnostic {
+    fn display(&self) -> String {
+        let mut address = format!("来源表 {}", self.table);
+        if let Some(id) = &self.row_id {
+            address.push_str(&format!("，记录 {}", id.display()));
+        }
+        if let Some(slot) = self.slot {
+            address.push_str(&format!("，字段 {slot}"));
+        }
+        format!("{address}：{}", self.message)
+    }
+}
+fn note(
+    stats: &mut Stats,
+    kind: &'static str,
+    table: &str,
+    rid: Option<&RowId>,
+    slot: Option<usize>,
+    message: String,
+    control: &Control<'_>,
+) -> Result<()> {
+    if stats.diagnostics.len() >= 20
+        && kind == "parse"
+        && let Some(index) = stats.diagnostics.iter().position(|d| d.kind != "parse")
+    {
+        stats.diagnostics.remove(index);
+    }
+    if stats.diagnostics.len() < 20 {
+        let diagnostic = Diagnostic {
+            kind,
+            table: table.into(),
+            row_id: rid.cloned(),
+            slot,
+            message,
+        };
+        control.log(&diagnostic.display())?;
+        stats.diagnostics.push(diagnostic);
+    }
+    Ok(())
+}
+fn record_error(table: &str, rid: &RowId, error: Error) -> Error {
+    if matches!(error, Error::Cancelled) {
+        error
+    } else {
+        Error::Record {
+            table: table.into(),
+            record: rid.display(),
+            source: Box::new(error),
+        }
+    }
+}
+fn field_error(slot: usize, error: Error) -> Error {
+    if matches!(error, Error::Cancelled) {
+        error
+    } else {
+        Error::Field {
+            slot,
+            source: Box::new(error),
+        }
+    }
+}
+fn relative_offset(spos: usize, fpos: usize) -> Result<u32> {
+    spos.checked_sub(fpos)
+        .and_then(|v| u32::try_from(v).ok())
+        .ok_or_else(|| invalid("FlatBuffer 偏移超出支持范围。"))
 }
 #[derive(Debug, Deserialize)]
 pub struct Options {
@@ -105,21 +188,57 @@ pub fn default_tables() -> String {
 fn quote(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
 }
-fn key_name(con: &Connection, table: &str) -> Result<&'static str> {
-    if con
-        .prepare(&format!(
-            "SELECT rowid, Bytes FROM {} ORDER BY 1",
-            quote(table)
-        ))
-        .is_ok()
+fn key_name(con: &Connection, table: &str) -> Result<String> {
+    let mut schema = con.prepare(&format!("PRAGMA table_xinfo({})", quote(table)))?;
+    let columns = schema
+        .query_map([], |r| Ok((r.get::<_, String>(1)?, r.get::<_, i64>(5)?)))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    if !columns
+        .iter()
+        .any(|(name, _)| name.eq_ignore_ascii_case("Bytes"))
     {
-        Ok("rowid")
-    } else {
-        con.prepare(&format!(
-            "SELECT Key, Bytes FROM {} ORDER BY 1",
-            quote(table)
-        ))?;
-        Ok("Key")
+        return Err(Error::UnsupportedTable(
+            "没有 Bytes 文本列，已跳过此表。".into(),
+        ));
+    }
+    let without_rowid: bool = con.query_row(
+        "SELECT wr FROM pragma_table_list WHERE schema='main' AND name=?",
+        [table],
+        |row| row.get(0),
+    )?;
+    // A real column may shadow any rowid spelling. Never treat that column as
+    // a unique identity merely because preparing SELECT rowid succeeds.
+    for alias in ["rowid", "_rowid_", "oid"] {
+        if !without_rowid
+            && !columns
+                .iter()
+                .any(|(name, _)| name.eq_ignore_ascii_case(alias))
+        {
+            return Ok(alias.into());
+        }
+    }
+    let mut primary = columns
+        .iter()
+        .filter(|(_, order)| *order > 0)
+        .collect::<Vec<_>>();
+    primary.sort_by_key(|(_, order)| *order);
+    match primary.as_slice() {
+        [] => Err(Error::UnsupportedTable(
+            "没有可唯一定位记录的 rowid 或主键，已跳过此表。".into(),
+        )),
+        [(name, _)] => Ok(quote(name)),
+        _ => {
+            // JSON preserves the complete ordered key and its scalar types in
+            // the existing text-ID contract, including targeted edits/exports.
+            Ok(format!(
+                "json_array({})",
+                primary
+                    .iter()
+                    .map(|(name, _)| quote(name))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ))
+        }
     }
 }
 pub fn tables(con: &Connection, pattern: &str) -> Result<Vec<String>> {
@@ -199,7 +318,8 @@ pub fn patch_blob(
     options: &Options,
     overrides: &HashMap<usize, String>,
 ) -> Result<(Option<Vec<u8>>, BlobStats)> {
-    let fields = fields::parse(blob, options.ascii_exact || !overrides.is_empty())?;
+    let parsed = fields::parse_with_issues(blob, options.ascii_exact || !overrides.is_empty())?;
+    let fields = parsed.fields;
     let mut shared = HashMap::new();
     if !overrides.is_empty() {
         for f in &fields {
@@ -207,24 +327,32 @@ pub fn patch_blob(
         }
     }
     let mut out: Option<Vec<u8>> = None;
-    let mut stats = BlobStats::default();
+    let mut stats = BlobStats {
+        fields_skipped: parsed.skipped,
+        issues: parsed.issues,
+        ..Default::default()
+    };
     let mut appended: HashMap<(usize, String), usize> = HashMap::new();
     for f in &fields {
         let explicit = overrides.get(&f.slot);
         if explicit.is_some() {
-            view.skipped(rules, f.text, evidence, true)?;
+            view.skipped(rules, f.text, evidence, true)
+                .map_err(|e| field_error(f.slot, e))?;
         }
         if explicit.is_none() && options.skip_kana && fields::has_kana(f.text) {
             stats.kana_skipped += 1;
-            view.skipped(rules, f.text, evidence, false)?;
+            view.skipped(rules, f.text, evidence, false)
+                .map_err(|e| field_error(f.slot, e))?;
             continue;
         }
         let new = if let Some(s) = explicit {
             Some(s.clone())
         } else if fields::has_cjk(f.text) {
-            view.apply(rules, f.text, evidence, false)?
+            view.apply(rules, f.text, evidence, false)
+                .map_err(|e| field_error(f.slot, e))?
         } else if options.ascii_exact {
-            view.apply(rules, f.text, evidence, true)?
+            view.apply(rules, f.text, evidence, true)
+                .map_err(|e| field_error(f.slot, e))?
         } else {
             None
         };
@@ -235,7 +363,7 @@ pub fn patch_blob(
             continue;
         }
         if new.len() > fields::MAX_STRING || fields::forbidden(&new) {
-            return Err(invalid("替换文字过长或包含控制字符。"));
+            return Err(field_error(f.slot, invalid("替换文字过长或包含控制字符。")));
         }
         let b = out.get_or_insert_with(|| blob.to_vec());
         if new.len() == f.text.len() && shared.get(&f.spos).copied().unwrap_or(0) <= 1 {
@@ -244,7 +372,11 @@ pub fn patch_blob(
         } else {
             let key = (f.spos, new.clone());
             if let Some(&spos) = appended.get(&key) {
-                b[f.fpos..f.fpos + 4].copy_from_slice(&((spos - f.fpos) as u32).to_le_bytes());
+                b[f.fpos..f.fpos + 4].copy_from_slice(
+                    &relative_offset(spos, f.fpos)
+                        .map_err(|e| field_error(f.slot, e))?
+                        .to_le_bytes(),
+                );
                 stats.appended += 1;
                 continue;
             }
@@ -254,8 +386,7 @@ pub fn patch_blob(
             b.extend_from_slice(&(new.len() as u32).to_le_bytes());
             b.extend_from_slice(new.as_bytes());
             b.push(0);
-            let offset = u32::try_from(spos - f.fpos)
-                .map_err(|_| invalid("FlatBuffer 偏移超出支持范围。"))?;
+            let offset = relative_offset(spos, f.fpos).map_err(|e| field_error(f.slot, e))?;
             b[f.fpos..f.fpos + 4].copy_from_slice(&offset.to_le_bytes());
             appended.insert(key, spos);
             stats.appended += 1;
@@ -282,7 +413,14 @@ pub fn current_overrides(
     let mut output = HashMap::new();
     let mut used = 0;
     for table in &names {
-        let key = key_name(original, table)?;
+        let key = match key_name(original, table) {
+            Ok(key) => key,
+            Err(Error::UnsupportedTable(reason)) => {
+                control.log(&format!("来源表 {table}：{reason}"))?;
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
         let mut left = original.prepare(&format!(
             "SELECT {key},Bytes FROM {} ORDER BY 1",
             quote(table)
@@ -318,8 +456,8 @@ pub fn current_overrides(
             if old == now {
                 continue;
             }
-            let old = fields::parse(old, true)?;
-            let now = fields::parse(now, true)?;
+            let old = fields::parse(old, true).map_err(|e| record_error(table, &rid, e))?;
+            let now = fields::parse(now, true).map_err(|e| record_error(table, &rid, e))?;
             if old.len() != now.len() || old.iter().zip(&now).any(|(a, b)| a.slot != b.slot) {
                 return Err(invalid("当前游戏字段与底稿不同，无法可靠比较。"));
             }
@@ -354,14 +492,19 @@ fn targets(con: &Connection, edits: &[TextEdit], tables: &[String]) -> Result<Ta
             return Err(invalid("单条修改的来源表已不存在，请重新查找对应记录。"));
         }
         if edit.replacement.len() > fields::MAX_STRING || fields::forbidden(&edit.replacement) {
-            return Err(invalid("单条修改文字过长或包含控制字符。"));
+            return Err(record_error(
+                &edit.table,
+                &edit.row_id,
+                field_error(edit.slot, invalid("单条修改文字过长或包含控制字符。")),
+            ));
         }
         let key = key_name(con, &edit.table)?;
         let sql = format!("SELECT Bytes FROM {} WHERE {key}=?", quote(&edit.table));
         let blob: Vec<u8> = con
             .query_row(&sql, [edit.row_id.value()], |r| r.get(0))
             .map_err(|_| invalid("单条修改对应的记录已不存在，请重新查找。"))?;
-        let fields = fields::parse(&blob, true)?;
+        let fields =
+            fields::parse(&blob, true).map_err(|e| record_error(&edit.table, &edit.row_id, e))?;
         if fields.iter().find(|f| f.slot == edit.slot).map(|f| f.text)
             != Some(edit.original.as_str())
         {
@@ -519,10 +662,12 @@ pub fn patch_database(
             let view = rules.view(table);
             let key = match key_name(con, table) {
                 Ok(k) => k,
-                Err(_) => {
-                    stats.parse_failed += 1;
+                Err(Error::UnsupportedTable(reason)) => {
+                    stats.tables_skipped += 1;
+                    note(&mut stats, "table", table, None, None, reason, control)?;
                     continue;
                 }
+                Err(error) => return Err(invalid(format!("来源表 {table}：{error}"))),
             };
             let sql = format!("SELECT {key}, Bytes FROM {} ORDER BY 1", quote(table));
             let mut query = con.prepare(&sql)?;
@@ -561,10 +706,19 @@ pub fn patch_database(
                     None
                 };
                 let blob = match row.get_ref(1)? {
-                    ValueRef::Blob(b) if b.len() >= 16 => b,
+                    ValueRef::Blob(b) => b,
                     ValueRef::Null => continue,
                     _ => {
                         stats.parse_failed += 1;
+                        note(
+                            &mut stats,
+                            "parse",
+                            table,
+                            Some(&rid),
+                            None,
+                            "Bytes 列不是二进制文本数据。".into(),
+                            control,
+                        )?;
                         continue;
                     }
                 };
@@ -572,13 +726,34 @@ pub fn patch_database(
                 let (new, bs) =
                     match patch_blob(blob, rules, &view, &mut evidence, options, overrides) {
                         Ok(v) => v,
-                        Err(e @ crate::Error::Regex(_)) => return Err(e),
-                        Err(_) => {
+                        Err(Error::Parse(reason)) => {
                             stats.parse_failed += 1;
+                            note(
+                                &mut stats,
+                                "parse",
+                                table,
+                                Some(&rid),
+                                None,
+                                format!("FlatBuffer 解析失败：{reason}"),
+                                control,
+                            )?;
                             continue;
                         }
+                        Err(error) => return Err(record_error(table, &rid, error)),
                     };
                 stats.kana_skipped += bs.kana_skipped;
+                stats.fields_skipped += bs.fields_skipped;
+                for issue in &bs.issues {
+                    note(
+                        &mut stats,
+                        "field",
+                        table,
+                        Some(&rid),
+                        Some(issue.slot),
+                        issue.message.clone(),
+                        control,
+                    )?;
+                }
                 if let Some(new) = &new {
                     stats.rows_changed += 1;
                     stats.fields_changed += bs.inplace + bs.appended;
@@ -603,7 +778,8 @@ pub fn patch_database(
                             comparison
                                 .get(&(table.clone(), rid.clone()))
                                 .unwrap_or(&empty),
-                        )?;
+                        )
+                        .map_err(|e| record_error(table, &rid, e))?;
                     } else {
                         let before = if let Some(live) = live_row {
                             live.get_ref(1)?
@@ -612,7 +788,8 @@ pub fn patch_database(
                         } else {
                             blob
                         };
-                        compare(&mut stats, table, &rid, blob, before, new.as_deref())?;
+                        compare(&mut stats, table, &rid, blob, before, new.as_deref())
+                            .map_err(|e| record_error(table, &rid, e))?;
                     }
                 }
             }
@@ -644,9 +821,16 @@ pub fn patch_database(
             }
         }
         if write && stats.parse_failed > 0 {
+            let details = stats
+                .diagnostics
+                .iter()
+                .filter(|d| d.kind == "parse")
+                .map(Diagnostic::display)
+                .collect::<Vec<_>>()
+                .join("\n");
             return Err(invalid(format!(
-                "{} 条记录或来源表无法解析，已停止生成，未发布补丁。请检查资源格式。",
-                stats.parse_failed
+                "{} 条记录解析失败，已停止生成，未发布补丁。\n{}",
+                stats.parse_failed, details
             )));
         }
         Ok(())
@@ -665,6 +849,64 @@ pub fn patch_database(
 }
 
 pub type TextRow = (String, RowId, usize, String);
+fn read_fields<'a>(
+    blob: &'a [u8],
+    table: &str,
+    rid: &RowId,
+    diagnostics: &mut Stats,
+    control: &Control<'_>,
+) -> Result<Option<Vec<fields::Field<'a>>>> {
+    match fields::parse_with_issues(blob, false) {
+        Ok(parsed) => {
+            diagnostics.fields_skipped += parsed.skipped;
+            for issue in parsed.issues {
+                note(
+                    diagnostics,
+                    "field",
+                    table,
+                    Some(rid),
+                    Some(issue.slot),
+                    issue.message,
+                    control,
+                )?;
+            }
+            Ok(Some(parsed.fields))
+        }
+        Err(Error::Parse(reason)) => {
+            diagnostics.parse_failed += 1;
+            note(
+                diagnostics,
+                "parse",
+                table,
+                Some(rid),
+                None,
+                format!("FlatBuffer 解析失败：{reason}"),
+                control,
+            )?;
+            Ok(None)
+        }
+        Err(error) => Err(record_error(table, rid, error)),
+    }
+}
+fn report_skips(stats: &Stats, control: &Control<'_>) -> Result<()> {
+    let mut parts = Vec::new();
+    if stats.parse_failed > 0 {
+        parts.push(format!("{} 条无法解析的记录", stats.parse_failed));
+    }
+    if stats.tables_skipped > 0 {
+        parts.push(format!("{} 张不支持的来源表", stats.tables_skipped));
+    }
+    if stats.fields_skipped > 0 {
+        parts.push(format!("{} 个异常字段", stats.fields_skipped));
+    }
+    if !parts.is_empty() {
+        control.log(&format!(
+            "已跳过{}，原始数据保留；上方最多列出 20 项位置与原因。",
+            parts.join("、")
+        ))?;
+    }
+    Ok(())
+}
 pub fn scan(
     con: &Connection,
     pattern: &str,
@@ -674,11 +916,25 @@ pub fn scan(
 ) -> Result<(Vec<TextRow>, u64)> {
     let mut found = Vec::new();
     let mut total = 0;
+    let mut diagnostics = Stats::default();
     for table in tables(con, pattern)? {
         control.log(&format!("扫描文本表：{table}"))?;
         let key = match key_name(con, &table) {
             Ok(v) => v,
-            Err(_) => continue,
+            Err(Error::UnsupportedTable(reason)) => {
+                diagnostics.tables_skipped += 1;
+                note(
+                    &mut diagnostics,
+                    "table",
+                    &table,
+                    None,
+                    None,
+                    reason,
+                    control,
+                )?;
+                continue;
+            }
+            Err(error) => return Err(invalid(format!("来源表 {table}：{error}"))),
         };
         let mut query = con.prepare(&format!(
             "SELECT {key},Bytes FROM {} ORDER BY 1",
@@ -698,24 +954,21 @@ pub fn scan(
             {
                 continue;
             }
-            let Ok(fields) = fields::parse(blob, false) else {
+            let rid = RowId::from_sql(row.get_ref(0)?)?;
+            let Some(fields) = read_fields(blob, &table, &rid, &mut diagnostics, control)? else {
                 continue;
             };
             for field in fields {
                 if field.text.contains(keyword) {
                     total += 1;
                     if found.len() < limit {
-                        found.push((
-                            table.clone(),
-                            RowId::from_sql(row.get_ref(0)?)?,
-                            field.slot,
-                            field.text.into(),
-                        ));
+                        found.push((table.clone(), rid.clone(), field.slot, field.text.into()));
                     }
                 }
             }
         }
     }
+    report_skips(&diagnostics, control)?;
     Ok((found, total))
 }
 
@@ -727,6 +980,7 @@ pub fn export(
 ) -> Result<u64> {
     std::fs::create_dir_all(destination)?;
     let mut total = 0;
+    let mut diagnostics = Stats::default();
     for table in tables(con, pattern)? {
         control.log(&format!("导出来源表：{table}"))?;
         if table.chars().any(|c| "<>:\"/\\|?*".contains(c))
@@ -736,7 +990,20 @@ pub fn export(
         }
         let key = match key_name(con, &table) {
             Ok(k) => k,
-            Err(_) => continue,
+            Err(Error::UnsupportedTable(reason)) => {
+                diagnostics.tables_skipped += 1;
+                note(
+                    &mut diagnostics,
+                    "table",
+                    &table,
+                    None,
+                    None,
+                    reason,
+                    control,
+                )?;
+                continue;
+            }
+            Err(error) => return Err(invalid(format!("来源表 {table}：{error}"))),
         };
         let mut query = con.prepare(&format!(
             "SELECT {key},Bytes FROM {} ORDER BY 1",
@@ -753,7 +1020,8 @@ pub fn export(
             let Ok(blob) = row.get_ref(1)?.as_blob() else {
                 continue;
             };
-            let Ok(fields) = fields::parse(blob, false) else {
+            let rid = RowId::from_sql(row.get_ref(0)?)?;
+            let Some(fields) = read_fields(blob, &table, &rid, &mut diagnostics, control)? else {
                 continue;
             };
             for field in fields {
@@ -771,7 +1039,7 @@ pub fn export(
                 writeln!(
                     output.as_mut().unwrap(),
                     "{}\t{}\t{}",
-                    RowId::from_sql(row.get_ref(0)?)?.display(),
+                    rid.display(),
                     field.slot,
                     text
                 )?;
@@ -782,5 +1050,6 @@ pub fn export(
             file.flush()?;
         }
     }
+    report_skips(&diagnostics, control)?;
     Ok(total)
 }

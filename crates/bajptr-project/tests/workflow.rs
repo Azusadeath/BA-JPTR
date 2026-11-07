@@ -577,3 +577,34 @@ fn prior_baseline_format_is_rejected_without_rebuilding_from_live_resources() {
     assert_eq!(unchanged["format"], 1);
     f.unchanged();
 }
+
+#[test]
+fn invalid_regex_output_reports_its_location_and_never_publishes_a_patch() {
+    let f = Fixture::new();
+    let mut p = f.ready_project();
+    call(
+        &mut p,
+        "save_rule",
+        json!({"revision":0,"index":0,"rule":{"old":"阿罗娜","new":"\\t","mode":"re","source":"回归","table":""}}),
+    );
+    for action in ["preview", "generate"] {
+        let error = p
+            .dispatch(action, &json!({}), &control())
+            .unwrap_err()
+            .to_string();
+        for detail in [
+            "LocalizeDBSchema",
+            "记录",
+            "字段",
+            "第 1 条词条",
+            "控制字符",
+        ] {
+            assert!(error.contains(detail), "{error}");
+        }
+        assert!(
+            !f.data.join("output").exists(),
+            "a failed rule must not publish output"
+        );
+        f.unchanged();
+    }
+}
