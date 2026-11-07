@@ -1,0 +1,282 @@
+{
+  "LocalizeDBSchema": {
+    "title": "界面与系统提示",
+    "purpose": "界面按钮、操作提示和系统说明。",
+    "text_checked": true
+  },
+  "LocalizeSkillDBSchema": {
+    "title": "技能名称与说明",
+    "purpose": "技能标题、效果描述和数值说明。",
+    "text_checked": true
+  },
+  "LocalizeSkillNewDBSchema": {
+    "title": "技能名称与说明（新版）",
+    "purpose": "新版技能文案；当前抽查样例含日文。默认跳过未汉化日文。",
+    "text_checked": true
+  },
+  "LocalizeSkillEffectDBSchema": {
+    "title": "技能效果补充说明",
+    "purpose": "技能效果、登场时间与支援单位等补充文案。",
+    "text_checked": true
+  },
+  "LocalizeEtcDBSchema": {
+    "title": "杂项名称与说明",
+    "purpose": "物品、房间等名称及说明，涵盖多类杂项文字。",
+    "text_checked": true
+  },
+  "LocalizeGachaShopDBSchema": {
+    "title": "招募与商店说明",
+    "purpose": "招募标题、抽取规则及商店相关说明。",
+    "text_checked": true
+  },
+  "LocalizeCharProfileDBSchema": {
+    "title": "学生资料",
+    "purpose": "学生姓名、自我介绍等档案文字。",
+    "text_checked": true
+  },
+  "ScenarioScriptDBSchema": {
+    "title": "剧情正文",
+    "purpose": "剧情台词、旁白和脚本中的文字；可能同时含多种语言。",
+    "text_checked": true
+  },
+  "ScenarioCharacterNameDBSchema": {
+    "title": "剧情角色名称",
+    "purpose": "剧情中显示的角色、社团等说话者名称。",
+    "text_checked": true
+  },
+  "AcademyMessangerDBSchema": {
+    "title": "Momotalk 聊天内容",
+    "purpose": "学生发来的消息及老师的聊天回复。",
+    "text_checked": true
+  },
+  "CharacterDialogDBSchema": {
+    "title": "角色日常对话",
+    "purpose": "角色问候、值日等日常交流台词。",
+    "text_checked": true
+  },
+  "CharacterDialogEventDBSchema": {
+    "title": "角色活动对话",
+    "purpose": "活动相关的角色交谈和引导台词。",
+    "text_checked": true
+  },
+  "CharacterDialogSubtitleDBSchema": {
+    "title": "角色对话字幕",
+    "purpose": "角色对话的字幕文字，与语音字幕表分别保存。",
+    "text_checked": true
+  },
+  "CharacterVoiceSubtitleDBSchema": {
+    "title": "角色语音字幕",
+    "purpose": "角色语音对应的字幕，包含战斗等场景台词。",
+    "text_checked": true
+  },
+  "TutorialCharacterDialogDBSchema": {
+    "title": "教程引导对话",
+    "purpose": "新手教程、战斗机制等操作引导台词。",
+    "text_checked": true
+  },
+  "LocalizeErrorDBSchema": {
+    "title": "错误与异常提示",
+    "purpose": "请求失败、数据异常等错误提示。",
+    "text_checked": true
+  },
+  "CharacterDialogBattlePassDBSchema": {
+    "title": "通行证角色对话",
+    "purpose": "通行证相关的角色台词，样例包含活动促销和销售提示。",
+    "text_checked": true
+  },
+  "CharacterDialogEmojiDBSchema": {
+    "title": "角色表情对话",
+    "purpose": "角色表情对话相关的短句、感叹和内心话。",
+    "text_checked": true
+  },
+  "SNSProfileDBSchema": {
+    "title": "社交账号资料",
+    "purpose": "社交账号的简介、签名等资料文字。",
+    "text_checked": true
+  },
+  "MiniGameTankVoiceDBSchema": {
+    "title": "坦克小游戏语音",
+    "purpose": "坦克小游戏相关语音文字；抽查样例含日文。",
+    "text_checked": true
+  },
+  "MinigameJankenVoiceDBSchema": {
+    "title": "猜拳小游戏语音",
+    "purpose": "猜拳小游戏相关的角色语音文字。",
+    "text_checked": true
+  },
+  "LocalizeCharProfileChangeDBSchema": {
+    "title": "学生资料变更配置",
+    "purpose": "学生资料内容变更的关联配置。",
+    "text_checked": false
+  },
+  "CharacterVoiceDBSchema": {
+    "title": "角色语音配置",
+    "purpose": "角色语音的资源与关联配置。",
+    "text_checked": false
+  },
+  "ClanChattingEmojiDBSchema": {
+    "title": "社团聊天表情配置",
+    "purpose": "社团聊天中使用的表情配置。",
+    "text_checked": false
+  },
+  "CombatEmojiDBSchema": {
+    "title": "战斗表情配置",
+    "purpose": "战斗过程中显示的表情配置。",
+    "text_checked": false
+  },
+  "ContentsScenarioDBSchema": {
+    "title": "玩法剧情关联",
+    "purpose": "游戏玩法与剧情内容之间的关联。",
+    "text_checked": false
+  },
+  "EventContentChangeScenarioDBSchema": {
+    "title": "活动剧情切换配置",
+    "purpose": "活动内容对应的剧情切换配置。",
+    "text_checked": false
+  },
+  "EventContentConcentrationVoiceDBSchema": {
+    "title": "活动小游戏语音（用途待确认）",
+    "purpose": "原表名为 Concentration 语音表，尚未确认具体玩法。",
+    "text_checked": false
+  },
+  "EventContentScenarioDBSchema": {
+    "title": "活动剧情关联",
+    "purpose": "活动内容与剧情之间的关联。",
+    "text_checked": false
+  },
+  "EventContentSpineDialogOffsetDBSchema": {
+    "title": "活动动画对话位置",
+    "purpose": "活动角色动画中的对话位置偏移配置。",
+    "text_checked": false
+  },
+  "MiniGameDreamCollectionScenarioDBSchema": {
+    "title": "梦境小游戏收集剧情",
+    "purpose": "Dream 小游戏的收集内容与剧情关联。",
+    "text_checked": false
+  },
+  "MiniGameDreamReplayScenarioDBSchema": {
+    "title": "梦境小游戏回放剧情",
+    "purpose": "Dream 小游戏的剧情回放配置。",
+    "text_checked": false
+  },
+  "MiniGameRoadPuzzleVoiceDBSchema": {
+    "title": "道路解谜小游戏语音",
+    "purpose": "RoadPuzzle 小游戏的语音关联配置。",
+    "text_checked": false
+  },
+  "MinigameCCGOpenDialogDBSchema": {
+    "title": "小游戏开场对话（CCG）",
+    "purpose": "CCG 小游戏的开场对话配置，具体玩法用途待确认。",
+    "text_checked": false
+  },
+  "MinigameDreamVoiceDBSchema": {
+    "title": "梦境小游戏语音配置",
+    "purpose": "Dream 小游戏的语音关联配置。",
+    "text_checked": false
+  },
+  "MinigameTBGVoiceDBSchema": {
+    "title": "小游戏语音（TBG）",
+    "purpose": "TBG 小游戏的语音关联配置，具体玩法用途待确认。",
+    "text_checked": false
+  },
+  "MomotalkScheduleSpoilerPopupDBSchema": {
+    "title": "Momotalk 剧透提示配置",
+    "purpose": "Momotalk 日程相关的剧透提示弹窗配置。",
+    "text_checked": false
+  },
+  "ScenarioBGEffectDBSchema": {
+    "title": "剧情背景特效",
+    "purpose": "剧情背景与特效的配置。",
+    "text_checked": false
+  },
+  "ScenarioBGNameDBSchema": {
+    "title": "剧情背景标识",
+    "purpose": "剧情背景名称或资源标识，并非剧情正文。",
+    "text_checked": false
+  },
+  "ScenarioCharacterEmotionDBSchema": {
+    "title": "剧情角色表情",
+    "purpose": "剧情角色的情绪、表情配置。",
+    "text_checked": false
+  },
+  "ScenarioCharacterSituationSetDBSchema": {
+    "title": "剧情角色情境配置",
+    "purpose": "剧情中角色的情境组合配置。",
+    "text_checked": false
+  },
+  "ScenarioContentCollectionDBSchema": {
+    "title": "剧情内容合集配置",
+    "purpose": "剧情内容的集合与关联配置。",
+    "text_checked": false
+  },
+  "ScenarioEffectDBSchema": {
+    "title": "剧情特效配置",
+    "purpose": "剧情演出使用的特效配置。",
+    "text_checked": false
+  },
+  "ScenarioModeDBSchema": {
+    "title": "剧情模式配置",
+    "purpose": "剧情模式与章节的配置。",
+    "text_checked": false
+  },
+  "ScenarioModeDigestDBSchema": {
+    "title": "剧情摘要配置",
+    "purpose": "剧情模式的摘要关联配置。",
+    "text_checked": false
+  },
+  "ScenarioModeRewardDBSchema": {
+    "title": "剧情奖励配置",
+    "purpose": "剧情模式对应的奖励配置。",
+    "text_checked": false
+  },
+  "ScenarioModeSpoilerPopupDBSchema": {
+    "title": "剧情剧透提示配置",
+    "purpose": "剧情模式中的剧透提示弹窗配置。",
+    "text_checked": false
+  },
+  "ScenarioResourceInfoDBSchema": {
+    "title": "剧情资源信息",
+    "purpose": "剧情使用的资源信息。",
+    "text_checked": false
+  },
+  "ScenarioTransitionDBSchema": {
+    "title": "剧情转场配置",
+    "purpose": "剧情画面切换与转场配置。",
+    "text_checked": false
+  },
+  "ShopCashScenarioResourceInfoDBSchema": {
+    "title": "付费商店剧情资源",
+    "purpose": "付费商店关联的剧情资源信息。",
+    "text_checked": false
+  },
+  "VoiceCommonDBSchema": {
+    "title": "通用语音配置",
+    "purpose": "通用语音的关联配置。",
+    "text_checked": false
+  },
+  "VoiceDBSchema": {
+    "title": "语音资源配置",
+    "purpose": "语音文件及资源的关联配置。",
+    "text_checked": false
+  },
+  "VoiceLogicEffectDBSchema": {
+    "title": "语音触发效果配置",
+    "purpose": "语音逻辑与效果之间的关联配置。",
+    "text_checked": false
+  },
+  "VoiceRoomExceptionDBSchema": {
+    "title": "房间语音例外配置",
+    "purpose": "房间场景的语音例外规则。",
+    "text_checked": false
+  },
+  "VoiceSpineDBSchema": {
+    "title": "角色动画语音配置",
+    "purpose": "Spine 角色动画与语音的关联配置。",
+    "text_checked": false
+  },
+  "VoiceTimelineDBSchema": {
+    "title": "时间轴语音配置",
+    "purpose": "演出时间轴与语音的关联配置。",
+    "text_checked": false
+  }
+}

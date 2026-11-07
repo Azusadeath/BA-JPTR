@@ -1,0 +1,1948 @@
+[
+  {
+    "old": "(?<=暴)击",
+    "new": "改",
+    "text": "暴击",
+    "result": "暴改",
+    "count": 1
+  },
+  {
+    "old": "(?<=暴)击",
+    "new": "改",
+    "text": "攻击攻击",
+    "result": "攻击攻击",
+    "count": 0
+  },
+  {
+    "old": "(?<=暴)击",
+    "new": "改",
+    "text": "击\n",
+    "result": "击\n",
+    "count": 0
+  },
+  {
+    "old": "(?<=暴)击",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "击\n击\n",
+    "count": 0
+  },
+  {
+    "old": "(?<=暴)击",
+    "new": "改",
+    "text": "击中 空 击击",
+    "result": "击中 空 击击",
+    "count": 0
+  },
+  {
+    "old": "(?<=暴)击",
+    "new": "改",
+    "text": "á ² Ⅻ １ İ ı ſ K",
+    "result": "á ² Ⅻ １ İ ı ſ K",
+    "count": 0
+  },
+  {
+    "old": "(?<=暴)击",
+    "new": "改",
+    "text": "abc",
+    "result": "abc",
+    "count": 0
+  },
+  {
+    "old": "(?<=暴)击",
+    "new": "改",
+    "text": "x",
+    "result": "x",
+    "count": 0
+  },
+  {
+    "old": "(?<=暴)击",
+    "new": "改",
+    "text": "",
+    "result": "",
+    "count": 0
+  },
+  {
+    "old": "(攻击)\\1",
+    "new": "改",
+    "text": "暴击",
+    "result": "暴击",
+    "count": 0
+  },
+  {
+    "old": "(攻击)\\1",
+    "new": "改",
+    "text": "攻击攻击",
+    "result": "改",
+    "count": 1
+  },
+  {
+    "old": "(攻击)\\1",
+    "new": "改",
+    "text": "击\n",
+    "result": "击\n",
+    "count": 0
+  },
+  {
+    "old": "(攻击)\\1",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "击\n击\n",
+    "count": 0
+  },
+  {
+    "old": "(攻击)\\1",
+    "new": "改",
+    "text": "击中 空 击击",
+    "result": "击中 空 击击",
+    "count": 0
+  },
+  {
+    "old": "(攻击)\\1",
+    "new": "改",
+    "text": "á ² Ⅻ １ İ ı ſ K",
+    "result": "á ² Ⅻ １ İ ı ſ K",
+    "count": 0
+  },
+  {
+    "old": "(攻击)\\1",
+    "new": "改",
+    "text": "abc",
+    "result": "abc",
+    "count": 0
+  },
+  {
+    "old": "(攻击)\\1",
+    "new": "改",
+    "text": "x",
+    "result": "x",
+    "count": 0
+  },
+  {
+    "old": "(攻击)\\1",
+    "new": "改",
+    "text": "",
+    "result": "",
+    "count": 0
+  },
+  {
+    "old": "\\w+",
+    "new": "改",
+    "text": "暴击",
+    "result": "改",
+    "count": 1
+  },
+  {
+    "old": "\\w+",
+    "new": "改",
+    "text": "攻击攻击",
+    "result": "改",
+    "count": 1
+  },
+  {
+    "old": "\\w+",
+    "new": "改",
+    "text": "击\n",
+    "result": "改\n",
+    "count": 1
+  },
+  {
+    "old": "\\w+",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "改\n改\n",
+    "count": 2
+  },
+  {
+    "old": "\\w+",
+    "new": "改",
+    "text": "击中 空 击击",
+    "result": "改 改 改",
+    "count": 3
+  },
+  {
+    "old": "\\w+",
+    "new": "改",
+    "text": "á ² Ⅻ １ İ ı ſ K",
+    "result": "改 ² 改 改 改 改 改 改",
+    "count": 7
+  },
+  {
+    "old": "\\w+",
+    "new": "改",
+    "text": "abc",
+    "result": "改",
+    "count": 1
+  },
+  {
+    "old": "\\w+",
+    "new": "改",
+    "text": "x",
+    "result": "改",
+    "count": 1
+  },
+  {
+    "old": "\\w+",
+    "new": "改",
+    "text": "",
+    "result": "",
+    "count": 0
+  },
+  {
+    "old": "\\W+",
+    "new": "改",
+    "text": "暴击",
+    "result": "暴击",
+    "count": 0
+  },
+  {
+    "old": "\\W+",
+    "new": "改",
+    "text": "攻击攻击",
+    "result": "攻击攻击",
+    "count": 0
+  },
+  {
+    "old": "\\W+",
+    "new": "改",
+    "text": "击\n",
+    "result": "击改",
+    "count": 1
+  },
+  {
+    "old": "\\W+",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "击改击改",
+    "count": 2
+  },
+  {
+    "old": "\\W+",
+    "new": "改",
+    "text": "击中 空 击击",
+    "result": "击中改空改击击",
+    "count": 2
+  },
+  {
+    "old": "\\W+",
+    "new": "改",
+    "text": "á ² Ⅻ １ İ ı ſ K",
+    "result": "á改Ⅻ改１改İ改ı改ſ改K",
+    "count": 6
+  },
+  {
+    "old": "\\W+",
+    "new": "改",
+    "text": "abc",
+    "result": "abc",
+    "count": 0
+  },
+  {
+    "old": "\\W+",
+    "new": "改",
+    "text": "x",
+    "result": "x",
+    "count": 0
+  },
+  {
+    "old": "\\W+",
+    "new": "改",
+    "text": "",
+    "result": "",
+    "count": 0
+  },
+  {
+    "old": "\\b击\\b",
+    "new": "改",
+    "text": "暴击",
+    "result": "暴击",
+    "count": 0
+  },
+  {
+    "old": "\\b击\\b",
+    "new": "改",
+    "text": "攻击攻击",
+    "result": "攻击攻击",
+    "count": 0
+  },
+  {
+    "old": "\\b击\\b",
+    "new": "改",
+    "text": "击\n",
+    "result": "改\n",
+    "count": 1
+  },
+  {
+    "old": "\\b击\\b",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "改\n改\n",
+    "count": 2
+  },
+  {
+    "old": "\\b击\\b",
+    "new": "改",
+    "text": "击中 空 击击",
+    "result": "击中 空 击击",
+    "count": 0
+  },
+  {
+    "old": "\\b击\\b",
+    "new": "改",
+    "text": "á ² Ⅻ １ İ ı ſ K",
+    "result": "á ² Ⅻ １ İ ı ſ K",
+    "count": 0
+  },
+  {
+    "old": "\\b击\\b",
+    "new": "改",
+    "text": "abc",
+    "result": "abc",
+    "count": 0
+  },
+  {
+    "old": "\\b击\\b",
+    "new": "改",
+    "text": "x",
+    "result": "x",
+    "count": 0
+  },
+  {
+    "old": "\\b击\\b",
+    "new": "改",
+    "text": "",
+    "result": "",
+    "count": 0
+  },
+  {
+    "old": "\\B击\\B",
+    "new": "改",
+    "text": "暴击",
+    "result": "暴击",
+    "count": 0
+  },
+  {
+    "old": "\\B击\\B",
+    "new": "改",
+    "text": "攻击攻击",
+    "result": "攻改攻击",
+    "count": 1
+  },
+  {
+    "old": "\\B击\\B",
+    "new": "改",
+    "text": "击\n",
+    "result": "击\n",
+    "count": 0
+  },
+  {
+    "old": "\\B击\\B",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "击\n击\n",
+    "count": 0
+  },
+  {
+    "old": "\\B击\\B",
+    "new": "改",
+    "text": "击中 空 击击",
+    "result": "击中 空 击击",
+    "count": 0
+  },
+  {
+    "old": "\\B击\\B",
+    "new": "改",
+    "text": "á ² Ⅻ １ İ ı ſ K",
+    "result": "á ² Ⅻ １ İ ı ſ K",
+    "count": 0
+  },
+  {
+    "old": "\\B击\\B",
+    "new": "改",
+    "text": "abc",
+    "result": "abc",
+    "count": 0
+  },
+  {
+    "old": "\\B击\\B",
+    "new": "改",
+    "text": "x",
+    "result": "x",
+    "count": 0
+  },
+  {
+    "old": "\\B击\\B",
+    "new": "改",
+    "text": "",
+    "result": "",
+    "count": 0
+  },
+  {
+    "old": "\\A|\\Z",
+    "new": "改",
+    "text": "暴击",
+    "result": "改暴击改",
+    "count": 2
+  },
+  {
+    "old": "\\A|\\Z",
+    "new": "改",
+    "text": "攻击攻击",
+    "result": "改攻击攻击改",
+    "count": 2
+  },
+  {
+    "old": "\\A|\\Z",
+    "new": "改",
+    "text": "击\n",
+    "result": "改击\n改",
+    "count": 2
+  },
+  {
+    "old": "\\A|\\Z",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "改击\n击\n改",
+    "count": 2
+  },
+  {
+    "old": "\\A|\\Z",
+    "new": "改",
+    "text": "击中 空 击击",
+    "result": "改击中 空 击击改",
+    "count": 2
+  },
+  {
+    "old": "\\A|\\Z",
+    "new": "改",
+    "text": "á ² Ⅻ １ İ ı ſ K",
+    "result": "改á ² Ⅻ １ İ ı ſ K改",
+    "count": 2
+  },
+  {
+    "old": "\\A|\\Z",
+    "new": "改",
+    "text": "abc",
+    "result": "改abc改",
+    "count": 2
+  },
+  {
+    "old": "\\A|\\Z",
+    "new": "改",
+    "text": "x",
+    "result": "改x改",
+    "count": 2
+  },
+  {
+    "old": "\\A|\\Z",
+    "new": "改",
+    "text": "",
+    "result": "改",
+    "count": 1
+  },
+  {
+    "old": "击$",
+    "new": "改",
+    "text": "暴击",
+    "result": "暴改",
+    "count": 1
+  },
+  {
+    "old": "击$",
+    "new": "改",
+    "text": "攻击攻击",
+    "result": "攻击攻改",
+    "count": 1
+  },
+  {
+    "old": "击$",
+    "new": "改",
+    "text": "击\n",
+    "result": "改\n",
+    "count": 1
+  },
+  {
+    "old": "击$",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "击\n改\n",
+    "count": 1
+  },
+  {
+    "old": "击$",
+    "new": "改",
+    "text": "击中 空 击击",
+    "result": "击中 空 击改",
+    "count": 1
+  },
+  {
+    "old": "击$",
+    "new": "改",
+    "text": "á ² Ⅻ １ İ ı ſ K",
+    "result": "á ² Ⅻ １ İ ı ſ K",
+    "count": 0
+  },
+  {
+    "old": "击$",
+    "new": "改",
+    "text": "abc",
+    "result": "abc",
+    "count": 0
+  },
+  {
+    "old": "击$",
+    "new": "改",
+    "text": "x",
+    "result": "x",
+    "count": 0
+  },
+  {
+    "old": "击$",
+    "new": "改",
+    "text": "",
+    "result": "",
+    "count": 0
+  },
+  {
+    "old": "(?m)^击$",
+    "new": "改",
+    "text": "暴击",
+    "result": "暴击",
+    "count": 0
+  },
+  {
+    "old": "(?m)^击$",
+    "new": "改",
+    "text": "攻击攻击",
+    "result": "攻击攻击",
+    "count": 0
+  },
+  {
+    "old": "(?m)^击$",
+    "new": "改",
+    "text": "击\n",
+    "result": "改\n",
+    "count": 1
+  },
+  {
+    "old": "(?m)^击$",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "改\n改\n",
+    "count": 2
+  },
+  {
+    "old": "(?m)^击$",
+    "new": "改",
+    "text": "击中 空 击击",
+    "result": "击中 空 击击",
+    "count": 0
+  },
+  {
+    "old": "(?m)^击$",
+    "new": "改",
+    "text": "á ² Ⅻ １ İ ı ſ K",
+    "result": "á ² Ⅻ １ İ ı ſ K",
+    "count": 0
+  },
+  {
+    "old": "(?m)^击$",
+    "new": "改",
+    "text": "abc",
+    "result": "abc",
+    "count": 0
+  },
+  {
+    "old": "(?m)^击$",
+    "new": "改",
+    "text": "x",
+    "result": "x",
+    "count": 0
+  },
+  {
+    "old": "(?m)^击$",
+    "new": "改",
+    "text": "",
+    "result": "",
+    "count": 0
+  },
+  {
+    "old": "(?s).+?",
+    "new": "改",
+    "text": "暴击",
+    "result": "改改",
+    "count": 2
+  },
+  {
+    "old": "(?s).+?",
+    "new": "改",
+    "text": "攻击攻击",
+    "result": "改改改改",
+    "count": 4
+  },
+  {
+    "old": "(?s).+?",
+    "new": "改",
+    "text": "击\n",
+    "result": "改改",
+    "count": 2
+  },
+  {
+    "old": "(?s).+?",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "改改改改",
+    "count": 4
+  },
+  {
+    "old": "(?s).+?",
+    "new": "改",
+    "text": "击中 空 击击",
+    "result": "改改改改改改改",
+    "count": 7
+  },
+  {
+    "old": "(?s).+?",
+    "new": "改",
+    "text": "á ² Ⅻ １ İ ı ſ K",
+    "result": "改改改改改改改改改改改改改改改改",
+    "count": 16
+  },
+  {
+    "old": "(?s).+?",
+    "new": "改",
+    "text": "abc",
+    "result": "改改改",
+    "count": 3
+  },
+  {
+    "old": "(?s).+?",
+    "new": "改",
+    "text": "x",
+    "result": "改",
+    "count": 1
+  },
+  {
+    "old": "(?s).+?",
+    "new": "改",
+    "text": "",
+    "result": "",
+    "count": 0
+  },
+  {
+    "old": "(?P<名>击)\\s*(?P=名)",
+    "new": "改",
+    "text": "暴击",
+    "result": "暴击",
+    "count": 0
+  },
+  {
+    "old": "(?P<名>击)\\s*(?P=名)",
+    "new": "改",
+    "text": "攻击攻击",
+    "result": "攻击攻击",
+    "count": 0
+  },
+  {
+    "old": "(?P<名>击)\\s*(?P=名)",
+    "new": "改",
+    "text": "击\n",
+    "result": "击\n",
+    "count": 0
+  },
+  {
+    "old": "(?P<名>击)\\s*(?P=名)",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "改\n",
+    "count": 1
+  },
+  {
+    "old": "(?P<名>击)\\s*(?P=名)",
+    "new": "改",
+    "text": "击中 空 击击",
+    "result": "击中 空 改",
+    "count": 1
+  },
+  {
+    "old": "(?P<名>击)\\s*(?P=名)",
+    "new": "改",
+    "text": "á ² Ⅻ １ İ ı ſ K",
+    "result": "á ² Ⅻ １ İ ı ſ K",
+    "count": 0
+  },
+  {
+    "old": "(?P<名>击)\\s*(?P=名)",
+    "new": "改",
+    "text": "abc",
+    "result": "abc",
+    "count": 0
+  },
+  {
+    "old": "(?P<名>击)\\s*(?P=名)",
+    "new": "改",
+    "text": "x",
+    "result": "x",
+    "count": 0
+  },
+  {
+    "old": "(?P<名>击)\\s*(?P=名)",
+    "new": "改",
+    "text": "",
+    "result": "",
+    "count": 0
+  },
+  {
+    "old": "(击)?(?(1)中|空)",
+    "new": "改",
+    "text": "暴击",
+    "result": "暴击",
+    "count": 0
+  },
+  {
+    "old": "(击)?(?(1)中|空)",
+    "new": "改",
+    "text": "攻击攻击",
+    "result": "攻击攻击",
+    "count": 0
+  },
+  {
+    "old": "(击)?(?(1)中|空)",
+    "new": "改",
+    "text": "击\n",
+    "result": "击\n",
+    "count": 0
+  },
+  {
+    "old": "(击)?(?(1)中|空)",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "击\n击\n",
+    "count": 0
+  },
+  {
+    "old": "(击)?(?(1)中|空)",
+    "new": "改",
+    "text": "击中 空 击击",
+    "result": "改 改 击击",
+    "count": 2
+  },
+  {
+    "old": "(击)?(?(1)中|空)",
+    "new": "改",
+    "text": "á ² Ⅻ １ İ ı ſ K",
+    "result": "á ² Ⅻ １ İ ı ſ K",
+    "count": 0
+  },
+  {
+    "old": "(击)?(?(1)中|空)",
+    "new": "改",
+    "text": "abc",
+    "result": "abc",
+    "count": 0
+  },
+  {
+    "old": "(击)?(?(1)中|空)",
+    "new": "改",
+    "text": "x",
+    "result": "x",
+    "count": 0
+  },
+  {
+    "old": "(击)?(?(1)中|空)",
+    "new": "改",
+    "text": "",
+    "result": "",
+    "count": 0
+  },
+  {
+    "old": ".*?",
+    "new": "改",
+    "text": "暴击",
+    "result": "改改改改改",
+    "count": 5
+  },
+  {
+    "old": ".*?",
+    "new": "改",
+    "text": "攻击攻击",
+    "result": "改改改改改改改改改",
+    "count": 9
+  },
+  {
+    "old": ".*?",
+    "new": "改",
+    "text": "击\n",
+    "result": "改改改\n改",
+    "count": 4
+  },
+  {
+    "old": ".*?",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "改改改\n改改改\n改",
+    "count": 7
+  },
+  {
+    "old": ".*?",
+    "new": "改",
+    "text": "击中 空 击击",
+    "result": "改改改改改改改改改改改改改改改",
+    "count": 15
+  },
+  {
+    "old": ".*?",
+    "new": "改",
+    "text": "á ² Ⅻ １ İ ı ſ K",
+    "result": "改改改改改改改改改改改改改改改改改改改改改改改改改改改改改改改改改",
+    "count": 33
+  },
+  {
+    "old": ".*?",
+    "new": "改",
+    "text": "abc",
+    "result": "改改改改改改改",
+    "count": 7
+  },
+  {
+    "old": ".*?",
+    "new": "改",
+    "text": "x",
+    "result": "改改改",
+    "count": 3
+  },
+  {
+    "old": ".*?",
+    "new": "改",
+    "text": "",
+    "result": "改",
+    "count": 1
+  },
+  {
+    "old": "x*",
+    "new": "改",
+    "text": "暴击",
+    "result": "改暴改击改",
+    "count": 3
+  },
+  {
+    "old": "x*",
+    "new": "改",
+    "text": "攻击攻击",
+    "result": "改攻改击改攻改击改",
+    "count": 5
+  },
+  {
+    "old": "x*",
+    "new": "改",
+    "text": "击\n",
+    "result": "改击改\n改",
+    "count": 3
+  },
+  {
+    "old": "x*",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "改击改\n改击改\n改",
+    "count": 5
+  },
+  {
+    "old": "x*",
+    "new": "改",
+    "text": "击中 空 击击",
+    "result": "改击改中改 改空改 改击改击改",
+    "count": 8
+  },
+  {
+    "old": "x*",
+    "new": "改",
+    "text": "á ² Ⅻ １ İ ı ſ K",
+    "result": "改a改́改 改²改 改Ⅻ改 改１改 改İ改 改ı改 改ſ改 改K改",
+    "count": 17
+  },
+  {
+    "old": "x*",
+    "new": "改",
+    "text": "abc",
+    "result": "改a改b改c改",
+    "count": 4
+  },
+  {
+    "old": "x*",
+    "new": "改",
+    "text": "x",
+    "result": "改改",
+    "count": 2
+  },
+  {
+    "old": "x*",
+    "new": "改",
+    "text": "",
+    "result": "改",
+    "count": 1
+  },
+  {
+    "old": "(?=击)|击",
+    "new": "改",
+    "text": "暴击",
+    "result": "暴改改",
+    "count": 2
+  },
+  {
+    "old": "(?=击)|击",
+    "new": "改",
+    "text": "攻击攻击",
+    "result": "攻改改攻改改",
+    "count": 4
+  },
+  {
+    "old": "(?=击)|击",
+    "new": "改",
+    "text": "击\n",
+    "result": "改改\n",
+    "count": 2
+  },
+  {
+    "old": "(?=击)|击",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "改改\n改改\n",
+    "count": 4
+  },
+  {
+    "old": "(?=击)|击",
+    "new": "改",
+    "text": "击中 空 击击",
+    "result": "改改中 空 改改改改",
+    "count": 6
+  },
+  {
+    "old": "(?=击)|击",
+    "new": "改",
+    "text": "á ² Ⅻ １ İ ı ſ K",
+    "result": "á ² Ⅻ １ İ ı ſ K",
+    "count": 0
+  },
+  {
+    "old": "(?=击)|击",
+    "new": "改",
+    "text": "abc",
+    "result": "abc",
+    "count": 0
+  },
+  {
+    "old": "(?=击)|击",
+    "new": "改",
+    "text": "x",
+    "result": "x",
+    "count": 0
+  },
+  {
+    "old": "(?=击)|击",
+    "new": "改",
+    "text": "",
+    "result": "",
+    "count": 0
+  },
+  {
+    "old": "(?i)[a-z]+",
+    "new": "改",
+    "text": "暴击",
+    "result": "暴击",
+    "count": 0
+  },
+  {
+    "old": "(?i)[a-z]+",
+    "new": "改",
+    "text": "攻击攻击",
+    "result": "攻击攻击",
+    "count": 0
+  },
+  {
+    "old": "(?i)[a-z]+",
+    "new": "改",
+    "text": "击\n",
+    "result": "击\n",
+    "count": 0
+  },
+  {
+    "old": "(?i)[a-z]+",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "击\n击\n",
+    "count": 0
+  },
+  {
+    "old": "(?i)[a-z]+",
+    "new": "改",
+    "text": "击中 空 击击",
+    "result": "击中 空 击击",
+    "count": 0
+  },
+  {
+    "old": "(?i)[a-z]+",
+    "new": "改",
+    "text": "á ² Ⅻ １ İ ı ſ K",
+    "result": "改́ ² Ⅻ １ 改 ı 改 改",
+    "count": 4
+  },
+  {
+    "old": "(?i)[a-z]+",
+    "new": "改",
+    "text": "abc",
+    "result": "改",
+    "count": 1
+  },
+  {
+    "old": "(?i)[a-z]+",
+    "new": "改",
+    "text": "x",
+    "result": "改",
+    "count": 1
+  },
+  {
+    "old": "(?i)[a-z]+",
+    "new": "改",
+    "text": "",
+    "result": "",
+    "count": 0
+  },
+  {
+    "old": "[\\w]+",
+    "new": "改",
+    "text": "暴击",
+    "result": "改",
+    "count": 1
+  },
+  {
+    "old": "[\\w]+",
+    "new": "改",
+    "text": "攻击攻击",
+    "result": "改",
+    "count": 1
+  },
+  {
+    "old": "[\\w]+",
+    "new": "改",
+    "text": "击\n",
+    "result": "改\n",
+    "count": 1
+  },
+  {
+    "old": "[\\w]+",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "改\n改\n",
+    "count": 2
+  },
+  {
+    "old": "[\\w]+",
+    "new": "改",
+    "text": "击中 空 击击",
+    "result": "改 改 改",
+    "count": 3
+  },
+  {
+    "old": "[\\w]+",
+    "new": "改",
+    "text": "á ² Ⅻ １ İ ı ſ K",
+    "result": "改 ² 改 改 改 改 改 改",
+    "count": 7
+  },
+  {
+    "old": "[\\w]+",
+    "new": "改",
+    "text": "abc",
+    "result": "改",
+    "count": 1
+  },
+  {
+    "old": "[\\w]+",
+    "new": "改",
+    "text": "x",
+    "result": "改",
+    "count": 1
+  },
+  {
+    "old": "[\\w]+",
+    "new": "改",
+    "text": "",
+    "result": "",
+    "count": 0
+  },
+  {
+    "old": "[^\\w]+",
+    "new": "改",
+    "text": "暴击",
+    "result": "暴击",
+    "count": 0
+  },
+  {
+    "old": "[^\\w]+",
+    "new": "改",
+    "text": "攻击攻击",
+    "result": "攻击攻击",
+    "count": 0
+  },
+  {
+    "old": "[^\\w]+",
+    "new": "改",
+    "text": "击\n",
+    "result": "击改",
+    "count": 1
+  },
+  {
+    "old": "[^\\w]+",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "击改击改",
+    "count": 2
+  },
+  {
+    "old": "[^\\w]+",
+    "new": "改",
+    "text": "击中 空 击击",
+    "result": "击中改空改击击",
+    "count": 2
+  },
+  {
+    "old": "[^\\w]+",
+    "new": "改",
+    "text": "á ² Ⅻ １ İ ı ſ K",
+    "result": "á改Ⅻ改１改İ改ı改ſ改K",
+    "count": 6
+  },
+  {
+    "old": "[^\\w]+",
+    "new": "改",
+    "text": "abc",
+    "result": "abc",
+    "count": 0
+  },
+  {
+    "old": "[^\\w]+",
+    "new": "改",
+    "text": "x",
+    "result": "x",
+    "count": 0
+  },
+  {
+    "old": "[^\\w]+",
+    "new": "改",
+    "text": "",
+    "result": "",
+    "count": 0
+  },
+  {
+    "old": "[\\W]+",
+    "new": "改",
+    "text": "暴击",
+    "result": "暴击",
+    "count": 0
+  },
+  {
+    "old": "[\\W]+",
+    "new": "改",
+    "text": "攻击攻击",
+    "result": "攻击攻击",
+    "count": 0
+  },
+  {
+    "old": "[\\W]+",
+    "new": "改",
+    "text": "击\n",
+    "result": "击改",
+    "count": 1
+  },
+  {
+    "old": "[\\W]+",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "击改击改",
+    "count": 2
+  },
+  {
+    "old": "[\\W]+",
+    "new": "改",
+    "text": "击中 空 击击",
+    "result": "击中改空改击击",
+    "count": 2
+  },
+  {
+    "old": "[\\W]+",
+    "new": "改",
+    "text": "á ² Ⅻ １ İ ı ſ K",
+    "result": "á改Ⅻ改１改İ改ı改ſ改K",
+    "count": 6
+  },
+  {
+    "old": "[\\W]+",
+    "new": "改",
+    "text": "abc",
+    "result": "abc",
+    "count": 0
+  },
+  {
+    "old": "[\\W]+",
+    "new": "改",
+    "text": "x",
+    "result": "x",
+    "count": 0
+  },
+  {
+    "old": "[\\W]+",
+    "new": "改",
+    "text": "",
+    "result": "",
+    "count": 0
+  },
+  {
+    "old": "[\\s]+",
+    "new": "改",
+    "text": "暴击",
+    "result": "暴击",
+    "count": 0
+  },
+  {
+    "old": "[\\s]+",
+    "new": "改",
+    "text": "攻击攻击",
+    "result": "攻击攻击",
+    "count": 0
+  },
+  {
+    "old": "[\\s]+",
+    "new": "改",
+    "text": "击\n",
+    "result": "击改",
+    "count": 1
+  },
+  {
+    "old": "[\\s]+",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "击改击改",
+    "count": 2
+  },
+  {
+    "old": "[\\s]+",
+    "new": "改",
+    "text": "击中 空 击击",
+    "result": "击中改空改击击",
+    "count": 2
+  },
+  {
+    "old": "[\\s]+",
+    "new": "改",
+    "text": "á ² Ⅻ １ İ ı ſ K",
+    "result": "á改²改Ⅻ改１改İ改ı改ſ改K",
+    "count": 7
+  },
+  {
+    "old": "[\\s]+",
+    "new": "改",
+    "text": "abc",
+    "result": "abc",
+    "count": 0
+  },
+  {
+    "old": "[\\s]+",
+    "new": "改",
+    "text": "x",
+    "result": "x",
+    "count": 0
+  },
+  {
+    "old": "[\\s]+",
+    "new": "改",
+    "text": "",
+    "result": "",
+    "count": 0
+  },
+  {
+    "old": "\\d+",
+    "new": "改",
+    "text": "暴击",
+    "result": "暴击",
+    "count": 0
+  },
+  {
+    "old": "\\d+",
+    "new": "改",
+    "text": "攻击攻击",
+    "result": "攻击攻击",
+    "count": 0
+  },
+  {
+    "old": "\\d+",
+    "new": "改",
+    "text": "击\n",
+    "result": "击\n",
+    "count": 0
+  },
+  {
+    "old": "\\d+",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "击\n击\n",
+    "count": 0
+  },
+  {
+    "old": "\\d+",
+    "new": "改",
+    "text": "击中 空 击击",
+    "result": "击中 空 击击",
+    "count": 0
+  },
+  {
+    "old": "\\d+",
+    "new": "改",
+    "text": "á ² Ⅻ １ İ ı ſ K",
+    "result": "á ² Ⅻ 改 İ ı ſ K",
+    "count": 1
+  },
+  {
+    "old": "\\d+",
+    "new": "改",
+    "text": "abc",
+    "result": "abc",
+    "count": 0
+  },
+  {
+    "old": "\\d+",
+    "new": "改",
+    "text": "x",
+    "result": "x",
+    "count": 0
+  },
+  {
+    "old": "\\d+",
+    "new": "改",
+    "text": "",
+    "result": "",
+    "count": 0
+  },
+  {
+    "old": "(?a)\\w+",
+    "new": "改",
+    "text": "暴击",
+    "result": "暴击",
+    "count": 0
+  },
+  {
+    "old": "(?a)\\w+",
+    "new": "改",
+    "text": "攻击攻击",
+    "result": "攻击攻击",
+    "count": 0
+  },
+  {
+    "old": "(?a)\\w+",
+    "new": "改",
+    "text": "击\n",
+    "result": "击\n",
+    "count": 0
+  },
+  {
+    "old": "(?a)\\w+",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "击\n击\n",
+    "count": 0
+  },
+  {
+    "old": "(?a)\\w+",
+    "new": "改",
+    "text": "击中 空 击击",
+    "result": "击中 空 击击",
+    "count": 0
+  },
+  {
+    "old": "(?a)\\w+",
+    "new": "改",
+    "text": "á ² Ⅻ １ İ ı ſ K",
+    "result": "改́ ² Ⅻ １ İ ı ſ K",
+    "count": 1
+  },
+  {
+    "old": "(?a)\\w+",
+    "new": "改",
+    "text": "abc",
+    "result": "改",
+    "count": 1
+  },
+  {
+    "old": "(?a)\\w+",
+    "new": "改",
+    "text": "x",
+    "result": "改",
+    "count": 1
+  },
+  {
+    "old": "(?a)\\w+",
+    "new": "改",
+    "text": "",
+    "result": "",
+    "count": 0
+  },
+  {
+    "old": "(?a:\\w+)",
+    "new": "改",
+    "text": "暴击",
+    "result": "暴击",
+    "count": 0
+  },
+  {
+    "old": "(?a:\\w+)",
+    "new": "改",
+    "text": "攻击攻击",
+    "result": "攻击攻击",
+    "count": 0
+  },
+  {
+    "old": "(?a:\\w+)",
+    "new": "改",
+    "text": "击\n",
+    "result": "击\n",
+    "count": 0
+  },
+  {
+    "old": "(?a:\\w+)",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "击\n击\n",
+    "count": 0
+  },
+  {
+    "old": "(?a:\\w+)",
+    "new": "改",
+    "text": "击中 空 击击",
+    "result": "击中 空 击击",
+    "count": 0
+  },
+  {
+    "old": "(?a:\\w+)",
+    "new": "改",
+    "text": "á ² Ⅻ １ İ ı ſ K",
+    "result": "改́ ² Ⅻ １ İ ı ſ K",
+    "count": 1
+  },
+  {
+    "old": "(?a:\\w+)",
+    "new": "改",
+    "text": "abc",
+    "result": "改",
+    "count": 1
+  },
+  {
+    "old": "(?a:\\w+)",
+    "new": "改",
+    "text": "x",
+    "result": "改",
+    "count": 1
+  },
+  {
+    "old": "(?a:\\w+)",
+    "new": "改",
+    "text": "",
+    "result": "",
+    "count": 0
+  },
+  {
+    "old": "(?i)i",
+    "new": "改",
+    "text": "iIİıſK",
+    "result": "改改改ıſK",
+    "count": 3
+  },
+  {
+    "old": "(?i)i",
+    "new": "改",
+    "text": "暴击中 击中 击\n",
+    "result": "暴击中 击中 击\n",
+    "count": 0
+  },
+  {
+    "old": "(?i)i",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "击\n击\n",
+    "count": 0
+  },
+  {
+    "old": "(?i)i",
+    "new": "改",
+    "text": "😀",
+    "result": "😀",
+    "count": 0
+  },
+  {
+    "old": "(?i)I",
+    "new": "改",
+    "text": "iIİıſK",
+    "result": "改改İ改ſK",
+    "count": 3
+  },
+  {
+    "old": "(?i)I",
+    "new": "改",
+    "text": "暴击中 击中 击\n",
+    "result": "暴击中 击中 击\n",
+    "count": 0
+  },
+  {
+    "old": "(?i)I",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "击\n击\n",
+    "count": 0
+  },
+  {
+    "old": "(?i)I",
+    "new": "改",
+    "text": "😀",
+    "result": "😀",
+    "count": 0
+  },
+  {
+    "old": "(?i)[i]",
+    "new": "改",
+    "text": "iIİıſK",
+    "result": "改改改ıſK",
+    "count": 3
+  },
+  {
+    "old": "(?i)[i]",
+    "new": "改",
+    "text": "暴击中 击中 击\n",
+    "result": "暴击中 击中 击\n",
+    "count": 0
+  },
+  {
+    "old": "(?i)[i]",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "击\n击\n",
+    "count": 0
+  },
+  {
+    "old": "(?i)[i]",
+    "new": "改",
+    "text": "😀",
+    "result": "😀",
+    "count": 0
+  },
+  {
+    "old": "(?i)[I]",
+    "new": "改",
+    "text": "iIİıſK",
+    "result": "改改İ改ſK",
+    "count": 3
+  },
+  {
+    "old": "(?i)[I]",
+    "new": "改",
+    "text": "暴击中 击中 击\n",
+    "result": "暴击中 击中 击\n",
+    "count": 0
+  },
+  {
+    "old": "(?i)[I]",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "击\n击\n",
+    "count": 0
+  },
+  {
+    "old": "(?i)[I]",
+    "new": "改",
+    "text": "😀",
+    "result": "😀",
+    "count": 0
+  },
+  {
+    "old": "(?i)[A-Z]+",
+    "new": "改",
+    "text": "iIİıſK",
+    "result": "改İ改",
+    "count": 2
+  },
+  {
+    "old": "(?i)[A-Z]+",
+    "new": "改",
+    "text": "暴击中 击中 击\n",
+    "result": "暴击中 击中 击\n",
+    "count": 0
+  },
+  {
+    "old": "(?i)[A-Z]+",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "击\n击\n",
+    "count": 0
+  },
+  {
+    "old": "(?i)[A-Z]+",
+    "new": "改",
+    "text": "😀",
+    "result": "😀",
+    "count": 0
+  },
+  {
+    "old": "(?i)[^i]+",
+    "new": "改",
+    "text": "iIİıſK",
+    "result": "iIİ改",
+    "count": 1
+  },
+  {
+    "old": "(?i)[^i]+",
+    "new": "改",
+    "text": "暴击中 击中 击\n",
+    "result": "改",
+    "count": 1
+  },
+  {
+    "old": "(?i)[^i]+",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "改",
+    "count": 1
+  },
+  {
+    "old": "(?i)[^i]+",
+    "new": "改",
+    "text": "😀",
+    "result": "改",
+    "count": 1
+  },
+  {
+    "old": "(?i)İ",
+    "new": "改",
+    "text": "iIİıſK",
+    "result": "改I改ıſK",
+    "count": 2
+  },
+  {
+    "old": "(?i)İ",
+    "new": "改",
+    "text": "暴击中 击中 击\n",
+    "result": "暴击中 击中 击\n",
+    "count": 0
+  },
+  {
+    "old": "(?i)İ",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "击\n击\n",
+    "count": 0
+  },
+  {
+    "old": "(?i)İ",
+    "new": "改",
+    "text": "😀",
+    "result": "😀",
+    "count": 0
+  },
+  {
+    "old": "(?i)ı",
+    "new": "改",
+    "text": "iIİıſK",
+    "result": "i改İ改ſK",
+    "count": 2
+  },
+  {
+    "old": "(?i)ı",
+    "new": "改",
+    "text": "暴击中 击中 击\n",
+    "result": "暴击中 击中 击\n",
+    "count": 0
+  },
+  {
+    "old": "(?i)ı",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "击\n击\n",
+    "count": 0
+  },
+  {
+    "old": "(?i)ı",
+    "new": "改",
+    "text": "😀",
+    "result": "😀",
+    "count": 0
+  },
+  {
+    "old": "(?a)(?i)[a-z]+",
+    "new": "改",
+    "text": "iIİıſK",
+    "result": "改İıſK",
+    "count": 1
+  },
+  {
+    "old": "(?a)(?i)[a-z]+",
+    "new": "改",
+    "text": "暴击中 击中 击\n",
+    "result": "暴击中 击中 击\n",
+    "count": 0
+  },
+  {
+    "old": "(?a)(?i)[a-z]+",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "击\n击\n",
+    "count": 0
+  },
+  {
+    "old": "(?a)(?i)[a-z]+",
+    "new": "改",
+    "text": "😀",
+    "result": "😀",
+    "count": 0
+  },
+  {
+    "old": "(?im)^(击)$",
+    "new": "改",
+    "text": "iIİıſK",
+    "result": "iIİıſK",
+    "count": 0
+  },
+  {
+    "old": "(?im)^(击)$",
+    "new": "改",
+    "text": "暴击中 击中 击\n",
+    "result": "暴击中 击中 击\n",
+    "count": 0
+  },
+  {
+    "old": "(?im)^(击)$",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "改\n改\n",
+    "count": 2
+  },
+  {
+    "old": "(?im)^(击)$",
+    "new": "改",
+    "text": "😀",
+    "result": "😀",
+    "count": 0
+  },
+  {
+    "old": "(?m:击$)",
+    "new": "改",
+    "text": "iIİıſK",
+    "result": "iIİıſK",
+    "count": 0
+  },
+  {
+    "old": "(?m:击$)",
+    "new": "改",
+    "text": "暴击中 击中 击\n",
+    "result": "暴击中 击中 改\n",
+    "count": 1
+  },
+  {
+    "old": "(?m:击$)",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "改\n改\n",
+    "count": 2
+  },
+  {
+    "old": "(?m:击$)",
+    "new": "改",
+    "text": "😀",
+    "result": "😀",
+    "count": 0
+  },
+  {
+    "old": "(?i)(?P<id>i)(?P=id)",
+    "new": "改",
+    "text": "iIİıſK",
+    "result": "改İıſK",
+    "count": 1
+  },
+  {
+    "old": "(?i)(?P<id>i)(?P=id)",
+    "new": "改",
+    "text": "暴击中 击中 击\n",
+    "result": "暴击中 击中 击\n",
+    "count": 0
+  },
+  {
+    "old": "(?i)(?P<id>i)(?P=id)",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "击\n击\n",
+    "count": 0
+  },
+  {
+    "old": "(?i)(?P<id>i)(?P=id)",
+    "new": "改",
+    "text": "😀",
+    "result": "😀",
+    "count": 0
+  },
+  {
+    "old": "击(?=中)",
+    "new": "改",
+    "text": "iIİıſK",
+    "result": "iIİıſK",
+    "count": 0
+  },
+  {
+    "old": "击(?=中)",
+    "new": "改",
+    "text": "暴击中 击中 击\n",
+    "result": "暴改中 改中 击\n",
+    "count": 2
+  },
+  {
+    "old": "击(?=中)",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "击\n击\n",
+    "count": 0
+  },
+  {
+    "old": "击(?=中)",
+    "new": "改",
+    "text": "😀",
+    "result": "😀",
+    "count": 0
+  },
+  {
+    "old": "(?<!暴)击",
+    "new": "改",
+    "text": "iIİıſK",
+    "result": "iIİıſK",
+    "count": 0
+  },
+  {
+    "old": "(?<!暴)击",
+    "new": "改",
+    "text": "暴击中 击中 击\n",
+    "result": "暴击中 改中 改\n",
+    "count": 2
+  },
+  {
+    "old": "(?<!暴)击",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "改\n改\n",
+    "count": 2
+  },
+  {
+    "old": "(?<!暴)击",
+    "new": "改",
+    "text": "😀",
+    "result": "😀",
+    "count": 0
+  },
+  {
+    "old": "\\U0001f600",
+    "new": "改",
+    "text": "iIİıſK",
+    "result": "iIİıſK",
+    "count": 0
+  },
+  {
+    "old": "\\U0001f600",
+    "new": "改",
+    "text": "暴击中 击中 击\n",
+    "result": "暴击中 击中 击\n",
+    "count": 0
+  },
+  {
+    "old": "\\U0001f600",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "击\n击\n",
+    "count": 0
+  },
+  {
+    "old": "\\U0001f600",
+    "new": "改",
+    "text": "😀",
+    "result": "改",
+    "count": 1
+  },
+  {
+    "old": "\\u51fb",
+    "new": "改",
+    "text": "iIİıſK",
+    "result": "iIİıſK",
+    "count": 0
+  },
+  {
+    "old": "\\u51fb",
+    "new": "改",
+    "text": "暴击中 击中 击\n",
+    "result": "暴改中 改中 改\n",
+    "count": 3
+  },
+  {
+    "old": "\\u51fb",
+    "new": "改",
+    "text": "击\n击\n",
+    "result": "改\n改\n",
+    "count": 2
+  },
+  {
+    "old": "\\u51fb",
+    "new": "改",
+    "text": "😀",
+    "result": "😀",
+    "count": 0
+  },
+  {
+    "old": "(?P<word>击)",
+    "new": "\\g<0>",
+    "text": "暴击",
+    "result": "暴击",
+    "count": 1
+  },
+  {
+    "old": "(?P<word>击)",
+    "new": "\\1",
+    "text": "暴击",
+    "result": "暴击",
+    "count": 1
+  },
+  {
+    "old": "(?P<word>击)",
+    "new": "\\101",
+    "text": "暴击",
+    "result": "暴A",
+    "count": 1
+  },
+  {
+    "old": "(?P<word>击)",
+    "new": "\\0",
+    "text": "暴击",
+    "result": "暴\u0000",
+    "count": 1
+  },
+  {
+    "old": "(?P<word>击)",
+    "new": "\\&",
+    "text": "暴击",
+    "result": "暴\\&",
+    "count": 1
+  },
+  {
+    "old": "(?P<word>击)",
+    "new": "\\\\$1",
+    "text": "暴击",
+    "result": "暴\\$1",
+    "count": 1
+  },
+  {
+    "old": "(?P<word>击)",
+    "new": "\\g<word>",
+    "text": "暴击",
+    "result": "暴击",
+    "count": 1
+  }
+]

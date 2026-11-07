@@ -1,0 +1,15 @@
+[package]
+name = "bajptr-rs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+bajptr-core = { path = "../bajptr-core" }
+bajptr-project = { path = "../bajptr-project" }
+clap = { version = "4", features = ["derive"] }
+ctrlc = "3"
+base64.workspace = true
+rusqlite.workspace = true
+serde_json.workspace = true
+

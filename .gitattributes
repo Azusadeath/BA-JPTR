@@ -1,0 +1,2 @@
+# A final tab is the required empty source-table field in the five-column TSV.
+*.tsv whitespace=-blank-at-eol

@@ -3,4 +3,13 @@ backup/
 __pycache__/
 *.pyc
 *.db
+!crates/bajptr-project/tests/fixtures/v1/encrypted.db
 .venv/
+.gui/
+*.egg-info/
+.toolchain/
+target/
+native/
+work/
+dist/
+bajptr.exe

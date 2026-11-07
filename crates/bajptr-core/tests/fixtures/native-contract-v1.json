@@ -1,0 +1,5752 @@
+{
+  "format": 1,
+  "oracle": "Python implementation before Rust activation",
+  "cases": [
+    {
+      "name": "overlap-longest",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAVAAAA5pq05Ye75Lyk5a6z5LiO5pq05Ye7AA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAACAAAAAVAAAA5pq05Ye75Lyk5a6z5LiO5pq05Ye7AAAADwAAAOavgeeBreS4jueIhueCuAA=",
+        "stats": {
+          "inplace": 0,
+          "appended": 1,
+          "bytes_appended": 22,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1,
+          1
+        ],
+        "zero_reasons": []
+      }
+    },
+    {
+      "name": "no-cascade",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAMAAAA5pq05Ye754iG54K4AA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "爆炸",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAMAAAA54iG54K46KKt5Ye7AA==",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1,
+          1
+        ],
+        "zero_reasons": []
+      }
+    },
+    {
+      "name": "exact-priority",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAMAAAA5pq05Ye75Lyk5a6zAA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "exact",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAABgAAAAMAAAA5pq05Ye75Lyk5a6zAAAAAAYAAADmr4Hnga0A",
+        "stats": {
+          "inplace": 0,
+          "appended": 1,
+          "bytes_appended": 14,
+          "kana_skipped": 0
+        },
+        "hits": [
+          0,
+          1
+        ],
+        "zero_reasons": [
+          {
+            "index": 0,
+            "reason": "整段相同规则已占用这段原文，其他重叠规则不再处理。",
+            "example": "暴击伤害",
+            "table": "LocalizeDBSchema"
+          }
+        ]
+      }
+    },
+    {
+      "name": "exact-noop-occupies",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAMAAAA5pq05Ye75Lyk5a6zAA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "暴击伤害",
+            "mode": "exact",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": null,
+        "stats": {
+          "inplace": 0,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          0,
+          0
+        ],
+        "zero_reasons": [
+          {
+            "index": 0,
+            "reason": "整段相同规则已占用这段原文，其他重叠规则不再处理。",
+            "example": "暴击伤害",
+            "table": "LocalizeDBSchema"
+          },
+          {
+            "index": 1,
+            "reason": "原文字与替换文字相同，无需修改。",
+            "example": "暴击伤害",
+            "table": "LocalizeDBSchema"
+          }
+        ]
+      }
+    },
+    {
+      "name": "unicode-tie-order",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAFAAAAYWLkuK0A",
+        "rules": [
+          {
+            "old": "ab",
+            "new": "甲",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "b中",
+            "new": "乙",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAABAAAAAFAAAAYWLkuK0AAAAGAAAA55Sy5LitAA==",
+        "stats": {
+          "inplace": 0,
+          "appended": 1,
+          "bytes_appended": 13,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1,
+          0
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "匹配位置与更高优先级的原文匹配重叠，已保留优先规则。",
+            "example": "ab中",
+            "table": "LocalizeDBSchema"
+          }
+        ]
+      }
+    },
+    {
+      "name": "scoped-override",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAGAAAA5pq05Ye7AA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "全局",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击",
+            "new": "单表",
+            "mode": "sub",
+            "source": "-",
+            "table": "LocalizeDBSchema"
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAGAAAA5Y2V6KGoAA==",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          0,
+          1
+        ],
+        "zero_reasons": [
+          {
+            "index": 0,
+            "reason": "该来源表有同原词的专用规则，已覆盖这条全局规则。",
+            "example": "暴击",
+            "table": "LocalizeDBSchema"
+          }
+        ]
+      }
+    },
+    {
+      "name": "scoped-exclusion",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAGAAAA5pq05Ye7AA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "单表",
+            "mode": "sub",
+            "source": "-",
+            "table": "OtherTable"
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": null,
+        "stats": {
+          "inplace": 0,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          0
+        ],
+        "zero_reasons": [
+          {
+            "index": 0,
+            "reason": "原词出现在未选中的来源表里。请核对来源范围。",
+            "example": "暴击",
+            "table": "LocalizeDBSchema"
+          }
+        ]
+      }
+    },
+    {
+      "name": "multiple-scopes",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAGAAAA5pq05Ye7AA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "多表",
+            "mode": "sub",
+            "source": "-",
+            "table": "[\"LocalizeDBSchema\",\"OtherTable\"]"
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAGAAAA5aSa6KGoAA==",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1
+        ],
+        "zero_reasons": []
+      }
+    },
+    {
+      "name": "kana-skipped",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAPAAAA44Ki44Ot44OK5pq05Ye7AA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": null,
+        "stats": {
+          "inplace": 0,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 1
+        },
+        "hits": [
+          0
+        ],
+        "zero_reasons": [
+          {
+            "index": 0,
+            "reason": "匹配文字所在的整段文本含日文假名，已按当前选项跳过。",
+            "example": "アロナ暴击",
+            "table": "LocalizeDBSchema"
+          }
+        ]
+      }
+    },
+    {
+      "name": "kana-explicit",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAPAAAA44Ki44Ot44OK5pq05Ye7AA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {
+          "0": "定点修改"
+        },
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAABgAAAAPAAAA44Ki44Ot44OK5pq05Ye7AAwAAADlrprngrnkv67mlLkA",
+        "stats": {
+          "inplace": 0,
+          "appended": 1,
+          "bytes_appended": 17,
+          "kana_skipped": 0
+        },
+        "hits": [
+          0
+        ],
+        "zero_reasons": [
+          {
+            "index": 0,
+            "reason": "这段文本已有单条修改，使用指定的最终文字，不再执行通用词表。",
+            "example": "アロナ暴击",
+            "table": "LocalizeDBSchema"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ascii-exact",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAKAAAAYXNzZXRfcGF0aAA=",
+        "rules": [
+          {
+            "old": "asset_path",
+            "new": "new_path",
+            "mode": "exact",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAABQAAAAKAAAAYXNzZXRfcGF0aAAACAAAAG5ld19wYXRoAA==",
+        "stats": {
+          "inplace": 0,
+          "appended": 1,
+          "bytes_appended": 14,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1
+        ],
+        "zero_reasons": []
+      }
+    },
+    {
+      "name": "ascii-sub-disabled",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAKAAAAYXNzZXRfcGF0aAA=",
+        "rules": [
+          {
+            "old": "asset",
+            "new": "new",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": null,
+        "stats": {
+          "inplace": 0,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          0
+        ],
+        "zero_reasons": [
+          {
+            "index": 0,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "delete-text",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAGAAAA5pq05Ye7AA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "",
+            "mode": "exact",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAABAAAAAGAAAA5pq05Ye7AAAAAAAAAA==",
+        "stats": {
+          "inplace": 0,
+          "appended": 1,
+          "bytes_appended": 6,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1
+        ],
+        "zero_reasons": []
+      }
+    },
+    {
+      "name": "newlines-and-emoji",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAARAAAA5Lit5paHCuaWh+acrPCfmYIA",
+        "rules": [
+          {
+            "old": "文本",
+            "new": "文字🐉",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAABwAAAARAAAA5Lit5paHCuaWh+acrPCfmYIAAAAVAAAA5Lit5paHCuaWh+Wtl/CfkInwn5mCAA==",
+        "stats": {
+          "inplace": 0,
+          "appended": 1,
+          "bytes_appended": 28,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1
+        ],
+        "zero_reasons": []
+      }
+    },
+    {
+      "name": "supplementary-cjk",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAHAAAA8KCAgOWtlwA=",
+        "rules": [
+          {
+            "old": "𠀀",
+            "new": "龍",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAABAAAAAHAAAA8KCAgOWtlwAGAAAA6b6N5a2XAA==",
+        "stats": {
+          "inplace": 0,
+          "appended": 1,
+          "bytes_appended": 11,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1
+        ],
+        "zero_reasons": []
+      }
+    },
+    {
+      "name": "malformed-root",
+      "request": {
+        "op": "blob",
+        "blob": "bWFsZm9ybWVkLWZsYXRidWZmZXItYnl0ZXM=",
+        "rules": [],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "error": true
+      }
+    },
+    {
+      "name": "template-aliases",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAkAAAA6Zi/572X5aic5LiO6Zi/5rSb5aic5q2j5Zyo5Lqk6LCI44CCAA==",
+        "rules": [
+          {
+            "old": "(?:阿罗娜|阿洛娜)",
+            "new": "阿萝娜",
+            "mode": "re",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAkAAAA6Zi/6JCd5aic5LiO6Zi/6JCd5aic5q2j5Zyo5Lqk6LCI44CCAA==",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          2
+        ],
+        "zero_reasons": []
+      }
+    },
+    {
+      "name": "template-prefix",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAnAAAA5Lu75Yqh5a6M5oiQ5ZCO77yM6aKG5Y+W5Lu75Yqh5aWW5Yqx44CCAA==",
+        "rules": [
+          {
+            "old": "\\A任务",
+            "new": "委托",
+            "mode": "re",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAnAAAA5aeU5omY5a6M5oiQ5ZCO77yM6aKG5Y+W5Lu75Yqh5aWW5Yqx44CCAA==",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1
+        ],
+        "zero_reasons": []
+      }
+    },
+    {
+      "name": "template-suffix",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAVAAAA5qyi6L+O5Zue5p2l77yM6ICB5biIAA==",
+        "rules": [
+          {
+            "old": "老师\\Z",
+            "new": "先生",
+            "mode": "re",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAVAAAA5qyi6L+O5Zue5p2l77yM5YWI55SfAA==",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1
+        ],
+        "zero_reasons": []
+      }
+    },
+    {
+      "name": "template-between",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAhAAAA5p+l55yL44CQ5aSP5pel5bqG5YW444CR6K+m5oOF44CCAA==",
+        "rules": [
+          {
+            "old": "(【)[^\\r\\n]*?(】)",
+            "new": "\\g<1>限时活动\\g<2>",
+            "mode": "re",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAhAAAA5p+l55yL44CQ6ZmQ5pe25rS75Yqo44CR6K+m5oOF44CCAA==",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1
+        ],
+        "zero_reasons": []
+      }
+    },
+    {
+      "name": "template-number",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAjAAAA5Lu75YqhMTLlrozmiJDvvIzku7vliqHvvJPop6PplIHjgIIA",
+        "rules": [
+          {
+            "old": "任务([0-9０-９]+)",
+            "new": "委托\\g<1>",
+            "mode": "re",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAjAAAA5aeU5omYMTLlrozmiJDvvIzlp5TmiZjvvJPop6PplIHjgIIA",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          2
+        ],
+        "zero_reasons": []
+      }
+    },
+    {
+      "name": "shared-one-field",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAgADAAEAAgACAAAAAgAAAAEAAAABgAAAOaUu+WHuwA=",
+        "rules": [],
+        "table": "LocalizeDBSchema",
+        "overrides": {
+          "0": "爆炸"
+        },
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAgADAAEAAgACAAAABQAAAAEAAAABgAAAOaUu+WHuwAABgAAAOeIhueCuAA=",
+        "stats": {
+          "inplace": 0,
+          "appended": 1,
+          "bytes_appended": 12,
+          "kana_skipped": 0
+        },
+        "hits": [],
+        "zero_reasons": []
+      }
+    },
+    {
+      "name": "shared-different-fields",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAgADAAEAAgACAAAAAgAAAAEAAAABgAAAOaUu+WHuwA=",
+        "rules": [],
+        "table": "LocalizeDBSchema",
+        "overrides": {
+          "0": "爆炸",
+          "1": "其他文字"
+        },
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAgADAAEAAgACAAAABQAAAAcAAAABgAAAOaUu+WHuwAABgAAAOeIhueCuAAADAAAAOWFtuS7luaWh+WtlwA=",
+        "stats": {
+          "inplace": 0,
+          "appended": 2,
+          "bytes_appended": 30,
+          "kana_skipped": 0
+        },
+        "hits": [],
+        "zero_reasons": []
+      }
+    },
+    {
+      "name": "seeded-0",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA8AAAA5LitYuaatOWHu+aUu+WHu/CfmYLprZTms5XprZTms5XkvKTlrrPwn5mC5Lyk5a6z5pS75Ye76a2U5rOVAA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA8AAAA5LitYueIhueCuOiireWHu/CfmYLprZTms5XprZTms5XkvKTlrrPwn5mC5Lyk5a6z6KKt5Ye76a2U5rOVAA==",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1,
+          0,
+          2
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-1",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA5AAAA5Lit5Lyk5a6z8J+ZguaUu+WHu2HmlLvlh7vprZTms5Xwn5mC5pS75Ye75Lit5pq05Ye75Lyk5a6zAA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAEQAAAA5AAAA5Lit5Lyk5a6z8J+ZguaUu+WHu2HmlLvlh7vprZTms5Xwn5mC5pS75Ye75Lit5pq05Ye75Lyk5a6zAAAAMwAAAOS4reS8pOWus/CfmYLooq3lh7th6KKt5Ye76a2U5rOV8J+ZguiireWHu+S4reavgeeBrQA=",
+        "stats": {
+          "inplace": 0,
+          "appended": 1,
+          "bytes_appended": 58,
+          "kana_skipped": 0
+        },
+        "hits": [
+          0,
+          1,
+          3
+        ],
+        "zero_reasons": [
+          {
+            "index": 0,
+            "reason": "匹配位置与更高优先级的原文匹配重叠，已保留优先规则。",
+            "example": "中伤害🙂攻击a攻击魔法🙂攻击中暴击伤害",
+            "table": "LocalizeDBSchema"
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-2",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA4AAAA6a2U5rOV6a2U5rOV5pq05Ye75Lit5pq05Ye7YuaUu+WHu+aUu+WHu+aUu+WHu+S8pOWus2LkuK0A",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA4AAAA6a2U5rOV6a2U5rOV54iG54K45Lit54iG54K4YuiireWHu+iireWHu+iireWHu+S8pOWus2LkuK0A",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          2,
+          0,
+          3
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-3",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA0AAAA5Lyk5a6zYuS4remtlOazleaUu+WHu+S8pOWus2LprZTms5XkvKTlrrPmmrTlh7vwn5mCYQA=",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA0AAAA5Lyk5a6zYuS4remtlOazleiireWHu+S8pOWus2LprZTms5XkvKTlrrPniIbngrjwn5mCYQA=",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1,
+          0,
+          1
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-4",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAwAAAAYWFi5pq05Ye78J+ZgmHwn5mC5pq05Ye75pq05Ye76a2U5rOV6a2U5rOV6a2U5rOVAA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAwAAAAYWFi54iG54K48J+ZgmHwn5mC54iG54K454iG54K46a2U5rOV6a2U5rOV6a2U5rOVAA==",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          3,
+          0,
+          0
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          },
+          {
+            "index": 2,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-5",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAyAAAA5pS75Ye7YuS4reaUu+WHu/CfmYLprZTms5Vi5pq05Ye75Lyk5a6z5pq05Ye78J+ZgmEA",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAADwAAAAyAAAA5pS75Ye7YuS4reaUu+WHu/CfmYLprZTms5Vi5pq05Ye75Lyk5a6z5pq05Ye78J+ZgmEAACwAAADooq3lh7ti5Lit6KKt5Ye78J+ZgumtlOazlWLmr4Hnga3niIbngrjwn5mCYQA=",
+        "stats": {
+          "inplace": 0,
+          "appended": 1,
+          "bytes_appended": 50,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1,
+          1,
+          2
+        ],
+        "zero_reasons": []
+      }
+    },
+    {
+      "name": "seeded-6",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAxAAAA8J+ZguS8pOWus+S4rWJh6a2U5rOV5Lyk5a6z5pq05Ye76a2U5rOV5LitYeS8pOWuswA=",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAxAAAA8J+ZguS8pOWus+S4rWJh6a2U5rOV5Lyk5a6z54iG54K46a2U5rOV5LitYeS8pOWuswA=",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1,
+          0,
+          0
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          },
+          {
+            "index": 2,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-7",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA1AAAA8J+ZguaatOWHu/CfmYJh5pq05Ye75LitYvCfmYLmmrTlh7vmmrTlh7vmmrTlh7vprZTms5UA",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA1AAAA8J+ZgueIhueCuPCfmYJh54iG54K45LitYvCfmYLniIbngrjniIbngrjniIbngrjprZTms5UA",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          5,
+          0,
+          0
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          },
+          {
+            "index": 2,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-8",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA0AAAA5pS75Ye75Lyk5a6z5LitYvCfmYLwn5mC6a2U5rOV5Lyk5a6z8J+ZguS4reS8pOWus+S4rQA=",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA0AAAA6KKt5Ye75Lyk5a6z5LitYvCfmYLwn5mC6a2U5rOV5Lyk5a6z8J+ZguS4reS8pOWus+S4rQA=",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          0,
+          0,
+          1
+        ],
+        "zero_reasons": [
+          {
+            "index": 0,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          },
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-9",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAyAAAA6a2U5rOV6a2U5rOV5pS75Ye7YWFi5pS75Ye78J+ZgumtlOazlWHmmrTlh7vmmrTlh7sA",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAyAAAA6a2U5rOV6a2U5rOV6KKt5Ye7YWFi6KKt5Ye78J+ZgumtlOazlWHniIbngrjniIbngrgA",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          2,
+          0,
+          2
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-10",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAvAAAA5Lit5pS75Ye78J+ZgumtlOazleS4reS8pOWus+S4reS4reS4reS4remtlOazlWEA",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAvAAAA5Lit6KKt5Ye78J+ZgumtlOazleS4reS8pOWus+S4reS4reS4reS4remtlOazlWEA",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          0,
+          0,
+          1
+        ],
+        "zero_reasons": [
+          {
+            "index": 0,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          },
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-11",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAoAAAA8J+ZgvCfmYJh5pS75Ye75Lyk5a6zYWFh5LitYumtlOazleS8pOWuswA=",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAoAAAA8J+ZgvCfmYJh6KKt5Ye75Lyk5a6zYWFh5LitYumtlOazleS8pOWuswA=",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          0,
+          0,
+          1
+        ],
+        "zero_reasons": [
+          {
+            "index": 0,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          },
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-12",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA5AAAA8J+ZguaUu+WHu+S4reaatOWHu+S4reaatOWHu+aatOWHu2Hwn5mC5pq05Ye75pS75Ye76a2U5rOVAA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA5AAAA8J+ZguiireWHu+S4reeIhueCuOS4reeIhueCuOeIhueCuGHwn5mC54iG54K46KKt5Ye76a2U5rOVAA==",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          4,
+          0,
+          2
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-13",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAuAAAA6a2U5rOVYvCfmYLwn5mC5Lit8J+ZgmHkvKTlrrNi8J+ZguaUu+WHu+mtlOazlQA=",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAuAAAA6a2U5rOVYvCfmYLwn5mC5Lit8J+ZgmHkvKTlrrNi8J+ZguiireWHu+mtlOazlQA=",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          0,
+          0,
+          1
+        ],
+        "zero_reasons": [
+          {
+            "index": 0,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          },
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-14",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA7AAAA6a2U5rOV5Lyk5a6z5Lit6a2U5rOV5pq05Ye75Lyk5a6zYmLmmrTlh7vkvKTlrrPkvKTlrrPkvKTlrrMA",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAEQAAAA7AAAA6a2U5rOV5Lyk5a6z5Lit6a2U5rOV5pq05Ye75Lyk5a6zYmLmmrTlh7vkvKTlrrPkvKTlrrPkvKTlrrMALwAAAOmtlOazleS8pOWus+S4remtlOazleavgeeBrWJi5q+B54Gt5Lyk5a6z5Lyk5a6zAA==",
+        "stats": {
+          "inplace": 0,
+          "appended": 1,
+          "bytes_appended": 52,
+          "kana_skipped": 0
+        },
+        "hits": [
+          0,
+          2,
+          0
+        ],
+        "zero_reasons": [
+          {
+            "index": 0,
+            "reason": "匹配位置与更高优先级的原文匹配重叠，已保留优先规则。",
+            "example": "魔法伤害中魔法暴击伤害bb暴击伤害伤害伤害",
+            "table": "LocalizeDBSchema"
+          },
+          {
+            "index": 2,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-15",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA5AAAAYuS8pOWus/CfmYLkvKTlrrPkvKTlrrPmlLvlh7vmlLvlh7vkvKTlrrPprZTms5XkuK3mmrTlh7thAA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA5AAAAYuS8pOWus/CfmYLkvKTlrrPkvKTlrrPooq3lh7vooq3lh7vkvKTlrrPprZTms5XkuK3niIbngrhhAA==",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1,
+          0,
+          2
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-16",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAApAAAA5Lyk5a6z5pS75Ye7YuaatOWHu2Jh5pS75Ye75LitYuS4rWHmmrTlh7sA",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAApAAAA5Lyk5a6z6KKt5Ye7YueIhueCuGJh6KKt5Ye75LitYuS4rWHniIbngrgA",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          2,
+          0,
+          2
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-17",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA0AAAA5Lyk5a6z6a2U5rOVYWLprZTms5XprZTms5Vi5Lyk5a6z5pq05Ye75pq05Ye75pq05Ye7YgA=",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA0AAAA5Lyk5a6z6a2U5rOVYWLprZTms5XprZTms5Vi5Lyk5a6z54iG54K454iG54K454iG54K4YgA=",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          3,
+          0,
+          0
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          },
+          {
+            "index": 2,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-18",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAyAAAA5Lit5LitYeS4reS4remtlOazleS8pOWus+S8pOWus+mtlOazleaUu+WHu+S4rfCfmYIA",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAyAAAA5Lit5LitYeS4reS4remtlOazleS8pOWus+S8pOWus+mtlOazleiireWHu+S4rfCfmYIA",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          0,
+          0,
+          1
+        ],
+        "zero_reasons": [
+          {
+            "index": 0,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          },
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-19",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAxAAAA5LitYfCfmYLkvKTlrrPwn5mC5pS75Ye78J+ZguaatOWHu/CfmYJi5pS75Ye78J+ZggA=",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAxAAAA5LitYfCfmYLkvKTlrrPwn5mC6KKt5Ye78J+ZgueIhueCuPCfmYJi6KKt5Ye78J+ZggA=",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1,
+          0,
+          2
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-20",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAyAAAA5pq05Ye7YWLwn5mC6a2U5rOVYuaUu+WHu+mtlOazlemtlOazleaUu+WHu+mtlOazlWIA",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAyAAAA54iG54K4YWLwn5mC6a2U5rOVYuiireWHu+mtlOazlemtlOazleiireWHu+mtlOazlWIA",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1,
+          0,
+          2
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-21",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA3AAAA5pS75Ye75pS75Ye75Lyk5a6z8J+ZgumtlOazlemtlOazlemtlOazleaUu+WHu+aatOWHu2FiYgA=",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA3AAAA6KKt5Ye76KKt5Ye75Lyk5a6z8J+ZgumtlOazlemtlOazlemtlOazleiireWHu+eIhueCuGFiYgA=",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1,
+          0,
+          3
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-22",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAjAAAAYuS4reS4reS4reaatOWHu+mtlOazlWHkuK1iYeaUu+WHu2IA",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAjAAAAYuS4reS4reS4reeIhueCuOmtlOazlWHkuK1iYeiireWHu2IA",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1,
+          0,
+          1
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-23",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA2AAAA6a2U5rOV5Lit5Lit5pq05Ye75Lit6a2U5rOV8J+ZguaatOWHu2LmmrTlh7vwn5mC5pq05Ye7AA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA2AAAA6a2U5rOV5Lit5Lit54iG54K45Lit6a2U5rOV8J+ZgueIhueCuGLniIbngrjwn5mC54iG54K4AA==",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          4,
+          0,
+          0
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          },
+          {
+            "index": 2,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-24",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAABBAAAA5pq05Ye75pS75Ye76a2U5rOV5pq05Ye75Lyk5a6z5Lyk5a6z8J+ZgumtlOazleS8pOWus+S4remtlOazlfCfmYIA",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAEwAAABBAAAA5pq05Ye75pS75Ye76a2U5rOV5pq05Ye75Lyk5a6z5Lyk5a6z8J+ZgumtlOazleS8pOWus+S4remtlOazlfCfmYIAAAA7AAAA54iG54K46KKt5Ye76a2U5rOV5q+B54Gt5Lyk5a6z8J+ZgumtlOazleS8pOWus+S4remtlOazlfCfmYIA",
+        "stats": {
+          "inplace": 0,
+          "appended": 1,
+          "bytes_appended": 66,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1,
+          1,
+          1
+        ],
+        "zero_reasons": []
+      }
+    },
+    {
+      "name": "seeded-25",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAsAAAAYuS4reaatOWHu+S8pOWus2Ji5Lyk5a6z8J+ZguS4rWLprZTms5XkvKTlrrMA",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAADgAAAAsAAAAYuS4reaatOWHu+S8pOWus2Ji5Lyk5a6z8J+ZguS4rWLprZTms5XkvKTlrrMAAAAAJgAAAGLkuK3mr4Hnga1iYuS8pOWus/CfmYLkuK1i6a2U5rOV5Lyk5a6zAA==",
+        "stats": {
+          "inplace": 0,
+          "appended": 1,
+          "bytes_appended": 46,
+          "kana_skipped": 0
+        },
+        "hits": [
+          0,
+          1,
+          0
+        ],
+        "zero_reasons": [
+          {
+            "index": 0,
+            "reason": "匹配位置与更高优先级的原文匹配重叠，已保留优先规则。",
+            "example": "b中暴击伤害bb伤害🙂中b魔法伤害",
+            "table": "LocalizeDBSchema"
+          },
+          {
+            "index": 2,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-26",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA0AAAA8J+ZgmHmmrTlh7vmmrTlh7vmmrTlh7vmmrTlh7th5Lit5Lyk5a6z5Lit6a2U5rOV8J+ZggA=",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA0AAAA8J+ZgmHniIbngrjniIbngrjniIbngrjniIbngrhh5Lit5Lyk5a6z5Lit6a2U5rOV8J+ZggA=",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          4,
+          0,
+          0
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          },
+          {
+            "index": 2,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-27",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAzAAAA5pq05Ye76a2U5rOV5pS75Ye75Lit5pS75Ye7YeS4reaUu+WHu+aUu+WHu2LmmrTlh7tiAA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAzAAAA54iG54K46a2U5rOV6KKt5Ye75Lit6KKt5Ye7YeS4reiireWHu+iireWHu2LniIbngrhiAA==",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          2,
+          0,
+          4
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-28",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA0AAAA6a2U5rOV8J+ZguaUu+WHu+S4reaatOWHu+S4remtlOazlWHwn5mCYeaatOWHu+mtlOazlQA=",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA0AAAA6a2U5rOV8J+ZguiireWHu+S4reeIhueCuOS4remtlOazlWHwn5mCYeeIhueCuOmtlOazlQA=",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          2,
+          0,
+          1
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-29",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAApAAAAYuS4reaatOWHu+S4rWLkuK3wn5mC6a2U5rOVYuaUu+WHu2HprZTms5UA",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAApAAAAYuS4reeIhueCuOS4rWLkuK3wn5mC6a2U5rOVYuiireWHu2HprZTms5UA",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1,
+          0,
+          1
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-30",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAzAAAA5Lyk5a6zYumtlOazlWFi6a2U5rOV5pq05Ye75pS75Ye78J+ZgvCfmYLmlLvlh7vwn5mCAA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAzAAAA5Lyk5a6zYumtlOazlWFi6a2U5rOV54iG54K46KKt5Ye78J+ZgvCfmYLooq3lh7vwn5mCAA==",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1,
+          0,
+          2
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-31",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA6AAAA5pS75Ye75Lyk5a6zYuS8pOWus+mtlOazleS8pOWus/CfmYLprZTms5Xwn5mC6a2U5rOV6a2U5rOVYgA=",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA6AAAA6KKt5Ye75Lyk5a6zYuS8pOWus+mtlOazleS8pOWus/CfmYLprZTms5Xwn5mC6a2U5rOV6a2U5rOVYgA=",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          0,
+          0,
+          1
+        ],
+        "zero_reasons": [
+          {
+            "index": 0,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          },
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-32",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA5AAAA5pS75Ye76a2U5rOV5Lyk5a6z5Lyk5a6z5Lit5pq05Ye75pS75Ye75pS75Ye7YmHkvKTlrrPwn5mCAA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA5AAAA6KKt5Ye76a2U5rOV5Lyk5a6z5Lyk5a6z5Lit54iG54K46KKt5Ye76KKt5Ye7YmHkvKTlrrPwn5mCAA==",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1,
+          0,
+          3
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-33",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAlAAAAYWJh5pq05Ye75LitYvCfmYLkuK3mmrTlh7vwn5mCYeS8pOWuswA=",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAlAAAAYWJh54iG54K45LitYvCfmYLkuK3niIbngrjwn5mCYeS8pOWuswA=",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          2,
+          0,
+          0
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          },
+          {
+            "index": 2,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-34",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAzAAAA5Lyk5a6z5pS75Ye75Lit5Lit5pS75Ye75pq05Ye7YeaUu+WHu+S4rfCfmYJh6a2U5rOVAA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAzAAAA5Lyk5a6z6KKt5Ye75Lit5Lit6KKt5Ye754iG54K4YeiireWHu+S4rfCfmYJh6a2U5rOVAA==",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1,
+          0,
+          3
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-35",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAqAAAA6a2U5rOV5pS75Ye7YvCfmYJi5LitYuS4rWLkvKTlrrPwn5mC5pS75Ye7AA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAqAAAA6a2U5rOV6KKt5Ye7YvCfmYJi5LitYuS4rWLkvKTlrrPwn5mC6KKt5Ye7AA==",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          0,
+          0,
+          2
+        ],
+        "zero_reasons": [
+          {
+            "index": 0,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          },
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-36",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA4AAAA8J+ZgumtlOazlemtlOazlemtlOazleaatOWHu2Fh5Lyk5a6z8J+ZgvCfmYLmmrTlh7vmmrTlh7sA",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA4AAAA8J+ZgumtlOazlemtlOazlemtlOazleeIhueCuGFh5Lyk5a6z8J+ZgvCfmYLniIbngrjniIbngrgA",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          3,
+          0,
+          0
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          },
+          {
+            "index": 2,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-37",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA0AAAAYuS8pOWus+S8pOWus+aUu+WHu+mtlOazlfCfmYLkuK3kvKTlrrNi5Lyk5a6z5pS75Ye7YQA=",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA0AAAAYuS8pOWus+S8pOWus+iireWHu+mtlOazlfCfmYLkuK3kvKTlrrNi5Lyk5a6z6KKt5Ye7YQA=",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          0,
+          0,
+          2
+        ],
+        "zero_reasons": [
+          {
+            "index": 0,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          },
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-38",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA0AAAA8J+ZgvCfmYLwn5mC6a2U5rOV5pq05Ye7YeaatOWHu2Lwn5mC5pS75Ye75pS75Ye78J+ZggA=",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA0AAAA8J+ZgvCfmYLwn5mC6a2U5rOV54iG54K4YeeIhueCuGLwn5mC6KKt5Ye76KKt5Ye78J+ZggA=",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          2,
+          0,
+          2
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-39",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAtAAAA5pS75Ye78J+ZgmHkuK3prZTms5XmmrTlh7vkuK3prZTms5VhYvCfmYLwn5mCAA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAtAAAA6KKt5Ye78J+ZgmHkuK3prZTms5XniIbngrjkuK3prZTms5VhYvCfmYLwn5mCAA==",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1,
+          0,
+          1
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-40",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAkAAAA8J+ZgmFh8J+ZgmLkuK3mmrTlh7vwn5mCYvCfmYLmlLvlh7thAA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAkAAAA8J+ZgmFh8J+ZgmLkuK3niIbngrjwn5mCYvCfmYLooq3lh7thAA==",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1,
+          0,
+          1
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-41",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA4AAAA5Lit5LitYeaUu+WHu+aatOWHu+mtlOazleS8pOWus+aUu+WHu/CfmYLkvKTlrrPkuK3mlLvlh7sA",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA4AAAA5Lit5LitYeiireWHu+eIhueCuOmtlOazleS8pOWus+iireWHu/CfmYLkvKTlrrPkuK3ooq3lh7sA",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1,
+          0,
+          3
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-42",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA2AAAA5Lit5pS75Ye75pS75Ye76a2U5rOV5Lyk5a6z6a2U5rOV5pS75Ye7YuaatOWHu2HmlLvlh7thAA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA2AAAA5Lit6KKt5Ye76KKt5Ye76a2U5rOV5Lyk5a6z6a2U5rOV6KKt5Ye7YueIhueCuGHooq3lh7thAA==",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1,
+          0,
+          4
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-43",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAtAAAAYWJhYmLmmrTlh7vkvKTlrrPmlLvlh7vmlLvlh7vprZTms5XmlLvlh7vwn5mCAA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAADgAAAAtAAAAYWJhYmLmmrTlh7vkvKTlrrPmlLvlh7vmlLvlh7vprZTms5XmlLvlh7vwn5mCAAAAJwAAAGFiYWJi5q+B54Gt6KKt5Ye76KKt5Ye76a2U5rOV6KKt5Ye78J+ZggA=",
+        "stats": {
+          "inplace": 0,
+          "appended": 1,
+          "bytes_appended": 46,
+          "kana_skipped": 0
+        },
+        "hits": [
+          0,
+          1,
+          3
+        ],
+        "zero_reasons": [
+          {
+            "index": 0,
+            "reason": "匹配位置与更高优先级的原文匹配重叠，已保留优先规则。",
+            "example": "ababb暴击伤害攻击攻击魔法攻击🙂",
+            "table": "LocalizeDBSchema"
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-44",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA2AAAA5Lit5pS75Ye7YeaUu+WHu+aUu+WHu+S4reS8pOWus/CfmYLkuK3mlLvlh7vwn5mC5pq05Ye7AA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA2AAAA5Lit6KKt5Ye7YeiireWHu+iireWHu+S4reS8pOWus/CfmYLkuK3ooq3lh7vwn5mC54iG54K4AA==",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1,
+          0,
+          4
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-45",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAArAAAA5LitYuaUu+WHu2Hwn5mCYeaatOWHu+aUu+WHu/CfmYLmlLvlh7vwn5mCYgA=",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAArAAAA5LitYuiireWHu2Hwn5mCYeeIhueCuOiireWHu/CfmYLooq3lh7vwn5mCYgA=",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1,
+          0,
+          3
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-46",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAtAAAAYWLprZTms5Vh5Lyk5a6zYvCfmYLmlLvlh7vkvKTlrrPmlLvlh7th6a2U5rOVAA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAtAAAAYWLprZTms5Vh5Lyk5a6zYvCfmYLooq3lh7vkvKTlrrPooq3lh7th6a2U5rOVAA==",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          0,
+          0,
+          2
+        ],
+        "zero_reasons": [
+          {
+            "index": 0,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          },
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-47",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAwAAAA5Lyk5a6z5LitYmHkvKTlrrPkuK3kvKTlrrPkuK1i5pq05Ye75Lyk5a6z5Lyk5a6zAA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAADwAAAAwAAAA5Lyk5a6z5LitYmHkvKTlrrPkuK3kvKTlrrPkuK1i5pq05Ye75Lyk5a6z5Lyk5a6zAAAAACoAAADkvKTlrrPkuK1iYeS8pOWus+S4reS8pOWus+S4rWLmr4Hnga3kvKTlrrMA",
+        "stats": {
+          "inplace": 0,
+          "appended": 1,
+          "bytes_appended": 50,
+          "kana_skipped": 0
+        },
+        "hits": [
+          0,
+          1,
+          0
+        ],
+        "zero_reasons": [
+          {
+            "index": 0,
+            "reason": "匹配位置与更高优先级的原文匹配重叠，已保留优先规则。",
+            "example": "伤害中ba伤害中伤害中b暴击伤害伤害",
+            "table": "LocalizeDBSchema"
+          },
+          {
+            "index": 2,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-48",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA9AAAA5pq05Ye75Lit5pS75Ye75pq05Ye75pq05Ye75Lit5Lyk5a6zYemtlOazleaatOWHu+aatOWHu+S8pOWuswA=",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAEgAAAA9AAAA5pq05Ye75Lit5pS75Ye75pq05Ye75pq05Ye75Lit5Lyk5a6zYemtlOazleaatOWHu+aatOWHu+S8pOWuswAAADcAAADniIbngrjkuK3ooq3lh7vniIbngrjniIbngrjkuK3kvKTlrrNh6a2U5rOV54iG54K45q+B54GtAA==",
+        "stats": {
+          "inplace": 0,
+          "appended": 1,
+          "bytes_appended": 62,
+          "kana_skipped": 0
+        },
+        "hits": [
+          4,
+          1,
+          1
+        ],
+        "zero_reasons": []
+      }
+    },
+    {
+      "name": "seeded-49",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAqAAAA5pS75Ye7YeaUu+WHu2LmmrTlh7vmmrTlh7ti5pq05Ye7YmLmmrTlh7thAA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAqAAAA6KKt5Ye7YeiireWHu2LniIbngrjniIbngrhi54iG54K4YmLniIbngrhhAA==",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          4,
+          0,
+          2
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-50",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA0AAAA5Lit8J+ZgumtlOazleS8pOWus2HkuK3wn5mC5pS75Ye75pq05Ye75pq05Ye7YuS8pOWuswA=",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA0AAAA5Lit8J+ZgumtlOazleS8pOWus2HkuK3wn5mC6KKt5Ye754iG54K454iG54K4YuS8pOWuswA=",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          2,
+          0,
+          1
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-51",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA2AAAA6a2U5rOV5Lit5Lit5pS75Ye76a2U5rOV5pS75Ye7YeaatOWHu/CfmYLprZTms5Vh5pS75Ye7AA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA2AAAA6a2U5rOV5Lit5Lit6KKt5Ye76a2U5rOV6KKt5Ye7YeeIhueCuPCfmYLprZTms5Vh6KKt5Ye7AA==",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1,
+          0,
+          3
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-52",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA0AAAA5Lyk5a6z5pq05Ye76a2U5rOV5pq05Ye78J+ZguS4reS4rfCfmYJi5Lyk5a6z8J+ZguS4rQA=",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA0AAAA5Lyk5a6z54iG54K46a2U5rOV54iG54K48J+ZguS4reS4rfCfmYJi5Lyk5a6z8J+ZguS4rQA=",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          2,
+          0,
+          0
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          },
+          {
+            "index": 2,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-53",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA7AAAA5Lit5pq05Ye7YeS8pOWus2LkvKTlrrPprZTms5XmmrTlh7vmmrTlh7vkvKTlrrPmlLvlh7vprZTms5UA",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAEQAAAA7AAAA5Lit5pq05Ye7YeS8pOWus2LkvKTlrrPprZTms5XmmrTlh7vmmrTlh7vkvKTlrrPmlLvlh7vprZTms5UANQAAAOS4reeIhueCuGHkvKTlrrNi5Lyk5a6z6a2U5rOV54iG54K45q+B54Gt6KKt5Ye76a2U5rOVAA==",
+        "stats": {
+          "inplace": 0,
+          "appended": 1,
+          "bytes_appended": 58,
+          "kana_skipped": 0
+        },
+        "hits": [
+          2,
+          1,
+          1
+        ],
+        "zero_reasons": []
+      }
+    },
+    {
+      "name": "seeded-54",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA2AAAAYuaUu+WHu+S8pOWus+aatOWHu+aatOWHu+S4rfCfmYLprZTms5XkuK3mmrTlh7ti5Lyk5a6zAA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA2AAAAYuiireWHu+S8pOWus+eIhueCuOeIhueCuOS4rfCfmYLprZTms5XkuK3niIbngrhi5Lyk5a6zAA==",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          3,
+          0,
+          1
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-55",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAwAAAA5Lit5pq05Ye75Lit5pq05Ye75Lyk5a6zYeaUu+WHu2LmmrTlh7vkvKTlrrPkuK1hAA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAADwAAAAwAAAA5Lit5pq05Ye75Lit5pq05Ye75Lyk5a6zYeaUu+WHu2LmmrTlh7vkvKTlrrPkuK1hAAAAACQAAADkuK3niIbngrjkuK3mr4Hnga1h6KKt5Ye7YuavgeeBreS4rWEA",
+        "stats": {
+          "inplace": 0,
+          "appended": 1,
+          "bytes_appended": 44,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1,
+          2,
+          1
+        ],
+        "zero_reasons": []
+      }
+    },
+    {
+      "name": "seeded-56",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAxAAAA5Lit5Lyk5a6z5Lyk5a6z5LitYeaUu+WHu2Ji5Lyk5a6z6a2U5rOV5pS75Ye78J+ZggA=",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAxAAAA5Lit5Lyk5a6z5Lyk5a6z5LitYeiireWHu2Ji5Lyk5a6z6a2U5rOV6KKt5Ye78J+ZggA=",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          0,
+          0,
+          2
+        ],
+        "zero_reasons": [
+          {
+            "index": 0,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          },
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-57",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAuAAAAYeS8pOWus2Fh5Lyk5a6zYfCfmYLwn5mC5pS75Ye76a2U5rOV8J+ZguS8pOWuswA=",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAuAAAAYeS8pOWus2Fh5Lyk5a6zYfCfmYLwn5mC6KKt5Ye76a2U5rOV8J+ZguS8pOWuswA=",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          0,
+          0,
+          1
+        ],
+        "zero_reasons": [
+          {
+            "index": 0,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          },
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-58",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA1AAAA5Lyk5a6z5Lit5pq05Ye75LitYWLkvKTlrrPmmrTlh7vmmrTlh7vkvKTlrrPmlLvlh7vkuK0A",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAEAAAAA1AAAA5Lyk5a6z5Lit5pq05Ye75LitYWLkvKTlrrPmmrTlh7vmmrTlh7vkvKTlrrPmlLvlh7vkuK0AAAAvAAAA5Lyk5a6z5Lit54iG54K45LitYWLkvKTlrrPniIbngrjmr4Hnga3ooq3lh7vkuK0A",
+        "stats": {
+          "inplace": 0,
+          "appended": 1,
+          "bytes_appended": 54,
+          "kana_skipped": 0
+        },
+        "hits": [
+          2,
+          1,
+          1
+        ],
+        "zero_reasons": []
+      }
+    },
+    {
+      "name": "seeded-59",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAjAAAAYeS4reS4reS4remtlOazleaUu+WHu2LmmrTlh7vkuK1iYWIA",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAjAAAAYeS4reS4reS4remtlOazleiireWHu2LniIbngrjkuK1iYWIA",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1,
+          0,
+          1
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-60",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA3AAAA6a2U5rOV5Lyk5a6zYeS8pOWus+aUu+WHu+mtlOazleaUu+WHu/CfmYLmlLvlh7vmmrTlh7thYQA=",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA3AAAA6a2U5rOV5Lyk5a6zYeS8pOWus+iireWHu+mtlOazleiireWHu/CfmYLooq3lh7vniIbngrhhYQA=",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1,
+          0,
+          3
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-61",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA1AAAA6a2U5rOV8J+ZgvCfmYLkuK3prZTms5XkuK1h8J+ZgvCfmYLmlLvlh7vprZTms5XmmrTlh7sA",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA1AAAA6a2U5rOV8J+ZgvCfmYLkuK3prZTms5XkuK1h8J+ZgvCfmYLooq3lh7vprZTms5XniIbngrgA",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1,
+          0,
+          1
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-62",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAzAAAA5Lyk5a6z5Lyk5a6z5Lit5pq05Ye75Lyk5a6z5LitYuS8pOWus2Lwn5mC6a2U5rOV5LitAA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAADwAAAAzAAAA5Lyk5a6z5Lyk5a6z5Lit5pq05Ye75Lyk5a6z5LitYuS8pOWus2Lwn5mC6a2U5rOV5LitAC0AAADkvKTlrrPkvKTlrrPkuK3mr4Hnga3kuK1i5Lyk5a6zYvCfmYLprZTms5XkuK0A",
+        "stats": {
+          "inplace": 0,
+          "appended": 1,
+          "bytes_appended": 50,
+          "kana_skipped": 0
+        },
+        "hits": [
+          0,
+          1,
+          0
+        ],
+        "zero_reasons": [
+          {
+            "index": 0,
+            "reason": "匹配位置与更高优先级的原文匹配重叠，已保留优先规则。",
+            "example": "伤害伤害中暴击伤害中b伤害b🙂魔法中",
+            "table": "LocalizeDBSchema"
+          },
+          {
+            "index": 2,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-63",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAkAAAA5LitYeS4rWHkvKTlrrNh5Lit5pq05Ye75pq05Ye7YmHwn5mCAA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAkAAAA5LitYeS4rWHkvKTlrrNh5Lit54iG54K454iG54K4YmHwn5mCAA==",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          2,
+          0,
+          0
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          },
+          {
+            "index": 2,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-64",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAxAAAA8J+ZguS4rWLmlLvlh7vkvKTlrrNh5pq05Ye75pq05Ye75pS75Ye75Lyk5a6zYuS4rQA=",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAxAAAA8J+ZguS4rWLooq3lh7vkvKTlrrNh54iG54K454iG54K46KKt5Ye75Lyk5a6zYuS4rQA=",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          2,
+          0,
+          2
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-65",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAABBAAAA5Lyk5a6z5Lyk5a6z8J+ZgumtlOazlemtlOazleS8pOWus+aatOWHu2LmmrTlh7vprZTms5XmlLvlh7vmmrTlh7sA",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAABBAAAA5Lyk5a6z5Lyk5a6z8J+ZgumtlOazlemtlOazleS8pOWus+eIhueCuGLniIbngrjprZTms5Xooq3lh7vniIbngrgA",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          3,
+          0,
+          1
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-66",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA5AAAA5Lit5pq05Ye75Lit5pq05Ye75pS75Ye76a2U5rOV8J+ZgmHmmrTlh7vwn5mC5pS75Ye75pS75Ye7AA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA5AAAA5Lit54iG54K45Lit54iG54K46KKt5Ye76a2U5rOV8J+ZgmHniIbngrjwn5mC6KKt5Ye76KKt5Ye7AA==",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          3,
+          0,
+          3
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-67",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAqAAAA8J+ZgmJhYWHprZTms5XmlLvlh7vmmrTlh7th5Lit5pq05Ye75pq05Ye7AA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAqAAAA8J+ZgmJhYWHprZTms5Xooq3lh7vniIbngrhh5Lit54iG54K454iG54K4AA==",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          3,
+          0,
+          1
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-68",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAkAAAA5pq05Ye7YWHmmrTlh7tiYWLkuK3kuK3mlLvlh7th5Lyk5a6zAA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAkAAAA54iG54K4YWHniIbngrhiYWLkuK3kuK3ooq3lh7th5Lyk5a6zAA==",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          2,
+          0,
+          1
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-69",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAxAAAAYeS8pOWus2HmlLvlh7vprZTms5Vh5Lit5pq05Ye75Lit8J+ZguaatOWHu+aatOWHuwA=",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAxAAAAYeS8pOWus2Hooq3lh7vprZTms5Vh5Lit54iG54K45Lit8J+ZgueIhueCuOeIhueCuAA=",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          3,
+          0,
+          1
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-70",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA+AAAA5pq05Ye75Lit5pS75Ye76a2U5rOV6a2U5rOVYeaUu+WHu+aUu+WHu+aUu+WHu+S8pOWus+mtlOazlfCfmYIA",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA+AAAA54iG54K45Lit6KKt5Ye76a2U5rOV6a2U5rOVYeiireWHu+iireWHu+iireWHu+S8pOWus+mtlOazlfCfmYIA",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1,
+          0,
+          4
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-71",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA4AAAA8J+ZguaUu+WHu+aatOWHu+S4reaUu+WHu+aatOWHu2HprZTms5XkvKTlrrPkuK3kuK3mlLvlh7sA",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA4AAAA8J+ZguiireWHu+eIhueCuOS4reiireWHu+eIhueCuGHprZTms5XkvKTlrrPkuK3kuK3ooq3lh7sA",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          2,
+          0,
+          3
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-72",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA6AAAAYuS8pOWus+mtlOazlfCfmYLmlLvlh7vmlLvlh7vmlLvlh7th6a2U5rOV5pS75Ye76a2U5rOV8J+ZggA=",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA6AAAAYuS8pOWus+mtlOazlfCfmYLooq3lh7vooq3lh7vooq3lh7th6a2U5rOV6KKt5Ye76a2U5rOV8J+ZggA=",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          0,
+          0,
+          4
+        ],
+        "zero_reasons": [
+          {
+            "index": 0,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          },
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-73",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAsAAAAYuaUu+WHu2HkuK3mmrTlh7ti5pq05Ye75Lit8J+ZguS8pOWus2HprZTms5UA",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAsAAAAYuiireWHu2HkuK3niIbngrhi54iG54K45Lit8J+ZguS8pOWus2HprZTms5UA",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          2,
+          0,
+          1
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-74",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAABEAAAA5pq05Ye75pq05Ye78J+ZgvCfmYLmlLvlh7vkvKTlrrPprZTms5XkvKTlrrPprZTms5XmlLvlh7vmmrTlh7vkvKTlrrMA",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAFAAAABEAAAA5pq05Ye75pq05Ye78J+ZgvCfmYLmlLvlh7vkvKTlrrPprZTms5XkvKTlrrPprZTms5XmlLvlh7vmmrTlh7vkvKTlrrMAAAAAPgAAAOeIhueCuOeIhueCuPCfmYLwn5mC6KKt5Ye75Lyk5a6z6a2U5rOV5Lyk5a6z6a2U5rOV6KKt5Ye75q+B54GtAA==",
+        "stats": {
+          "inplace": 0,
+          "appended": 1,
+          "bytes_appended": 70,
+          "kana_skipped": 0
+        },
+        "hits": [
+          2,
+          1,
+          2
+        ],
+        "zero_reasons": []
+      }
+    },
+    {
+      "name": "seeded-75",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA3AAAA6a2U5rOV5Lyk5a6zYuS8pOWus+aUu+WHu+mtlOazlWHprZTms5Vi5pq05Ye76a2U5rOV8J+ZggA=",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA3AAAA6a2U5rOV5Lyk5a6zYuS8pOWus+iireWHu+mtlOazlWHprZTms5Vi54iG54K46a2U5rOV8J+ZggA=",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          1,
+          0,
+          1
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-76",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA4AAAA5pS75Ye75Lit5pq05Ye76a2U5rOV5pS75Ye75LitYuS8pOWus+aatOWHu2HmmrTlh7vmmrTlh7sA",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA4AAAA6KKt5Ye75Lit54iG54K46a2U5rOV6KKt5Ye75LitYuS8pOWus+eIhueCuGHniIbngrjniIbngrgA",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          4,
+          0,
+          2
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-77",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAqAAAA5pq05Ye75Lit5pq05Ye7YumtlOazleS4reS8pOWus+S4rWJi5Lit5LitAA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAAqAAAA54iG54K45Lit54iG54K4YumtlOazleS4reS8pOWus+S4rWJi5Lit5LitAA==",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          2,
+          0,
+          0
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          },
+          {
+            "index": 2,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-78",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA2AAAA5pS75Ye7YeS4remtlOazleaatOWHu/CfmYJi5Lit6a2U5rOV5pq05Ye76a2U5rOV5pS75Ye7AA==",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA2AAAA6KKt5Ye7YeS4remtlOazleeIhueCuPCfmYJi5Lit6a2U5rOV54iG54K46a2U5rOV6KKt5Ye7AA==",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          2,
+          0,
+          2
+        ],
+        "zero_reasons": [
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "seeded-79",
+      "request": {
+        "op": "blob",
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA6AAAAYuaUu+WHu+aUu+WHu/CfmYLprZTms5Xwn5mC5pS75Ye75Lyk5a6zYemtlOazleS8pOWus+aUu+WHuwA=",
+        "rules": [
+          {
+            "old": "暴击",
+            "new": "爆炸",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "暴击伤害",
+            "new": "毁灭",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          },
+          {
+            "old": "攻击",
+            "new": "袭击",
+            "mode": "sub",
+            "source": "-",
+            "table": ""
+          }
+        ],
+        "table": "LocalizeDBSchema",
+        "overrides": {},
+        "options": {
+          "skip_kana": true,
+          "ascii_exact": true,
+          "explain": true
+        }
+      },
+      "expected": {
+        "blob": "DAAAAAYACAAEAAAACAAAAAQAAAA6AAAAYuiireWHu+iireWHu/CfmYLprZTms5Xwn5mC6KKt5Ye75Lyk5a6zYemtlOazleS8pOWus+iireWHuwA=",
+        "stats": {
+          "inplace": 1,
+          "appended": 0,
+          "bytes_appended": 0,
+          "kana_skipped": 0
+        },
+        "hits": [
+          0,
+          0,
+          4
+        ],
+        "zero_reasons": [
+          {
+            "index": 0,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          },
+          {
+            "index": 1,
+            "reason": "在所选来源中没有找到符合匹配方式的原文。可在“查找”核对原词和来源。",
+            "example": "",
+            "table": ""
+          }
+        ]
+      }
+    }
+  ]
+}

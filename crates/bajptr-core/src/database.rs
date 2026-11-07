@@ -1,0 +1,786 @@
+use crate::{
+    Control, Result,
+    fields::{self, BlobStats},
+    invalid,
+    rules::{Evidence, Miss, Rules, View},
+};
+use rusqlite::{
+    Connection, OpenFlags,
+    types::{Value, ValueRef},
+};
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::HashMap,
+    fs::File,
+    io::{BufWriter, Write},
+    path::{Path, PathBuf},
+};
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum RowId {
+    Integer(i64),
+    Text(String),
+}
+impl RowId {
+    fn from_sql(v: ValueRef<'_>) -> Result<Self> {
+        match v {
+            ValueRef::Integer(i) => Ok(Self::Integer(i)),
+            ValueRef::Text(t) => Ok(Self::Text(
+                std::str::from_utf8(t)
+                    .map_err(|_| invalid("记录 ID 不是有效文本。"))?
+                    .into(),
+            )),
+            _ => Err(invalid("记录 ID 必须是整数或文本。")),
+        }
+    }
+    fn value(&self) -> Value {
+        match self {
+            Self::Integer(i) => Value::Integer(*i),
+            Self::Text(s) => Value::Text(s.clone()),
+        }
+    }
+    pub fn display(&self) -> String {
+        match self {
+            Self::Integer(i) => i.to_string(),
+            Self::Text(s) => s.clone(),
+        }
+    }
+}
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TextEdit {
+    pub table: String,
+    pub row_id: RowId,
+    pub slot: usize,
+    pub original: String,
+    pub replacement: String,
+}
+#[derive(Debug, Clone, Serialize)]
+pub struct Change {
+    pub kind: String,
+    pub table: String,
+    pub row_id: RowId,
+    pub slot: usize,
+    pub original: String,
+    pub before: String,
+    pub after: String,
+}
+#[derive(Debug, Default, Serialize)]
+pub struct Stats {
+    pub rows_seen: u64,
+    pub rows_changed: u64,
+    pub fields_changed: u64,
+    pub inplace: u64,
+    pub appended: u64,
+    pub bytes_appended: u64,
+    pub kana_skipped: u64,
+    pub parse_failed: u64,
+    pub tables: Vec<String>,
+    pub hits: Vec<u64>,
+    pub zero_reasons: Vec<Miss>,
+    pub added: u64,
+    pub updated: u64,
+    pub reverted: u64,
+    pub changes: Vec<Change>,
+}
+#[derive(Debug, Deserialize)]
+pub struct Options {
+    #[serde(default = "yes")]
+    pub skip_kana: bool,
+    #[serde(default = "yes")]
+    pub ascii_exact: bool,
+    #[serde(default)]
+    pub explain: bool,
+    #[serde(default = "default_tables")]
+    pub tables: String,
+    #[serde(default)]
+    pub edits: Vec<TextEdit>,
+}
+fn yes() -> bool {
+    true
+}
+pub fn default_tables() -> String {
+    "Localize|Dialog|Scenario|Subtitle|Talk|Mail|Name|Emoji|Voice|Messanger|SNSProfile".into()
+}
+fn quote(name: &str) -> String {
+    format!("\"{}\"", name.replace('"', "\"\""))
+}
+fn key_name(con: &Connection, table: &str) -> Result<&'static str> {
+    if con
+        .prepare(&format!(
+            "SELECT rowid, Bytes FROM {} ORDER BY 1",
+            quote(table)
+        ))
+        .is_ok()
+    {
+        Ok("rowid")
+    } else {
+        con.prepare(&format!(
+            "SELECT Key, Bytes FROM {} ORDER BY 1",
+            quote(table)
+        ))?;
+        Ok("Key")
+    }
+}
+pub fn tables(con: &Connection, pattern: &str) -> Result<Vec<String>> {
+    let regex = regex::RegexBuilder::new(pattern)
+        .case_insensitive(true)
+        .build()
+        .map_err(|_| invalid("文本表筛选表达式无效或不受支持。"))?;
+    let mut query =
+        con.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")?;
+    let names = query
+        .query_map([], |r| r.get::<_, String>(0))?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    Ok(names.into_iter().filter(|n| regex.is_match(n)).collect())
+}
+
+pub struct Database {
+    pub con: Connection,
+    pub in_memory: bool,
+    _temporary: Option<tempfile::TempDir>,
+}
+impl Database {
+    pub fn open(
+        path: &Path,
+        encrypted: bool,
+        key: &[u8; 32],
+        max_bytes: u64,
+        control: &Control<'_>,
+    ) -> Result<Self> {
+        let temporary = if encrypted {
+            Some(tempfile::tempdir()?)
+        } else {
+            None
+        };
+        let plain = if let Some(tmp) = &temporary {
+            let plain = tmp.path().join("read.db");
+            crate::codec::decrypt(path, &plain, key, control)?;
+            plain
+        } else {
+            path.to_path_buf()
+        };
+        let con = Connection::open_with_flags(&plain, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        if plain.metadata()?.len() <= max_bytes {
+            let mut memory = Connection::open_in_memory()?;
+            {
+                let backup = rusqlite::backup::Backup::new(&con, &mut memory)?;
+                loop {
+                    control.check()?;
+                    if matches!(backup.step(256)?, rusqlite::backup::StepResult::Done) {
+                        break;
+                    }
+                }
+            }
+            memory.execute_batch("PRAGMA query_only=ON; PRAGMA cache_size=-8192;")?;
+            drop(con);
+            drop(temporary);
+            Ok(Self {
+                con: memory,
+                in_memory: true,
+                _temporary: None,
+            })
+        } else {
+            con.execute_batch("PRAGMA query_only=ON;")?;
+            Ok(Self {
+                con,
+                in_memory: false,
+                _temporary: temporary,
+            })
+        }
+    }
+}
+
+pub fn patch_blob(
+    blob: &[u8],
+    rules: &Rules,
+    view: &View,
+    evidence: &mut Evidence,
+    options: &Options,
+    overrides: &HashMap<usize, String>,
+) -> Result<(Option<Vec<u8>>, BlobStats)> {
+    let fields = fields::parse(blob, options.ascii_exact || !overrides.is_empty())?;
+    let mut shared = HashMap::new();
+    if !overrides.is_empty() {
+        for f in &fields {
+            *shared.entry(f.spos).or_insert(0usize) += 1;
+        }
+    }
+    let mut out: Option<Vec<u8>> = None;
+    let mut stats = BlobStats::default();
+    let mut appended: HashMap<(usize, String), usize> = HashMap::new();
+    for f in &fields {
+        let explicit = overrides.get(&f.slot);
+        if explicit.is_some() {
+            view.skipped(rules, f.text, evidence, true)?;
+        }
+        if explicit.is_none() && options.skip_kana && fields::has_kana(f.text) {
+            stats.kana_skipped += 1;
+            view.skipped(rules, f.text, evidence, false)?;
+            continue;
+        }
+        let new = if let Some(s) = explicit {
+            Some(s.clone())
+        } else if fields::has_cjk(f.text) {
+            view.apply(rules, f.text, evidence, false)?
+        } else if options.ascii_exact {
+            view.apply(rules, f.text, evidence, true)?
+        } else {
+            None
+        };
+        let Some(new) = new else {
+            continue;
+        };
+        if new == f.text {
+            continue;
+        }
+        if new.len() > fields::MAX_STRING || fields::forbidden(&new) {
+            return Err(invalid("替换文字过长或包含控制字符。"));
+        }
+        let b = out.get_or_insert_with(|| blob.to_vec());
+        if new.len() == f.text.len() && shared.get(&f.spos).copied().unwrap_or(0) <= 1 {
+            b[f.spos + 4..f.spos + 4 + new.len()].copy_from_slice(new.as_bytes());
+            stats.inplace += 1;
+        } else {
+            let key = (f.spos, new.clone());
+            if let Some(&spos) = appended.get(&key) {
+                b[f.fpos..f.fpos + 4].copy_from_slice(&((spos - f.fpos) as u32).to_le_bytes());
+                stats.appended += 1;
+                continue;
+            }
+            let pad = (4 - b.len() % 4) % 4;
+            b.resize(b.len() + pad, 0);
+            let spos = b.len();
+            b.extend_from_slice(&(new.len() as u32).to_le_bytes());
+            b.extend_from_slice(new.as_bytes());
+            b.push(0);
+            let offset = u32::try_from(spos - f.fpos)
+                .map_err(|_| invalid("FlatBuffer 偏移超出支持范围。"))?;
+            b[f.fpos..f.fpos + 4].copy_from_slice(&offset.to_le_bytes());
+            appended.insert(key, spos);
+            stats.appended += 1;
+            stats.bytes_appended += (pad + 4 + new.len() + 1) as u64;
+        }
+    }
+    Ok((out, stats))
+}
+
+type Targets = HashMap<(String, RowId), HashMap<usize, String>>;
+pub type CurrentOverrides = Targets;
+
+pub fn current_overrides(
+    original: &Connection,
+    current: &Connection,
+    pattern: &str,
+    limit: usize,
+    control: &Control<'_>,
+) -> Result<Option<CurrentOverrides>> {
+    let names = tables(original, pattern)?;
+    if tables(current, pattern)? != names {
+        return Err(invalid("当前游戏文本表与底稿不同，请检查游戏资源后重试。"));
+    }
+    let mut output = HashMap::new();
+    let mut used = 0;
+    for table in &names {
+        let key = key_name(original, table)?;
+        let mut left = original.prepare(&format!(
+            "SELECT {key},Bytes FROM {} ORDER BY 1",
+            quote(table)
+        ))?;
+        let mut rows = left.query([])?;
+        let key = key_name(current, table)?;
+        let mut right = current.prepare(&format!(
+            "SELECT {key},Bytes FROM {} ORDER BY 1",
+            quote(table)
+        ))?;
+        let mut live = right.query([])?;
+        let mut count = 0;
+        while let Some(row) = rows.next()? {
+            if count % 128 == 0 {
+                control.check()?;
+            }
+            count += 1;
+            let now = live
+                .next()?
+                .ok_or_else(|| invalid("当前游戏记录与底稿不同，无法可靠比较。"))?;
+            let rid = RowId::from_sql(row.get_ref(0)?)?;
+            if RowId::from_sql(now.get_ref(0)?)? != rid {
+                return Err(invalid("当前游戏记录与底稿不同，无法可靠比较。"));
+            }
+            let old = row
+                .get_ref(1)?
+                .as_blob()
+                .map_err(|_| invalid("底稿文本记录格式无效。"))?;
+            let now = now
+                .get_ref(1)?
+                .as_blob()
+                .map_err(|_| invalid("当前游戏文本记录格式无效。"))?;
+            if old == now {
+                continue;
+            }
+            let old = fields::parse(old, true)?;
+            let now = fields::parse(now, true)?;
+            if old.len() != now.len() || old.iter().zip(&now).any(|(a, b)| a.slot != b.slot) {
+                return Err(invalid("当前游戏字段与底稿不同，无法可靠比较。"));
+            }
+            let changed: HashMap<_, _> = old
+                .iter()
+                .zip(now)
+                .filter(|(a, b)| a.text != b.text)
+                .map(|(_, b)| (b.slot, b.text.to_string()))
+                .collect();
+            if !changed.is_empty() {
+                used += 200
+                    + changed
+                        .values()
+                        .map(|s| s.chars().count() * 4 + 200)
+                        .sum::<usize>();
+                if used > limit {
+                    return Ok(None);
+                }
+                output.insert((table.clone(), rid), changed);
+            }
+        }
+        if live.next()?.is_some() {
+            return Err(invalid("当前游戏存在底稿之外的记录，无法可靠比较。"));
+        }
+    }
+    Ok(Some(output))
+}
+fn targets(con: &Connection, edits: &[TextEdit], tables: &[String]) -> Result<Targets> {
+    let mut result = HashMap::new();
+    for edit in edits {
+        if !tables.contains(&edit.table) {
+            return Err(invalid("单条修改的来源表已不存在，请重新查找对应记录。"));
+        }
+        if edit.replacement.len() > fields::MAX_STRING || fields::forbidden(&edit.replacement) {
+            return Err(invalid("单条修改文字过长或包含控制字符。"));
+        }
+        let key = key_name(con, &edit.table)?;
+        let sql = format!("SELECT Bytes FROM {} WHERE {key}=?", quote(&edit.table));
+        let blob: Vec<u8> = con
+            .query_row(&sql, [edit.row_id.value()], |r| r.get(0))
+            .map_err(|_| invalid("单条修改对应的记录已不存在，请重新查找。"))?;
+        let fields = fields::parse(&blob, true)?;
+        if fields.iter().find(|f| f.slot == edit.slot).map(|f| f.text)
+            != Some(edit.original.as_str())
+        {
+            return Err(invalid(
+                "单条修改的底稿原文已变化，请重新查找；未改动游戏。",
+            ));
+        }
+        let slots = result
+            .entry((edit.table.clone(), edit.row_id.clone()))
+            .or_insert_with(HashMap::new);
+        if slots.insert(edit.slot, edit.replacement.clone()).is_some() {
+            return Err(invalid("同一段文本有重复修改，请保留一项。"));
+        }
+    }
+    Ok(result)
+}
+
+fn sample(text: &str) -> String {
+    let mut chars = text.chars();
+    let out: String = chars.by_ref().take(8000).collect();
+    if chars.next().is_some() {
+        out + "…（文本过长，仅显示前8000字）"
+    } else {
+        out
+    }
+}
+fn compare(
+    stats: &mut Stats,
+    table: &str,
+    rid: &RowId,
+    original: &[u8],
+    before: &[u8],
+    new: Option<&[u8]>,
+) -> Result<()> {
+    if original == before && new.is_none() {
+        return Ok(());
+    }
+    let old = fields::parse(original, true)?;
+    let before = fields::parse(before, true)?;
+    let after = fields::parse(new.unwrap_or(original), true)?;
+    if old.len() != before.len()
+        || old.len() != after.len()
+        || old.iter().zip(&before).any(|(a, b)| a.slot != b.slot)
+        || old.iter().zip(&after).any(|(a, b)| a.slot != b.slot)
+    {
+        return Err(invalid("游戏字段结构发生变化，无法可靠比较。"));
+    }
+    for ((original, before), after) in old.iter().zip(before).zip(after) {
+        if before.text == after.text {
+            continue;
+        }
+        let kind = if after.text == original.text {
+            stats.reverted += 1;
+            "撤销"
+        } else if before.text == original.text {
+            stats.added += 1;
+            "新增"
+        } else {
+            stats.updated += 1;
+            "调整"
+        };
+        if stats.changes.len() < 200 {
+            stats.changes.push(Change {
+                kind: kind.into(),
+                table: table.into(),
+                row_id: rid.clone(),
+                slot: after.slot,
+                original: sample(original.text),
+                before: sample(before.text),
+                after: sample(after.text),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn compare_override(
+    stats: &mut Stats,
+    table: &str,
+    rid: &RowId,
+    blob: &[u8],
+    new: Option<&[u8]>,
+    overrides: &HashMap<usize, String>,
+) -> Result<()> {
+    if overrides.is_empty() && new.is_none() {
+        return Ok(());
+    }
+    let original = fields::parse(blob, true)?;
+    let after = fields::parse(new.unwrap_or(blob), true)?;
+    if original.len() != after.len() || original.iter().zip(&after).any(|(a, b)| a.slot != b.slot) {
+        return Err(invalid("游戏字段结构发生变化，无法可靠比较。"));
+    }
+    for (original, after) in original.iter().zip(after) {
+        let before = overrides
+            .get(&original.slot)
+            .map(String::as_str)
+            .unwrap_or(original.text);
+        if before == after.text {
+            continue;
+        }
+        let kind = if after.text == original.text {
+            stats.reverted += 1;
+            "撤销"
+        } else if before == original.text {
+            stats.added += 1;
+            "新增"
+        } else {
+            stats.updated += 1;
+            "调整"
+        };
+        if stats.changes.len() < 200 {
+            stats.changes.push(Change {
+                kind: kind.into(),
+                table: table.into(),
+                row_id: rid.clone(),
+                slot: after.slot,
+                original: sample(original.text),
+                before: sample(before),
+                after: sample(after.text),
+            });
+        }
+    }
+    Ok(())
+}
+
+pub fn patch_database(
+    con: &Connection,
+    current: Option<&Connection>,
+    comparison: Option<&CurrentOverrides>,
+    rules: &Rules,
+    options: &Options,
+    write: bool,
+    control: &Control<'_>,
+) -> Result<Stats> {
+    let todo = tables(con, &options.tables)?;
+    rules.validate_tables(&todo)?;
+    if let Some(current) = current
+        && tables(current, &options.tables)? != todo
+    {
+        return Err(invalid("当前游戏文本表与底稿不同，请检查游戏资源后重试。"));
+    }
+    let targets = targets(con, &options.edits, &todo)?;
+    let mut stats = Stats {
+        tables: todo.clone(),
+        ..Default::default()
+    };
+    let mut evidence = Evidence::new(rules.values.len(), options.explain);
+    let empty = HashMap::new();
+    if write {
+        con.execute_batch("BEGIN IMMEDIATE; CREATE TEMP TABLE _bajptr_updates (Bytes BLOB, rid);")?;
+    }
+    let result = (|| -> Result<()> {
+        for (index, table) in todo.iter().enumerate() {
+            control.log(&format!("检查文本表 {}/{}：{table}", index + 1, todo.len()))?;
+            let view = rules.view(table);
+            let key = match key_name(con, table) {
+                Ok(k) => k,
+                Err(_) => {
+                    stats.parse_failed += 1;
+                    continue;
+                }
+            };
+            let sql = format!("SELECT {key}, Bytes FROM {} ORDER BY 1", quote(table));
+            let mut query = con.prepare(&sql)?;
+            let mut rows = query.query([])?;
+            let mut current_query = if let Some(current) = current {
+                let key = key_name(current, table)?;
+                Some(current.prepare(&format!(
+                    "SELECT {key}, Bytes FROM {} ORDER BY 1",
+                    quote(table)
+                ))?)
+            } else {
+                None
+            };
+            let mut live = if let Some(query) = &mut current_query {
+                Some(query.query([])?)
+            } else {
+                None
+            };
+            let mut row_count = 0u64;
+            while let Some(row) = rows.next()? {
+                if row_count.is_multiple_of(128) {
+                    control.check()?;
+                }
+                row_count += 1;
+                stats.rows_seen += 1;
+                let rid = RowId::from_sql(row.get_ref(0)?)?;
+                let live_row = if let Some(live) = &mut live {
+                    let row = live
+                        .next()?
+                        .ok_or_else(|| invalid("当前游戏记录与底稿不同，无法可靠比较。"))?;
+                    if RowId::from_sql(row.get_ref(0)?)? != rid {
+                        return Err(invalid("当前游戏记录与底稿不同，无法可靠比较。"));
+                    }
+                    Some(row)
+                } else {
+                    None
+                };
+                let blob = match row.get_ref(1)? {
+                    ValueRef::Blob(b) if b.len() >= 16 => b,
+                    ValueRef::Null => continue,
+                    _ => {
+                        stats.parse_failed += 1;
+                        continue;
+                    }
+                };
+                let overrides = targets.get(&(table.clone(), rid.clone())).unwrap_or(&empty);
+                let (new, bs) =
+                    match patch_blob(blob, rules, &view, &mut evidence, options, overrides) {
+                        Ok(v) => v,
+                        Err(e @ crate::Error::Regex(_)) => return Err(e),
+                        Err(_) => {
+                            stats.parse_failed += 1;
+                            continue;
+                        }
+                    };
+                stats.kana_skipped += bs.kana_skipped;
+                if let Some(new) = &new {
+                    stats.rows_changed += 1;
+                    stats.fields_changed += bs.inplace + bs.appended;
+                    stats.inplace += bs.inplace;
+                    stats.appended += bs.appended;
+                    stats.bytes_appended += bs.bytes_appended;
+                    if write {
+                        con.execute(
+                            "INSERT INTO _bajptr_updates VALUES (?,?)",
+                            rusqlite::params![new, rid.value()],
+                        )?;
+                    }
+                }
+                if options.explain {
+                    if let Some(comparison) = comparison {
+                        compare_override(
+                            &mut stats,
+                            table,
+                            &rid,
+                            blob,
+                            new.as_deref(),
+                            comparison
+                                .get(&(table.clone(), rid.clone()))
+                                .unwrap_or(&empty),
+                        )?;
+                    } else {
+                        let before = if let Some(live) = live_row {
+                            live.get_ref(1)?
+                                .as_blob()
+                                .map_err(|_| invalid("当前游戏文本记录类型不同。"))?
+                        } else {
+                            blob
+                        };
+                        compare(&mut stats, table, &rid, blob, before, new.as_deref())?;
+                    }
+                }
+            }
+            if let Some(live) = &mut live
+                && live.next()?.is_some()
+            {
+                return Err(invalid("当前游戏存在底稿之外的记录，无法可靠比较。"));
+            }
+            drop(rows);
+            drop(query);
+            if write {
+                let mut updates = con.prepare("SELECT Bytes, rid FROM _bajptr_updates")?;
+                let mut pending = updates.query([])?;
+                let mut update = con.prepare(&format!(
+                    "UPDATE {} SET Bytes=? WHERE {key}=?",
+                    quote(table)
+                ))?;
+                while let Some(row) = pending.next()? {
+                    control.check()?;
+                    update.execute(rusqlite::params![
+                        row.get::<_, Vec<u8>>(0)?,
+                        row.get::<_, Value>(1)?
+                    ])?;
+                }
+                drop(pending);
+                drop(updates);
+                drop(update);
+                con.execute("DELETE FROM _bajptr_updates", [])?;
+            }
+        }
+        if write && stats.parse_failed > 0 {
+            return Err(invalid(format!(
+                "{} 条记录或来源表无法解析，已停止生成，未发布补丁。请检查资源格式。",
+                stats.parse_failed
+            )));
+        }
+        Ok(())
+    })();
+    if write {
+        if result.is_ok() {
+            con.execute_batch("DROP TABLE _bajptr_updates; COMMIT;")?;
+        } else {
+            let _ = con.execute_batch("ROLLBACK;");
+        }
+    }
+    result?;
+    stats.hits = evidence.hits.clone();
+    stats.zero_reasons = evidence.zero_reasons();
+    Ok(stats)
+}
+
+pub type TextRow = (String, RowId, usize, String);
+pub fn scan(
+    con: &Connection,
+    pattern: &str,
+    keyword: &str,
+    limit: usize,
+    control: &Control<'_>,
+) -> Result<(Vec<TextRow>, u64)> {
+    let mut found = Vec::new();
+    let mut total = 0;
+    for table in tables(con, pattern)? {
+        control.log(&format!("扫描文本表：{table}"))?;
+        let key = match key_name(con, &table) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let mut query = con.prepare(&format!(
+            "SELECT {key},Bytes FROM {} ORDER BY 1",
+            quote(&table)
+        ))?;
+        let mut rows = query.query([])?;
+        let mut count = 0;
+        while let Some(row) = rows.next()? {
+            if count % 128 == 0 {
+                control.check()?;
+            }
+            count += 1;
+            let Ok(blob) = row.get_ref(1)?.as_blob() else {
+                continue;
+            };
+            if !keyword.is_empty() && !blob.windows(keyword.len()).any(|b| b == keyword.as_bytes())
+            {
+                continue;
+            }
+            let Ok(fields) = fields::parse(blob, false) else {
+                continue;
+            };
+            for field in fields {
+                if field.text.contains(keyword) {
+                    total += 1;
+                    if found.len() < limit {
+                        found.push((
+                            table.clone(),
+                            RowId::from_sql(row.get_ref(0)?)?,
+                            field.slot,
+                            field.text.into(),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    Ok((found, total))
+}
+
+pub fn export(
+    con: &Connection,
+    pattern: &str,
+    destination: &Path,
+    control: &Control<'_>,
+) -> Result<u64> {
+    std::fs::create_dir_all(destination)?;
+    let mut total = 0;
+    for table in tables(con, pattern)? {
+        control.log(&format!("导出来源表：{table}"))?;
+        if table.chars().any(|c| "<>:\"/\\|?*".contains(c))
+            || PathBuf::from(&table).file_name().is_none()
+        {
+            return Err(invalid("来源表名称不能作为导出文件名。"));
+        }
+        let key = match key_name(con, &table) {
+            Ok(k) => k,
+            Err(_) => continue,
+        };
+        let mut query = con.prepare(&format!(
+            "SELECT {key},Bytes FROM {} ORDER BY 1",
+            quote(&table)
+        ))?;
+        let mut rows = query.query([])?;
+        let mut output: Option<BufWriter<File>> = None;
+        let mut count = 0;
+        while let Some(row) = rows.next()? {
+            if count % 128 == 0 {
+                control.check()?;
+            }
+            count += 1;
+            let Ok(blob) = row.get_ref(1)?.as_blob() else {
+                continue;
+            };
+            let Ok(fields) = fields::parse(blob, false) else {
+                continue;
+            };
+            for field in fields {
+                if output.is_none() {
+                    let mut file =
+                        BufWriter::new(File::create(destination.join(format!("{table}.tsv")))?);
+                    file.write_all(b"rowid\tfield\ttext\n")?;
+                    output = Some(file);
+                }
+                let text = field
+                    .text
+                    .replace('\r', "\\r")
+                    .replace('\n', "\\n")
+                    .replace('\t', "\\t");
+                writeln!(
+                    output.as_mut().unwrap(),
+                    "{}\t{}\t{}",
+                    RowId::from_sql(row.get_ref(0)?)?.display(),
+                    field.slot,
+                    text
+                )?;
+                total += 1;
+            }
+        }
+        if let Some(mut file) = output {
+            file.flush()?;
+        }
+    }
+    Ok(total)
+}

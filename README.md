@@ -1,97 +1,123 @@
-# bajptr — 蔚蓝档案日服（JP）译名替换工具
+# BA-JPTR · 蔚蓝档案日服译名替换
 
-从 [BATR](https://github.com/Agent-0808/BA-Term-Replacer)（GL 服）移植的日服版本。
-CLI 形态一致（patch / backup / restore / scan / export / paths），差异在于：
+版本：0.3.2
 
-* **密钥**：日服密钥 `a74336c7...`（完整值见 `src/bajptr/config.py`，可用 `--key` 覆盖）
-* **库路径**：日服库名是 `<表哈希>_<crc32>`（每次更新都变），必须先从
-  `BlueArchive_Data/StreamingAssets/TableBundles/Catalog/TableCatalog.bytes` 读 `ExcelDB.db` 条目的
-  size/crc，再据此找到磁盘文件
-* **加解密**：不依赖 `sqlcipher3`（Windows 上没有 wheel），改用纯 Python 的页级
-  AES-256-CBC + HMAC-SHA512 实现（`crypt.py`），实测 53,054 页全量 HMAC 校验通过
-* **安装**：`--install` 不改原库，而是写出 `<同前缀>_<新crc>` 并把 catalog 的 size/crc
-  同步改掉（汉化补丁用的就是这套机制，已实测游戏内生效）；`restore` 可一键还原
+在已有汉化的基础上，把人名、道具名、技能用语和句子改成你习惯的叫法。支持统一替换、只改一段文本，以及选中多段一起改。
 
-## 安装
+本工具很大程度受到 [Agent-0808](https://github.com/Agent-0808) 开发的 [BA-Term-Replacer（BATR）](https://github.com/Agent-0808/BA-Term-Replacer) 启发，文本字段处理参考并移植了原项目的相关实现，再结合日服资源布局与图形界面使用场景进行调整。感谢作者公开思路与实现，也感谢相关社区项目的贡献。
 
-```powershell
-pip install pycryptodome
-$env:PYTHONPATH = "$PWD\src"      # 或者 pip install -e .
-```
+## 适用范围
 
-## 用法
+> **仅适用于已安装汉化补丁的日服 PC 客户端。原始日服（未安装汉化补丁）未测试。**
 
-```powershell
-# 看探测到的路径
-python -m bajptr paths --game-dir E:\YostarGames\BlueArchive_JP
+- 运行平台：Windows x64；已在 Windows 11 x64 验证。
+- 国际服、手机端不支持；贴图中的文字无法修改。
+- 本工具不提供汉化补丁，也不负责把原始日文自动翻译成中文。请先安装好你使用的日服汉化补丁，再调整其中的译名。
 
-# 备份 catalog（安装前的安全网，几 KB）
-python -m bajptr backup --game-dir E:\YostarGames\BlueArchive_JP
+## 能做什么
 
-# 先空跑：只统计命中，不写任何文件
-python -m bajptr patch --game-dir E:\YostarGames\BlueArchive_JP --glossary glossary\example.tsv --dry-run
+- **统一译名**：把某个人名、道具名或技能用语换成喜欢的叫法。
+- **限定来源**：按中文用途名称选择来源表，支持多选、筛选和反选。
+- **单条与批量修改**：双击查找结果编辑整段，或选中多段一起替换。
+- **不用手写正则**：通过模板完成多个叫法统一、只改开头或结尾等操作。
+- **先看结果再应用**：预览实际变化，确认后才修改游戏；也可只生成补丁。
+- **随时重新调整**：从初始底稿重新生成，保留词表，并支持恢复游戏文本。
 
-# 输出到 output/（不碰游戏目录）
-python -m bajptr patch --game-dir E:\YostarGames\BlueArchive_JP --glossary glossary\example.tsv --verify
+## 下载与启动
 
-# 真正装进游戏（自动备份 catalog + 同步 size/crc）
-python -m bajptr patch --game-dir E:\YostarGames\BlueArchive_JP --glossary glossary\example.tsv --install --verify
+在本仓库的 [Releases](https://github.com/Azusadeath/BA-JPTR/releases) 页面下载 Windows x64 ZIP 发行包，完整解压后双击 **bajptr.exe**。普通用户无需下载源码，也不需要安装 Rust、Python 或其他开发环境。
 
-# 还原
-python -m bajptr restore --game-dir E:\YostarGames\BlueArchive_JP --backup backup\<时间戳>
-```
+发行包包含程序、README.txt 和必要许可文件，不包含汉化补丁或游戏资源。
 
-## 词表格式
+## 第一次使用
 
-TSV，UTF-8，空行与 `#` 注释忽略：
+1. 先安装好日服汉化补丁，再将工具 ZIP 完整解压到可写的文件夹，双击 **bajptr.exe**。
+2. 点击 **选择文件夹**，选择包含 **BlueArchive_Data** 的游戏安装目录。
+3. 出现“设置初始底稿”时，确认当前汉化文本是你想保留的起点，再点击 **设为初始底稿**。
+4. 在“替换”页点击 **添加词条**，填写原文字和替换内容，通常选择 **包含文字**，然后保存。
+5. 点击 **预览替换**，检查结果。退出游戏后，点击 **应用到游戏**。操作完成后重新进入游戏查看。
 
-```
-旧词<TAB>新词                # mode 缺省 exact：整字段相等才替换
-旧词<TAB>新词<TAB>sub        # 子串替换（同一字段内全部命中，最长优先）
-旧词<TAB>新词<TAB>re         # 正则替换（旧词列是正则，新词列可含 \1 反向引用）
-旧词<TAB>新词<TAB>exact<TAB>来源  # 第四列只是备注，会进命中日志
-```
+例如：原文字填“暴击”，替换为填“爆炸”，“暴击伤害”会变成“爆炸伤害”。
+修改会自动保存，但只有 **应用到游戏** 才会改变游戏文本。
 
-运行结束会打印每条规则的命中数：**零命中优先排查**（拼错、词条已过期、或该文本不在被扫描的表里）。
+请完整保留解压后的文件，不要单独移动 bajptr.exe，也不要直接在压缩包里运行。
 
-## 已知边界
+## 怎样选择替换方式
 
-* 含平/片假名的字段默认跳过（`--keep-kana` 可关）——那是没被汉化覆盖的残留日文
-* 纯 ASCII 字段只做整字段匹配，避免误伤资源路径（`UIs/03_Scenario/...`）
-* 剧情/字幕在 `ScenarioScriptDBSchema`、`CharacterDialogSubtitleDBSchema` 等表里，表名正则已覆盖
-* 游戏更新会重下库与 catalog，改完要重打
-* 星级/图片类 UI 文本不在库里（是贴图），本工具改不到
+- **包含文字**：改掉句子中出现的某个词，适合统一人名、道具名或技能用语。
+- **整段相同**：只有整段文本完全一致才修改，适合避免改到其他句子。
+- **正则模板**：点击 **正则模板…**，按说明填写文字即可。提供多个叫法统一、只替换开头、只替换结尾、替换两段文字之间、改名称并保留数字等模板。
 
-## 日服事实（逆向结论，2026-11 实测）
+替换内容留空会删除匹配的文字，请先检查预览。
 
-| 项 | 值 |
-|---|---|
-| 密钥 | `a74336c72d78fb60cd9a8ad9b74bddea14af94dd7c331cee49732841fdc68498`（来源 `https://ba.zmkimu.com/jp`） |
-| 加密参数 | SQLCipher 4：page 4096 / reserve 80 / IV 16 / HMAC-SHA512 64 / KDF PBKDF2-SHA512(salt^0x3A, 2 轮) |
-| 页面布局 | page1 = salt(16) + cipher(4000) + IV(16) + HMAC(64)；其余页 = cipher(4016) + IV(16) + HMAC(64)；HMAC 输入不含 salt，含 4 字节小端页号 |
-| 库文件 | `TableBundles\<前缀>_<crc32>`（本机 6993339912994747134_2795825953，217,309,184 B / 53,054 页；前缀不是名字的 xxh64，保持不变即可） |
-| catalog | `TableBundles\Catalog\TableCatalog.bytes`（MemoryPack，1,030,502 B，15 条）；`ExcelDB.db` 条目 size 在名字首次出现位置 +29、crc 在 +37（各 8 字节小端） |
-| `TableCatalog.hash` | 内容是版本号（本机 `1168298209`），不是校验和，改库时不要动 |
-| 表名 | `LocalizeDBSchema` / `LocalizeErrorDBSchema` / `CharacterDialogSubtitleDBSchema` / `ScenarioScriptDBSchema`(423,986 行) / `AcademyMessangerDBSchema` 等；BATR 的表名正则命中 56 张 |
-| blob | FlatBuffer：root uoffset → vtable → 各字段 uoffset → `[u32 长度][UTF-8][0x00]`；同一条里可能并存中文与韩文 |
+## 只改指定来源或指定文本
 
-> BATR 的「CRC32 追加修正」在日服无效（`docs/HOW_IT_WORKS.md:309`、`:349` 已预判）：日服 catalog 记录文件大小，只能走改 catalog 的路径。
+只改某些来源：添加或编辑词条时点击 **选择来源表…**，按中文名称选择需要的表。支持多选、全选和反选；筛选后的操作只影响当前可见项。
+选择 **不限来源** 才表示全部来源；清空勾选不等于不限范围。
 
-## 验证记录
+只改一段：切换到 **查找**，输入底稿中原来的文字并查找，双击结果，编辑完整文本并保存，再预览、应用。
 
-在本机 `E:\YostarGames\BlueArchive_JP`（汉化补丁版，库内文本是中文+韩文，无日文）逐项跑过：
+选中多段一起改：在查找结果里用 **Ctrl 点选**、**Shift 连选**，点击 **替换选中文本**，填写要替换的词，预览并保存，再应用到游戏。只修改实际选中的结果。
 
-| 环节 | 结果 |
-|---|---|
-| `paths` | 定位到 `_2795825953`，53,054 页 |
-| `--dry-run` | 464 张表 → 命中 56 张文本表，rows=577,381，changed=1,576 / fields=1,587，kana_skipped=29,150 |
-| 等长替换 + `--verify` | 输出 `<前缀>_<新crc>`，回读 `integrity_check = ok` |
-| 变长替换 | appended=1,587 / +133,084 B，库 217,309,184 → 218,824,704 B（53,424 页），`integrity ok` |
-| `--install` | catalog size/crc 同步；新库 53,424 页 HMAC 0 失败 |
-| `restore --prune` | catalog 与库文件均回到原状态 |
-| `scan` / `export` | 关键词 297 处命中 / 单表导出 416 条 TSV |
-| 端到端 | 早期手工版把 1,628 处「任务」改成「测试」，**进游戏后界面显示「测试」** → 客户端不校验库完整性、不回滚 catalog |
+单条修改优先于通用词条；如果某段文本不再跟随词表变化，可在 **单条修改** 中检查或移除对应记录。
 
-## 许可
+## 改过的词，怎样再次调整
 
-`flatbuf.py` 移植自 BATR（GPL-3.0），本仓库同样以 GPL-3.0 分发。
+直接编辑原词条，重新预览、应用即可。每次都会从初始底稿重新生成。
+
+例如：先把“暴击”改成“爆炸”，以后想改成“袭击”，只需把该词条改为“暴击 → 袭击”，不必填写“爆炸 → 袭击”。
+移除词条后再次应用，会撤销该词条原先产生的效果。
+
+同一轮替换不会接着修改新生成的文字。若同时设置“暴击 → 爆炸”和“暴击伤害 → 毁灭”，原文“暴击伤害”会得到“毁灭”。
+
+## 游戏更新与恢复
+
+**初始底稿**是你确认保存时的游戏文本，包含当时已安装的汉化和其他修改。
+
+游戏或汉化更新后，先完成资源更新，再打开工具。发现资源变化时会提示更新底稿；确认后才保存，新底稿校验成功后才移出旧底稿。
+点 **暂不更新** 会保留原底稿；准备好后点击 **检查底稿** 继续。新版底稿保存完成后，需要重新预览并应用词表。
+游戏版本变化后，旧版的单条修改记录会保留但不直接套用，请重新查找对应文本进行修改。
+
+想撤销游戏中的全部替换：退出游戏，打开 **恢复** 页，点击 **恢复底稿**。词表和单条修改记录会保留，但尚未重新应用。
+**撤销 / 重做** 用于本次打开期间的词表和单条修改；要让调整反映到游戏中，仍需重新应用。
+
+## 导入、导出与保留数据
+
+- **导入词表**：读取 TSV 词表。导入会替换当前词表，已有内容建议先用 **导出词表** 保存。
+- **导出词表**：保存自己的词表，便于分享或备份。
+- **仅生成补丁**：只保存补丁文件，不会应用到游戏。一般使用直接选择 **预览替换 → 应用到游戏**。
+
+工具会在自身目录保存数据：**.gui** 存放词表、设置和单条修改，**backup** 存放初始底稿，**output** 存放生成结果。
+备份或迁移时，请保留整个工具文件夹，尤其不要删除 .gui 和 backup。
+更新工具时先退出旧程序，再将新版文件覆盖到原工具目录，保留自己的 .gui 和 backup。
+
+## 常见问题
+
+**目录选了却不能连接？**
+选择包含 BlueArchive_Data 的上一级游戏目录，不要选择 BlueArchive_Data 本身或启动器目录。确认日服资源已下载完整，再点击“检查底稿”。
+
+**为什么没有命中，或有些文本没变？**
+查找和词条要使用初始底稿里的原文。检查匹配方式、来源表，以及是否存在优先级更高的单条修改。
+默认勾选“跳过含日文假名的文本”，需要修改这类文本时可取消勾选。贴图中的文字无法修改。
+
+**为什么应用后游戏里没变化？**
+确认点击的是“应用到游戏”，而不是“仅生成补丁”；确认选择了正在使用的游戏目录，并重新启动游戏。
+
+**提示底稿丢失、损坏，或资源不一致？**
+先保留现有工具文件夹和 backup，查看“运行详情”。不要把已经替换过的资源重新当作初始底稿；可找回备份，或通过游戏修复资源后重新检查。
+
+**首次打开或保存底稿需要等待？**
+首次保存、资源更新、生成和恢复需要校验完整资源，请等待界面显示完成。正常编辑词条会自动保存。
+
+## 许可与致谢
+
+本工具按 **GPL-3.0-only** 许可开源，详见 [LICENSE](LICENSE)。
+
+- [Agent-0808](https://github.com/Agent-0808) / [BA-Term-Replacer](https://github.com/Agent-0808/BA-Term-Replacer)：本工具的重要启发来源，提供文本字段处理的参考与移植基础。
+- [alisns1/blue-archive-gl-simplified](https://github.com/alisns1/blue-archive-gl-simplified)：上游项目所基于的早期实现，保留其 MIT 许可与署名。
+- [egui / eframe](https://github.com/emilk/egui)、[Noto CJK](https://github.com/notofonts/noto-cjk) 及其他开源依赖：提供图形界面、字体和底层组件。
+- 制作日服汉化补丁与分享资源处理经验的社区贡献者。
+
+完整第三方声明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 和 licenses 文件夹。
+
+开发、构建及数据格式说明见 [开发文档](docs/DEVELOPMENT.md)。

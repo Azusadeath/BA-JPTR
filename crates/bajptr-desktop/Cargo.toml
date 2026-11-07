@@ -1,0 +1,19 @@
+[package]
+name = "bajptr-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+bajptr-core = { path = "../bajptr-core" }
+bajptr-project = { path = "../bajptr-project" }
+serde.workspace = true
+serde_json.workspace = true
+eframe = { version = "0.37", default-features = false, features = ["glow", "default_fonts", "accesskit"] }
+egui_extras = "0.37"
+rfd = "0.16"
+bajptr-brand = { path = "../bajptr-brand" }
+
+[build-dependencies]
+bajptr-brand = { path = "../bajptr-brand", features = ["resource"] }
+

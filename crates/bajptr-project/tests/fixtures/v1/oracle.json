@@ -1,0 +1,104 @@
+{
+  "oracle": "Python implementation, BAJPTR_ENGINE=python",
+  "preview": {
+    "rows_seen": 3,
+    "rows_changed": 1,
+    "fields_changed": 1,
+    "inplace": 0,
+    "appended": 1,
+    "bytes_appended": 30,
+    "kana_skipped": 1,
+    "parse_failed": 0,
+    "added": 1,
+    "updated": 0,
+    "reverted": 0,
+    "tables": [
+      "LocalizeDBSchema"
+    ],
+    "rule_hits": [
+      [
+        "阿罗娜",
+        "阿洛娜同学",
+        "sub",
+        "测试",
+        "",
+        1
+      ],
+      [
+        "任务",
+        "委托",
+        "sub",
+        "测试",
+        "",
+        1
+      ]
+    ],
+    "changes": [
+      {
+        "kind": "新增",
+        "table": "LocalizeDBSchema",
+        "row_id": 1,
+        "slot": 0,
+        "original": "阿罗娜的任务",
+        "before": "阿罗娜的任务",
+        "after": "阿洛娜同学的委托"
+      }
+    ],
+    "zero_reasons": []
+  },
+  "version": "bdc728aa800b1162e04955244a7977ff6411defbca5178f8307786cfa0581101",
+  "fingerprint": "e1668fea3456305b5faea26ee8ece19237b0fe71781aad82f33ff400475837e7",
+  "templates": [
+    {
+      "key": "aliases",
+      "values": [
+        "阿罗娜；阿洛娜",
+        "阿萝娜"
+      ],
+      "old": "(?:阿罗娜|阿洛娜)",
+      "new": "阿萝娜",
+      "sample": "阿罗娜与阿洛娜正在交谈。"
+    },
+    {
+      "key": "prefix",
+      "values": [
+        "任务",
+        "委托"
+      ],
+      "old": "\\A任务",
+      "new": "委托",
+      "sample": "任务完成后，领取任务奖励。"
+    },
+    {
+      "key": "suffix",
+      "values": [
+        "老师",
+        "先生"
+      ],
+      "old": "老师\\Z",
+      "new": "先生",
+      "sample": "欢迎回来，老师"
+    },
+    {
+      "key": "between",
+      "values": [
+        "【",
+        "】",
+        "限时活动"
+      ],
+      "old": "(【)[^\\r\\n]*?(】)",
+      "new": "\\g<1>限时活动\\g<2>",
+      "sample": "查看【夏日庆典】详情。"
+    },
+    {
+      "key": "number",
+      "values": [
+        "任务",
+        "委托"
+      ],
+      "old": "任务([0-9０-９]+)",
+      "new": "委托\\g<1>",
+      "sample": "任务12完成，任务３解锁。"
+    }
+  ]
+}
