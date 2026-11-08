@@ -407,8 +407,8 @@ impl Desktop {
                     self.table_detail=Some(self.tables.iter().find(|v|v["name"]==row["table"]).cloned().unwrap_or(json!({"name":row["table"],"label":row["label"]})));
                 }
                 ui.colored_label(MUTED,format!("已选 {selected} 条（Ctrl 多选，Shift 连选）"));
+                ui.colored_label(MUTED,if self.search.is_null(){"输入文字后点击「查找」".into()}else{format!("已加载 {} / {} 处，双击可编辑完整文本",rows.len(),count(&self.search,"total"))});
             });
-            ui.colored_label(MUTED,if self.search.is_null(){"输入文字后点击「查找」".into()}else{format!("已加载 {} / {} 处，双击可编辑完整文本",rows.len(),count(&self.search,"total"))});
         });
         let width = ui.available_width() - 12.;
         let widths = [width - 380., 180., 90., 110.];
