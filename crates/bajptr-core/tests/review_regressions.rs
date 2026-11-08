@@ -230,14 +230,32 @@ fn search_pages_cover_all_matches_and_keep_source_table_filtering_exact() {
         .unwrap();
     }
     let (first, total) =
-        database::scan_page(&con, "Localize|Skill", "攻击", 2, 0, &ctl()).unwrap();
+        database::scan_page(&con, "Localize|Skill", "攻击", 2, 0, false, &ctl()).unwrap();
     let (second, total_again) =
-        database::scan_page(&con, "Localize|Skill", "攻击", 2, 2, &ctl()).unwrap();
-    assert_eq!((first.len(), second.len(), total, total_again), (2, 2, 5, 5));
+        database::scan_page(&con, "Localize|Skill", "攻击", 2, 2, false, &ctl()).unwrap();
+    assert_eq!(
+        (first.len(), second.len(), total, total_again),
+        (2, 2, 5, 5)
+    );
     let (localize, local_total) =
-        database::scan_page(&con, "^(?:LocalizeDBSchema)$", "攻击", 10, 0, &ctl()).unwrap();
+        database::scan_page(&con, "^(?:LocalizeDBSchema)$", "攻击", 10, 0, false, &ctl()).unwrap();
     assert_eq!(local_total, 3);
     assert!(localize.iter().all(|row| row.0 == "LocalizeDBSchema"));
+}
+
+#[test]
+fn search_skip_kana_matches_the_replacement_option() {
+    let con = Connection::open_in_memory().unwrap();
+    con.execute_batch("CREATE TABLE LocalizeDBSchema(Id INTEGER PRIMARY KEY, Bytes BLOB)")
+        .unwrap();
+    con.execute(
+        "INSERT INTO LocalizeDBSchema VALUES (1,?)",
+        [blob(&["攻撃", "ｱｲﾃﾑ攻撃"])],
+    )
+    .unwrap();
+    let (rows, total) = database::scan_page(&con, "Localize", "攻撃", 10, 0, true, &ctl()).unwrap();
+    assert_eq!(total, 1);
+    assert_eq!(rows[0].3, "攻撃");
 }
 
 #[test]

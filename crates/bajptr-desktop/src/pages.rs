@@ -396,17 +396,6 @@ impl Desktop {
                 if secondary(ui,true,"单条修改").clicked() { self.show_edits=true; }
                 ui.colored_label(MUTED,format!("已选 {selected} 条（Ctrl 多选，Shift 连选）"));
             });
-            if !self.search.is_null()
-                && rows.len() < count(&self.search, "total") as usize
-                && secondary(ui, self.busy.is_none(), "加载更多").clicked()
-            {
-                self.submit(
-                    "search_more",
-                    json!({"keyword":text(&self.search,"keyword"),"source":text(&self.search,"source"),"offset":rows.len()}),
-                    "正在加载更多搜索结果…",
-                    true,
-                );
-            }
             ui.colored_label(MUTED,if self.search.is_null(){"输入文字后点击「查找」。".into()}else{format!("已加载 {} / {} 处。双击可编辑完整文本。",rows.len(),count(&self.search,"total"))});
         });
         let width = ui.available_width() - 12.;
@@ -460,6 +449,17 @@ impl Desktop {
                                 }
                             }
                         });
+                }
+                if !self.search.is_null()
+                    && rows.len() < count(&self.search, "total") as usize
+                    && secondary(ui, self.busy.is_none(), "加载更多").clicked()
+                {
+                    self.submit(
+                        "search_more",
+                        json!({"keyword":text(&self.search,"keyword"),"source":text(&self.search,"source"),"offset":rows.len()}),
+                        "正在加载更多搜索结果…",
+                        true,
+                    );
                 }
             });
     }

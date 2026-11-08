@@ -262,6 +262,7 @@ impl Engine {
         tables: &str,
         limit: usize,
         offset: usize,
+        skip_kana: bool,
         control: &Control<'_>,
     ) -> Result<(Value, String)> {
         if keyword.trim().is_empty() {
@@ -274,13 +275,13 @@ impl Engine {
         } else {
             format!("^(?:{})$", regex::escape(tables))
         };
-        let key = format!("{keyword}\0{tables}\0{limit}\0{offset}");
+        let key = format!("{keyword}\0{tables}\0{limit}\0{offset}\0{skip_kana}");
         let value = if let Some((_, value)) = self.scans.iter().find(|(k, _)| k == &key) {
             value.clone()
         } else {
             let value = execute(
                 &mut self.session,
-                json!({"op":"scan","keyword":keyword,"tables":table_pattern,"limit":limit,"offset":offset}),
+                json!({"op":"scan","keyword":keyword,"tables":table_pattern,"limit":limit,"offset":offset,"skip_kana":skip_kana}),
                 control,
             )?;
             remember(&mut self.scans, key, value.clone(), 8);

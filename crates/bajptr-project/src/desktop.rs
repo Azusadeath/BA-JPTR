@@ -447,6 +447,7 @@ impl Project {
                     source,
                     500,
                     offset,
+                    self.skip,
                     control,
                 )?;
                 control.check()?;
