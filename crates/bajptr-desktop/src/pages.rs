@@ -434,45 +434,66 @@ impl Desktop {
                         },
                     );
                 } else {
+                    let has_more = rows.len() < count(&self.search, "total") as usize;
                     egui::ScrollArea::vertical()
                         .auto_shrink([false, false])
                         .max_height((ui.available_height() - 48.).max(80.))
-                        .show_rows(ui, ROW_HEIGHT, rows.len(), |ui, range| {
-                            for i in range {
-                                let row = &rows[i];
-                                let values = [
-                                    text(row, "text").replace('\n', " [换行] "),
-                                    text(row, "label"),
-                                    format!("{}:{}", row["row_id"], row["slot"]).replace('"', ""),
-                                    text(row, "state"),
-                                ];
-                                let response = data_row(
-                                    ui,
-                                    i,
-                                    self.selection.rows.contains(&i),
-                                    &values,
-                                    &widths,
-                                );
-                                if response.clicked() {
-                                    let modifiers = ui.input(|i| i.modifiers);
-                                    self.selection.click(i, modifiers.ctrl, modifiers.shift);
+                        .show_rows(
+                            ui,
+                            ROW_HEIGHT,
+                            rows.len() + usize::from(has_more),
+                            |ui, range| {
+                                for i in range {
+                                    if has_more && i == rows.len() {
+                                        ui.allocate_ui_with_layout(
+                                            egui::vec2(ui.available_width(), ROW_HEIGHT),
+                                            egui::Layout::centered_and_justified(
+                                                egui::Direction::LeftToRight,
+                                            ),
+                                            |ui| {
+                                                if secondary(ui, self.busy.is_none(), "加载更多")
+                                                    .clicked()
+                                                {
+                                                    self.submit(
+                                                        "search_more",
+                                                        json!({
+                                                            "keyword":text(&self.search,"keyword"),
+                                                            "source":text(&self.search,"source"),
+                                                            "offset":rows.len()
+                                                        }),
+                                                        "正在加载更多搜索结果…",
+                                                        true,
+                                                    );
+                                                }
+                                            },
+                                        );
+                                        continue;
+                                    }
+                                    let row = &rows[i];
+                                    let values = [
+                                        text(row, "text").replace('\n', " [换行] "),
+                                        text(row, "label"),
+                                        format!("{}:{}", row["row_id"], row["slot"])
+                                            .replace('"', ""),
+                                        text(row, "state"),
+                                    ];
+                                    let response = data_row(
+                                        ui,
+                                        i,
+                                        self.selection.rows.contains(&i),
+                                        &values,
+                                        &widths,
+                                    );
+                                    if response.clicked() {
+                                        let modifiers = ui.input(|i| i.modifiers);
+                                        self.selection.click(i, modifiers.ctrl, modifiers.shift);
+                                    }
+                                    if response.double_clicked() && !self.write_busy() {
+                                        self.open_text(i);
+                                    }
                                 }
-                                if response.double_clicked() && !self.write_busy() {
-                                    self.open_text(i);
-                                }
-                            }
-                        });
-                }
-                if !self.search.is_null()
-                    && rows.len() < count(&self.search, "total") as usize
-                    && secondary(ui, self.busy.is_none(), "加载更多").clicked()
-                {
-                    self.submit(
-                        "search_more",
-                        json!({"keyword":text(&self.search,"keyword"),"source":text(&self.search,"source"),"offset":rows.len()}),
-                        "正在加载更多搜索结果…",
-                        true,
-                    );
+                            },
+                        );
                 }
             });
     }
