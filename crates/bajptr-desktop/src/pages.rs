@@ -309,6 +309,7 @@ impl Desktop {
             });
     }
     pub fn search_page(&mut self, ui: &mut egui::Ui) {
+        ui.spacing_mut().item_spacing.y = 6.;
         ui.horizontal(|ui| {
             ui.label("底稿原文");
             ui.add_sized(
@@ -398,7 +399,7 @@ impl Desktop {
         let search = self.search.clone();
         let rows = slice(&search, "rows");
         egui::Frame::new()
-            .inner_margin(egui::Margin::symmetric(0, 8))
+            .inner_margin(egui::Margin::symmetric(0, 2))
             .show(ui, |ui| {
             ui.horizontal_wrapped(|ui|{let selected=self.selection.rows.len();
                 if selected == 0 {
@@ -444,7 +445,7 @@ impl Desktop {
                     let has_more = rows.len() < count(&self.search, "total") as usize;
                     egui::ScrollArea::vertical()
                         .auto_shrink([false, false])
-                        .max_height((ui.available_height() - 48.).max(80.))
+                        .max_height(ui.available_height().max(80.))
                         .show_rows(
                             ui,
                             ROW_HEIGHT,
@@ -454,10 +455,12 @@ impl Desktop {
                                     if has_more && i == rows.len() {
                                         ui.allocate_ui_with_layout(
                                             egui::vec2(ui.available_width(), ROW_HEIGHT),
-                                            egui::Layout::centered_and_justified(
-                                                egui::Direction::LeftToRight,
-                                            ),
+                                            egui::Layout::left_to_right(egui::Align::Center),
                                             |ui| {
+                                                let inset = (ui.available_width()
+                                                    - action_width(ui, "加载更多"))
+                                                    * 0.5;
+                                                ui.add_space(inset.max(0.));
                                                 if secondary(ui, self.busy.is_none(), "加载更多")
                                                     .clicked()
                                                 {
