@@ -123,7 +123,7 @@ pub fn execute(session: &mut Session, v: Value, control: &Control<'_>) -> Result
                 .unwrap_or(&database::default_tables())
         )?)),
         "scan" => {
-            let (rows, total) = database::scan_page(
+            let page = database::scan_page_with_sources(
                 connection(session)?,
                 v.get("tables")
                     .and_then(Value::as_str)
@@ -134,7 +134,7 @@ pub fn execute(session: &mut Session, v: Value, control: &Control<'_>) -> Result
                 v.get("skip_kana").and_then(Value::as_bool).unwrap_or(false),
                 control,
             )?;
-            Ok(json!({"rows":rows,"total":total}))
+            Ok(serde_json::to_value(page)?)
         }
         "export" => Ok(
             json!({"count":database::export(connection(session)?,v.get("tables").and_then(Value::as_str).unwrap_or(&database::default_tables()),Path::new(text(&v,"destination")?),control)?}),

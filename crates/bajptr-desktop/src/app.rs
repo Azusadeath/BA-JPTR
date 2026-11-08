@@ -252,6 +252,7 @@ impl Desktop {
         }
         if game_changed {
             self.batch_scope = None;
+            self.search_source.clear();
             self.rule_selection = None;
             self.search = Value::Null.into();
             self.selection.clear();
@@ -260,7 +261,10 @@ impl Desktop {
             self.confirm_baseline = None;
             self.baseline_check = Value::Null;
         }
-        if let Some(search) = value.get("search").filter(|v| !v.is_null()) {
+        if let Some(search) = value.get("search") {
+            if search.is_null() {
+                self.selection.clear();
+            }
             self.search = search.clone().into();
         }
         self.application = text(&value, "application");

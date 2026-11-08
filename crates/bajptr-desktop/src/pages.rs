@@ -446,33 +446,36 @@ impl Desktop {
             } else {
                 self.tables
                     .iter()
+                    .chain(slice(&self.search, "source_tables"))
                     .find(|v| text(v, "name") == self.search_source)
                     .map(|v| text(v, "label"))
                     .unwrap_or_else(|| self.search_source.clone())
             };
-            egui::ComboBox::from_id_salt("search-source")
-                .selected_text(selected)
-                .show_ui(ui, |ui| {
-                    if ui
-                        .selectable_value(&mut self.search_source, String::new(), "全部来源表")
-                        .changed()
-                    {
-                        source_changed = true;
-                    }
-                    for table in &self.tables {
-                        let name = text(table, "name");
+            ui.add_enabled_ui(self.busy.is_none(), |ui| {
+                egui::ComboBox::from_id_salt("search-source")
+                    .selected_text(selected)
+                    .show_ui(ui, |ui| {
                         if ui
-                            .selectable_value(
-                                &mut self.search_source,
-                                name.clone(),
-                                text(table, "label"),
-                            )
+                            .selectable_value(&mut self.search_source, String::new(), "全部来源表")
                             .changed()
                         {
                             source_changed = true;
                         }
-                    }
-                });
+                        for table in search_sources(&self.tables, &self.search, &self.keyword) {
+                            let name = text(table, "name");
+                            if ui
+                                .selectable_value(
+                                    &mut self.search_source,
+                                    name.clone(),
+                                    text(table, "label"),
+                                )
+                                .changed()
+                            {
+                                source_changed = true;
+                            }
+                        }
+                    });
+            });
             ui.colored_label(MUTED, "切换后自动查找");
         });
         if source_changed && self.busy.is_none() && !self.keyword.trim().is_empty() {

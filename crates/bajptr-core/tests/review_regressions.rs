@@ -244,6 +244,58 @@ fn search_pages_cover_all_matches_and_keep_source_table_filtering_exact() {
 }
 
 #[test]
+fn search_sources_cover_unloaded_pages_and_exclude_nonmatching_or_skipped_tables() {
+    let con = Connection::open_in_memory().unwrap();
+    con.execute_batch(
+        "CREATE TABLE LocalizeDBSchema(Id INTEGER PRIMARY KEY, Bytes BLOB);
+        CREATE TABLE SkillDBSchema(Id INTEGER PRIMARY KEY, Bytes BLOB);
+        CREATE TABLE EmptyDBSchema(Id INTEGER PRIMARY KEY, Bytes BLOB);
+        CREATE TABLE KanaDBSchema(Id INTEGER PRIMARY KEY, Bytes BLOB)",
+    )
+    .unwrap();
+    for id in 0..501 {
+        con.execute(
+            "INSERT INTO LocalizeDBSchema VALUES (?,?)",
+            rusqlite::params![id, blob(&["任务"])],
+        )
+        .unwrap();
+    }
+    con.execute(
+        "INSERT INTO SkillDBSchema VALUES (1,?)",
+        [blob(&["任务说明"])],
+    )
+    .unwrap();
+    con.execute(
+        "INSERT INTO EmptyDBSchema VALUES (1,?)",
+        [blob(&["无匹配"])],
+    )
+    .unwrap();
+    con.execute("INSERT INTO KanaDBSchema VALUES (1,?)", [blob(&["ア任务"])])
+        .unwrap();
+    let page =
+        database::scan_page_with_sources(&con, "DBSchema$", "任务", 500, 0, true, &ctl()).unwrap();
+    assert_eq!((page.rows.len(), page.total), (500, 502));
+    assert!(page.rows.iter().all(|r| r.0 == "LocalizeDBSchema"));
+    assert_eq!(
+        page.matching_tables,
+        vec!["LocalizeDBSchema", "SkillDBSchema"]
+    );
+    let metadata =
+        database::scan_page_with_sources(&con, "DBSchema$", "任务", 0, 0, true, &ctl()).unwrap();
+    assert!(metadata.rows.is_empty());
+    assert_eq!(metadata.matching_tables, page.matching_tables);
+    let unskipped =
+        database::scan_page_with_sources(&con, "DBSchema$", "任务", 0, 0, false, &ctl()).unwrap();
+    assert_eq!(
+        unskipped.matching_tables,
+        vec!["KanaDBSchema", "LocalizeDBSchema", "SkillDBSchema"]
+    );
+    let empty = database::scan_page_with_sources(&con, "DBSchema$", "不存在", 500, 0, true, &ctl())
+        .unwrap();
+    assert!(empty.matching_tables.is_empty());
+}
+
+#[test]
 fn search_skip_kana_matches_the_replacement_option() {
     let con = Connection::open_in_memory().unwrap();
     con.execute_batch("CREATE TABLE LocalizeDBSchema(Id INTEGER PRIMARY KEY, Bytes BLOB)")

@@ -202,8 +202,15 @@ impl Project {
         let version = text(&self.search, "version")?;
         let rows: Vec<TextRow> = serde_json::from_value(self.search["rows"].clone())?;
         let rows=rows.into_iter().map(|r|{let (value,explicit)=model::effective(&r,&self.edits,&key,version,&rules,self.skip)?;Ok(json!({"table":r.0,"label":model::title(&r.0),"row_id":r.1,"slot":r.2,"original":r.3,"state":if explicit{"定点修改"}else if value!=r.3{"词表替换"}else{"原文"},"text":value}))}).collect::<Result<Vec<_>>>()?;
+        let source_tables: Vec<_> = self.search["matching_tables"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(model::table_info)
+            .collect();
         Ok(
-            json!({"rows":rows,"keyword":self.search["keyword"],"source":self.search["source"],"total":self.search["total"],"version":version,"nonce":self.search["nonce"]}),
+            json!({"rows":rows,"source_tables":source_tables,"keyword":self.search["keyword"],"source":self.search["source"],"total":self.search["total"],"version":version,"nonce":self.search["nonce"]}),
         )
     }
     fn batch_entries(&self, id: &str) -> Result<Vec<Edit>> {
@@ -321,10 +328,10 @@ impl Project {
                 if (self.game.as_str(), self.skip) != (game.as_str(), skip) {
                     if self.game != game {
                         self.engine.close();
-                        self.search = Value::Null;
-                        self.searches.clear();
                         self.version = None;
                     }
+                    self.search = Value::Null;
+                    self.searches.clear();
                     self.game = game;
                     self.skip = skip;
                     self.changed();
@@ -504,6 +511,7 @@ impl Project {
                 } else {
                     self.search = json!({"game":model::game_key(&self.game)?,"version":version,"rows":result["rows"],"total":result["total"],"nonce":nonce(),"keyword":keyword,"source":source});
                 }
+                self.search["matching_tables"] = result["matching_tables"].clone();
                 if self.searches.len() >= 4 {
                     self.searches.pop_front();
                 }

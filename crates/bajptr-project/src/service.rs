@@ -87,6 +87,7 @@ pub struct Engine {
     session: Session,
     source_key: String,
     scans: VecDeque<(String, Value)>,
+    search_tables: VecDeque<(String, Value)>,
     previews: VecDeque<(String, Value)>,
 }
 impl Engine {
@@ -94,6 +95,7 @@ impl Engine {
         self.session = Session::default();
         self.source_key.clear();
         self.scans.clear();
+        self.search_tables.clear();
         self.previews.clear();
     }
     fn open(&mut self, original: &Baseline, control: &Control<'_>) -> Result<()> {
@@ -278,7 +280,7 @@ impl Engine {
             format!("^(?:{})$", regex::escape(tables))
         };
         let key = format!("{keyword}\0{tables}\0{limit}\0{offset}\0{skip_kana}");
-        let value = if let Some((_, value)) = self.scans.iter().find(|(k, _)| k == &key) {
+        let mut value = if let Some((_, value)) = self.scans.iter().find(|(k, _)| k == &key) {
             value.clone()
         } else {
             let value = execute(
@@ -289,6 +291,32 @@ impl Engine {
             remember(&mut self.scans, key, value.clone(), 8);
             value
         };
+        // Source choices describe the keyword across all tables, independently
+        // of the selected table and the currently loaded page.
+        let sources_key = format!("{keyword}\0{skip_kana}");
+        let matching_tables = if tables.trim().is_empty() {
+            value["matching_tables"].clone()
+        } else if let Some((_, sources)) =
+            self.search_tables.iter().find(|(k, _)| k == &sources_key)
+        {
+            sources.clone()
+        } else {
+            execute(
+                &mut self.session,
+                json!({"op":"scan","keyword":keyword,"limit":0,"skip_kana":skip_kana}),
+                control,
+            )?["matching_tables"]
+                .clone()
+        };
+        if !self.search_tables.iter().any(|(k, _)| k == &sources_key) {
+            remember(
+                &mut self.search_tables,
+                sources_key,
+                matching_tables.clone(),
+                8,
+            );
+        }
+        value["matching_tables"] = matching_tables;
         if region::version(&region::locate(game)?.catalog)? != original.version {
             return Err(invalid("游戏资源版本已变化，请重新查找。"));
         }

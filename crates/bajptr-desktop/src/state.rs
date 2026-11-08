@@ -21,6 +21,15 @@ pub fn slice<'a>(value: &'a Value, key: &str) -> &'a [Value] {
         .map(Vec::as_slice)
         .unwrap_or(&[])
 }
+pub fn search_sources<'a>(all: &'a [Value], search: &'a Value, keyword: &str) -> &'a [Value] {
+    if search["keyword"].as_str() == Some(keyword)
+        && let Some(tables) = search["source_tables"].as_array()
+    {
+        tables
+    } else {
+        all
+    }
+}
 pub fn mode_name(mode: &str) -> &'static str {
     match mode {
         "exact" => "整段相同",
@@ -272,6 +281,20 @@ pub struct TemplateForm {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn search_sources_use_all_before_search_and_complete_hits_after_search() {
+        let all = vec![
+            json!({"name":"A"}),
+            json!({"name":"B"}),
+            json!({"name":"C"}),
+        ];
+        assert_eq!(search_sources(&all, &Value::Null, "任务"), all.as_slice());
+        let result = json!({"keyword":"任务","source":"A","rows":[{"table":"A"}],"source_tables":[{"name":"A"},{"name":"B"}]});
+        assert_eq!(search_sources(&all, &result, "任务"), &all[..2]);
+        assert_eq!(search_sources(&all, &result, "另一个词"), all.as_slice());
+        let empty = json!({"keyword":"任务","rows":[],"source_tables":[]});
+        assert!(search_sources(&all, &empty, "任务").is_empty());
+    }
     #[test]
     fn batch_scope_finds_one_of_a_hundred_by_text_and_exact_location() {
         let entries: Vec<_>=(0..100).map(|i|json!({"index":i,"label":"技能说明","edit":{"batch":true,"table":"LocalizeSkillDBSchema","row_id":1000+i,"slot":5,"original":format!("原文第{i}段"),"replacement":if i==99{"独有锚点\n替换结果"}else{"其他结果"},"batch_operation":{"id":"group","before":"批量之前的文字"}}})).collect();

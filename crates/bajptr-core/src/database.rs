@@ -909,10 +909,33 @@ pub fn scan_page(
     skip_kana: bool,
     control: &Control<'_>,
 ) -> Result<(Vec<TextRow>, u64)> {
+    let page = scan_page_with_sources(con, pattern, keyword, limit, offset, skip_kana, control)?;
+    Ok((page.rows, page.total))
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct ScanPage {
+    pub rows: Vec<TextRow>,
+    pub total: u64,
+    pub matching_tables: Vec<String>,
+}
+
+/// Include every matching source, even when its rows fall outside this page.
+pub fn scan_page_with_sources(
+    con: &Connection,
+    pattern: &str,
+    keyword: &str,
+    limit: usize,
+    offset: usize,
+    skip_kana: bool,
+    control: &Control<'_>,
+) -> Result<ScanPage> {
     let mut found = Vec::new();
     let mut total = 0;
+    let mut matching_tables = Vec::new();
     let mut diagnostics = Stats::default();
     for table in tables(con, pattern)? {
+        let before = total;
         control.log(&format!("扫描文本表：{table}"))?;
         let key = match key_name(con, &table) {
             Ok(v) => v,
@@ -962,9 +985,16 @@ pub fn scan_page(
                 }
             }
         }
+        if total > before {
+            matching_tables.push(table);
+        }
     }
     report_skips(&diagnostics, control)?;
-    Ok((found, total))
+    Ok(ScanPage {
+        rows: found,
+        total,
+        matching_tables,
+    })
 }
 
 pub fn export(

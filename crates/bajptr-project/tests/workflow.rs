@@ -403,6 +403,121 @@ fn external_same_version_content_can_only_replace_baseline_after_confirmation() 
 }
 
 #[test]
+fn search_source_choices_follow_completed_keyword_and_survive_paging() {
+    let f = Fixture::new();
+    let mut p = f.ready_project();
+    let loaded = call(&mut p, "load", json!({}));
+    assert!(loaded["search"].is_null());
+    let tables = call(&mut p, "tables", json!({}));
+    assert_eq!(tables.as_array().unwrap().len(), 1);
+    let search = call(
+        &mut p,
+        "search",
+        json!({"keyword":"任务","source":"LocalizeDBSchema"}),
+    );
+    assert_eq!(search["source_tables"][0]["name"], "LocalizeDBSchema");
+    assert_eq!(search["source_tables"][0]["label"], "界面与系统提示");
+    let page = call(
+        &mut p,
+        "search_more",
+        json!({"keyword":"任务","source":"LocalizeDBSchema","offset":1}),
+    );
+    assert_eq!(page["source_tables"], search["source_tables"]);
+    let empty = call(&mut p, "search", json!({"keyword":"没有命中的新词"}));
+    assert_eq!(empty["source_tables"], json!([]));
+    assert_eq!(empty["total"], 0);
+    let search = call(&mut p, "search", json!({"keyword":"任务"}));
+    assert_eq!(search["source_tables"].as_array().unwrap().len(), 1);
+    let revision = p.revision;
+    let settings = call(
+        &mut p,
+        "settings",
+        json!({"game":f.game,"skip_kana":false,"revision":revision}),
+    );
+    assert!(settings["search"].is_null());
+    let unskipped = call(&mut p, "search", json!({"keyword":"アロナ"}));
+    assert_eq!(unskipped["source_tables"].as_array().unwrap().len(), 1);
+    let revision = p.revision;
+    let settings = call(
+        &mut p,
+        "settings",
+        json!({"game":f.game,"skip_kana":true,"revision":revision}),
+    );
+    assert!(settings["search"].is_null());
+    let skipped = call(&mut p, "search", json!({"keyword":"アロナ"}));
+    assert_eq!(skipped["source_tables"], json!([]));
+    f.unchanged();
+}
+
+#[test]
+fn source_filter_keeps_other_matching_tables_available() {
+    // Extend only this disposable game, before capturing its initial baseline.
+    let mut f = Fixture::new();
+    let game = region::locate(f.game.to_str().unwrap()).unwrap();
+    let plain = f.root.join("sources.db");
+    let encrypted = f.root.join("sources.encrypted");
+    let key = bajptr_core::codec::key(region::KEY).unwrap();
+    bajptr_core::codec::decrypt(&game.bundle, &plain, &key, &control()).unwrap();
+    let con = rusqlite::Connection::open(&plain).unwrap();
+    con.execute_batch(
+        "CREATE TABLE LocalizeSkillDBSchema(Bytes BLOB);
+        INSERT INTO LocalizeSkillDBSchema SELECT Bytes FROM LocalizeDBSchema WHERE rowid=1;
+        CREATE TABLE LocalizeEmptyDBSchema(Bytes BLOB)",
+    )
+    .unwrap();
+    drop(con);
+    let (_, inspection) =
+        bajptr_core::codec::encrypt_checked(&plain, &encrypted, &key, &[0; 16], &[], &control())
+            .unwrap();
+    fs::copy(
+        &encrypted,
+        game.bundle
+            .with_file_name(format!("123456_{}", inspection.crc)),
+    )
+    .unwrap();
+    region::publish_catalog(
+        &game,
+        fs::metadata(&encrypted).unwrap().len(),
+        inspection.crc,
+    )
+    .unwrap();
+    f.before = fs::read(&game.catalog).unwrap();
+    let mut p = f.ready_project();
+    assert_eq!(
+        call(&mut p, "tables", json!({})).as_array().unwrap().len(),
+        3
+    );
+    for source in ["LocalizeSkillDBSchema", "LocalizeDBSchema", ""] {
+        let search = call(&mut p, "search", json!({"keyword":"任务","source":source}));
+        let names: Vec<_> = search["source_tables"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, vec!["LocalizeDBSchema", "LocalizeSkillDBSchema"]);
+        if !source.is_empty() {
+            assert!(
+                search["rows"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|r| r["table"] == source)
+            );
+        }
+    }
+    let search = call(
+        &mut p,
+        "search",
+        json!({"keyword":"老师","source":"LocalizeSkillDBSchema"}),
+    );
+    assert_eq!(search["total"], 0);
+    assert_eq!(search["source_tables"].as_array().unwrap().len(), 1);
+    assert_eq!(search["source_tables"][0]["name"], "LocalizeDBSchema");
+    f.unchanged();
+}
+
+#[test]
 fn current_documents_preserve_verified_replacement_behavior() {
     let f = Fixture::new();
     let mut p = f.ready_project();
