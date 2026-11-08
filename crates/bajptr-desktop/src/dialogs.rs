@@ -865,12 +865,70 @@ if ui.button("取消").clicked(){close=true;}});
             .filter(|entry| entry["edit"]["batch"] != true)
             .collect();
         let nested = self.text_form.is_some();
-        window("单条修改",ctx,840.).open(&mut open).show(ctx,|ui|{ui.add_enabled_ui(!nested&&!self.write_busy(),|ui|{
-            if edits.is_empty(){ui.label("尚未保存单条修改。可在「查找」双击文本开始编辑。");}
-            egui::ScrollArea::vertical().max_height(ctx.content_rect().height()*0.60).show(ui,|ui|{for entry in edits{ui.group(|ui|{let edit=&entry["edit"];let active=entry["active"]==true;ui.horizontal(|ui|{ui.label(text(entry,"label"));if !active{ui.colored_label(RED,"版本失效");}
- if ui.add_enabled(active,ToolButton::new("编辑")).clicked(){self.submit("text_open",json!({"edit_index":entry["index"]}),"正在读取单条修改…",true);}
- if ui.button("移除").clicked(){self.submit("remove_edit",json!({"index":entry["index"],"revision":self.revision()}),"正在移除单条修改…",false);}});ui.add(egui::Label::new(format!("原文：{}\n本次：{}",text(edit,"original"),text(edit,"replacement"))).wrap());});}});
-        });});
+        window("单条修改", ctx, 840.)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.add_enabled_ui(!nested && !self.write_busy(), |ui| {
+                    if edits.is_empty() {
+                        ui.label("尚未保存单条修改。可在「查找」双击文本开始编辑。");
+                        return;
+                    }
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, true])
+                        .max_height(ctx.content_rect().height() * 0.60)
+                        .show(ui, |ui| {
+                            for entry in edits {
+                                ui.group(|ui| {
+                                    ui.set_min_width(ui.available_width());
+                                    let edit = &entry["edit"];
+                                    let active = entry["active"] == true;
+                                    ui.horizontal(|ui| {
+                                        ui.with_layout(
+                                            egui::Layout::right_to_left(egui::Align::Center),
+                                            |ui| {
+                                                if ui.button("移除").clicked() {
+                                                    self.submit(
+                                                        "remove_edit",
+                                                        json!({"index":entry["index"],"revision":self.revision()}),
+                                                        "正在移除单条修改…",
+                                                        false,
+                                                    );
+                                                }
+                                                if ui.add_enabled(active, ToolButton::new("编辑")).clicked() {
+                                                    self.submit(
+                                                        "text_open",
+                                                        json!({"edit_index":entry["index"]}),
+                                                        "正在读取单条修改…",
+                                                        true,
+                                                    );
+                                                }
+                                                ui.with_layout(
+                                                    egui::Layout::left_to_right(egui::Align::Center),
+                                                    |ui| {
+                                                        if !active {
+                                                            ui.colored_label(RED, "版本失效");
+                                                        }
+                                                        let label = text(entry, "label");
+                                                        ui.add(egui::Label::new(&label).truncate())
+                                                            .on_hover_text(label);
+                                                    },
+                                                );
+                                            },
+                                        );
+                                    });
+                                    ui.add(
+                                        egui::Label::new(format!(
+                                            "原文：{}\n本次：{}",
+                                            text(edit, "original"),
+                                            text(edit, "replacement")
+                                        ))
+                                        .wrap(),
+                                    );
+                                });
+                            }
+                        });
+                });
+            });
         self.show_edits = open;
     }
     fn confirmations(&mut self, ctx: &egui::Context) {
