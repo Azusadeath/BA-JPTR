@@ -486,7 +486,7 @@ impl Desktop {
                                     }
                                     let row = &rows[i];
                                     let values = [
-                                        text(row, "text"),
+                                        text(row, "text").replace(['\r', '\n'], " "),
                                         text(row, "label"),
                                         format!("{}:{}", row["row_id"], row["slot"])
                                             .replace('"', ""),
