@@ -426,11 +426,13 @@ impl Desktop {
         let width = ui.available_width() - 12.;
         let widths = [width - 380., 180., 90., 110.];
         table_header(ui, &["本次文本", "来源表", "记录", "状态"], &widths);
+        let table_height = ui.available_height();
         egui::Frame::new()
             .fill(Color32::WHITE)
             .corner_radius(10)
             .stroke(egui::Stroke::new(1., LINE))
             .show(ui, |ui| {
+                ui.set_min_height(table_height);
                 if rows.is_empty() {
                     ui.allocate_ui_with_layout(
                         ui.available_size(),
@@ -484,7 +486,7 @@ impl Desktop {
                                     }
                                     let row = &rows[i];
                                     let values = [
-                                        text(row, "text").replace('\n', " [换行] "),
+                                        text(row, "text"),
                                         text(row, "label"),
                                         format!("{}:{}", row["row_id"], row["slot"])
                                             .replace('"', ""),
