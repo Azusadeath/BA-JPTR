@@ -758,6 +758,31 @@ impl Project {
                 )?;
                 self.state()
             }
+            "remove_batch_member" => {
+                let revision = p
+                    .get("revision")
+                    .ok_or_else(|| invalid("请重新打开批量文本范围。"))?;
+                self.require(Some(revision))?;
+                let id = text(p, "id")?;
+                let i = index(p, "index")?;
+                let entry = self
+                    .edits
+                    .get(i)
+                    .ok_or_else(|| invalid("该文本段已变化，请重新打开范围。"))?;
+                if entry.game != model::game_key(&self.game)?
+                    || !entry.batch
+                    || !entry
+                        .batch_operation
+                        .as_ref()
+                        .is_some_and(|operation| operation.id == id)
+                {
+                    return Err(invalid("该文本段不属于这项批量修改，未移除任何记录。"));
+                }
+                let mut values = self.edits.clone();
+                values.remove(i);
+                self.commit(Document::Edits(values), true)?;
+                self.state()
+            }
             "remove_batch" => {
                 self.require(p.get("revision"))?;
                 let id = text(p, "id")?;

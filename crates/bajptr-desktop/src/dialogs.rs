@@ -39,6 +39,8 @@ impl Desktop {
                 self.scope_form = None;
             } else if self.text_form.is_some() {
                 self.text_form = None;
+            } else if self.batch_scope.is_some() {
+                self.batch_scope = None;
             } else if self.batch_form.is_some() {
                 self.batch_form = None;
             } else if self.preview.is_some() {
@@ -63,6 +65,7 @@ impl Desktop {
         self.template_dialog(ctx);
         self.text_dialog(ctx);
         self.batch_dialog(ctx);
+        self.batch_scope_dialog(ctx);
         self.preview_dialog(ctx);
         self.edit_manager(ctx);
         self.confirmations(ctx);
@@ -641,7 +644,7 @@ impl Desktop {
         };
         let mut open = true;
         let mut close = false;
-        window(if form.group_id.is_empty(){"替换选中文本"}else{"编辑批量修改"},ctx,820.).open(&mut open).show(ctx,|ui|{ui.label(format!("仅修改选中的 {} 条文本",form.indices.len()));ui.add_enabled_ui(!self.write_busy(),|ui|{
+        window(if form.group_id.is_empty(){"替换选中文本"}else{"编辑批量修改"},ctx,820.).open(&mut open).show(ctx,|ui|{ui.label(format!("仅修改选中的 {} 条文本",form.indices.len()));if !form.group_id.is_empty() && ui.button("查看文本范围，移除误选段落…").clicked(){self.open_batch_scope(&form.group_id);close=true;}ui.add_enabled_ui(!self.write_busy(),|ui|{
             ui.label("查找文字");let old=ui.add(egui::TextEdit::singleline(&mut form.old).font(egui::TextStyle::Body).desired_width(f32::INFINITY));ui.label("替换为");let new=ui.add(egui::TextEdit::singleline(&mut form.new).font(egui::TextStyle::Body).desired_width(f32::INFINITY));
             if old.changed()||new.changed(){form.nonce.clear();form.changes.clear();form.error.clear();}
             if ui.button("预览选中").clicked(){self.submit("batch_preview",json!({"group_id":form.group_id,"indices":form.indices,"search_nonce":text(&self.search,"nonce"),"old":form.old,"new":form.new}),"正在预览选中文本…",true);}
@@ -651,6 +654,59 @@ if ui.button("取消").clicked(){close=true;}});
         });});
         if open && !close {
             self.batch_form = Some(form);
+        }
+    }
+    fn batch_scope_dialog(&mut self, ctx: &egui::Context) {
+        let Some(mut form) = self.batch_scope.take() else {
+            return;
+        };
+        let state = self.state.clone();
+        let members: Vec<_> = slice(&state, "edits")
+            .iter()
+            .filter(|e| form.contains(e))
+            .collect();
+        let mut open = true;
+        let mut close = false;
+        window("批量修改 · 文本范围",ctx,980.).open(&mut open).show(ctx,|ui|{
+            if let Some(first)=members.first(){
+                let operation=&first["edit"]["batch_operation"];
+                ui.label(format!("{} → {} · 共 {} 段",text(operation,"old"),text(operation,"new"),members.len()));
+            } else {ui.label("此批已没有文本段。");}
+            let filter=ui.add(egui::TextEdit::singleline(&mut form.filter).hint_text("搜索原文、替换结果、来源表或记录编号").desired_width(f32::INFINITY));
+            if filter.changed(){form.selected=None;form.error.clear();}
+            let visible:Vec<_>=members.iter().copied().filter(|e|form.matches(e)).collect();
+            ui.colored_label(MUTED,format!("显示 {} / {} 段 · 选择一段查看完整内容和定位",visible.len(),members.len()));
+            let widths=[150.,120.,(ui.available_width()-270.)*0.5,(ui.available_width()-270.)*0.5];
+            table_header(ui,&["来源表","记录 / 字段","底稿原文","本批替换后"],&widths);
+            egui::ScrollArea::vertical().id_salt("batch-scope-rows").auto_shrink([false,false])
+                .max_height(if form.selected.is_some(){(ctx.content_rect().height()-430.).max(150.)*0.4}else{ctx.content_rect().height()*0.38})
+                .show_rows(ui,ROW_HEIGHT,visible.len(),|ui,range|{
+                    for row in range {
+                        let entry=visible[row];let index=count(entry,"index") as usize;let edit=&entry["edit"];
+                        if data_row(ui,index,form.selected==Some(index),&[text(entry,"label"),BatchScopeForm::location(entry),text(edit,"original").replace(['\r','\n']," "),text(edit,"replacement").replace(['\r','\n']," ")],&widths).clicked(){form.selected=Some(index);form.error.clear();}
+                    }
+                });
+            if visible.is_empty() && !members.is_empty(){ui.label("没有匹配文本，可更换关键词或记录编号。");}
+            if let Some(entry)=members.iter().find(|e|Some(count(e,"index") as usize)==form.selected) {
+                let edit=&entry["edit"];
+                let location=format!("{}（{}） · 记录 / 字段：{}",text(entry,"label"),text(edit,"table"),BatchScopeForm::location(entry));
+                ui.add(egui::Label::new(&location).wrap().selectable(true));
+                egui::ScrollArea::vertical().id_salt("batch-scope-detail").max_height((ctx.content_rect().height()-430.).max(150.)*0.6).show(ui,|ui|{
+                    for (label,value) in [("底稿原文",text(edit,"original")),("本批替换前",text(&edit["batch_operation"],"before")),("本批替换后",text(edit,"replacement"))] {
+                        ui.label(RichText::new(label).strong());ui.add(egui::Label::new(value).wrap().selectable(true));
+                    }
+                });
+                ui.horizontal(|ui|{
+                    if secondary(ui,!self.write_busy(),"从本批移除此段").clicked(){self.submit("remove_batch_member",json!({"id":form.id,"index":entry["index"],"revision":self.revision()}),"正在从本批移除这段文本…",false);}
+                    if ui.button("复制定位").clicked(){ctx.copy_text(location);}
+                });
+            }
+            if !form.error.is_empty(){ui.colored_label(RED,&form.error);}
+            ui.colored_label(MUTED,"只取消该段的本批修改，保留已有单条修改。预览并应用后写入游戏。");
+            ui.horizontal_wrapped(|ui|{if ui.button("关闭").clicked(){close=true;}ui.colored_label(MUTED,"关闭后可用主界面的“撤销”恢复移除。");});
+        });
+        if open && !close {
+            self.batch_scope = Some(form);
         }
     }
     fn preview_dialog(&mut self, ctx: &egui::Context) {

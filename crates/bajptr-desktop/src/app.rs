@@ -40,6 +40,7 @@ pub struct Desktop {
     pub template_changed: Option<Instant>,
     pub text_form: Option<TextForm>,
     pub batch_form: Option<BatchForm>,
+    pub batch_scope: Option<BatchScopeForm>,
     pub preview: Option<Arc<Value>>,
     pub preview_row: Option<usize>,
     pub show_edits: bool,
@@ -88,6 +89,7 @@ impl Desktop {
             template_changed: None,
             text_form: None,
             batch_form: None,
+            batch_scope: None,
             preview: None,
             preview_row: None,
             show_edits: false,
@@ -138,6 +140,7 @@ impl Desktop {
             || self.template_form.is_some()
             || self.text_form.is_some()
             || self.batch_form.is_some()
+            || self.batch_scope.is_some()
             || self.preview.is_some()
             || self.show_edits
             || self.confirm_import.is_some()
@@ -242,8 +245,13 @@ impl Desktop {
             self.hits.clear();
             self.preview = None;
             self.rule_selection = None;
+            if let Some(form) = &mut self.batch_scope {
+                form.selected = None;
+                form.error.clear();
+            }
         }
         if game_changed {
+            self.batch_scope = None;
             self.rule_selection = None;
             self.search = Value::Null.into();
             self.selection.clear();
@@ -277,6 +285,12 @@ impl Desktop {
             "正在读取批量修改…",
             true,
         );
+    }
+    pub fn open_batch_scope(&mut self, id: &str) {
+        self.batch_scope = Some(BatchScopeForm {
+            id: id.into(),
+            ..Default::default()
+        });
     }
     pub fn open_folder(path: &std::path::Path) {
         #[cfg(windows)]
@@ -350,6 +364,11 @@ impl Desktop {
                     "batch_preview" | "batch_save" => {
                         if let Some(f) = &mut self.batch_form {
                             f.error = message.clone();
+                        }
+                    }
+                    "remove_batch_member" => {
+                        if let Some(form) = &mut self.batch_scope {
+                            form.error = message.clone();
                         }
                     }
                     "template" => {
@@ -457,8 +476,15 @@ impl Desktop {
                         f.available = self.tables.clone();
                     }
                 }
-                "save_rule" | "remove_rule" | "history" | "text_save" | "batch_save"
-                | "remove_edit" | "remove_batch" | "import_commit" => {
+                "save_rule"
+                | "remove_rule"
+                | "history"
+                | "text_save"
+                | "batch_save"
+                | "remove_edit"
+                | "remove_batch"
+                | "remove_batch_member"
+                | "import_commit" => {
                     self.apply_state(data);
                     if action == "save_rule" {
                         self.rule_form = None;

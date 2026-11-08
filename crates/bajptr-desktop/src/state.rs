@@ -212,6 +212,46 @@ pub struct BatchForm {
     pub changes: Vec<Value>,
     pub error: String,
 }
+#[derive(Default)]
+pub struct BatchScopeForm {
+    pub id: String,
+    pub filter: String,
+    pub selected: Option<usize>,
+    pub error: String,
+}
+impl BatchScopeForm {
+    pub fn contains(&self, entry: &Value) -> bool {
+        entry["edit"]["batch"] == true
+            && entry["edit"]["batch_operation"]["id"].as_str() == Some(self.id.as_str())
+    }
+    pub fn matches(&self, entry: &Value) -> bool {
+        if !self.contains(entry) {
+            return false;
+        }
+        let edit = &entry["edit"];
+        [
+            text(entry, "label"),
+            text(edit, "table"),
+            edit["row_id"].to_string(),
+            edit["slot"].to_string(),
+            text(edit, "original"),
+            text(&edit["batch_operation"], "before"),
+            text(edit, "replacement"),
+        ]
+        .join(" ")
+        .replace(['\r', '\n'], " ")
+        .to_lowercase()
+        .contains(&self.filter.trim().to_lowercase())
+    }
+    pub fn location(entry: &Value) -> String {
+        let edit = &entry["edit"];
+        let row = edit["row_id"]
+            .as_str()
+            .map(str::to_string)
+            .unwrap_or_else(|| edit["row_id"].to_string());
+        format!("{} · {}", row, edit["slot"])
+    }
+}
 impl BatchForm {
     pub fn matches(&self, draft: &Value) -> bool {
         draft["indices"] == json!(self.indices)
@@ -232,6 +272,36 @@ pub struct TemplateForm {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn batch_scope_finds_one_of_a_hundred_by_text_and_exact_location() {
+        let entries: Vec<_>=(0..100).map(|i|json!({"index":i,"label":"技能说明","edit":{"batch":true,"table":"LocalizeSkillDBSchema","row_id":1000+i,"slot":5,"original":format!("原文第{i}段"),"replacement":if i==99{"独有锚点\n替换结果"}else{"其他结果"},"batch_operation":{"id":"group","before":"批量之前的文字"}}})).collect();
+        let mut form = BatchScopeForm {
+            id: "group".into(),
+            filter: "独有锚点 替换结果".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            entries
+                .iter()
+                .filter(|e| form.matches(e))
+                .map(|e| count(e, "index"))
+                .collect::<Vec<_>>(),
+            vec![99]
+        );
+        for filter in [
+            "1099",
+            "LOCALIZESKILLDBSCHEMA",
+            "技能说明",
+            "批量之前的文字",
+        ] {
+            form.filter = filter.into();
+            assert!(form.matches(&entries[99]));
+        }
+        assert_eq!(BatchScopeForm::location(&entries[99]), "1099 · 5");
+        form.id = "another-group".into();
+        form.filter.clear();
+        assert!(!form.matches(&entries[99]));
+    }
     #[test]
     fn ctrl_shift_selection_preserves_anchor_and_visible_bounds() {
         let mut s = Selection::default();

@@ -126,6 +126,16 @@ impl Desktop {
             .and_then(|i| batches.get(i));
         let can_edit = self.loaded && self.healthy() && !self.write_busy();
         ui.horizontal_wrapped(|ui| {
+            if let Some(entry) = selected_batch.filter(|entry| entry["id"].is_string())
+                && ui
+                    .add_enabled(
+                        can_edit,
+                        ToolButton::new(format!("查看文本范围（{}）", count(entry, "count"))),
+                    )
+                    .clicked()
+            {
+                self.open_batch_scope(&text(entry, "id"));
+            }
             if ui
                 .add_enabled(can_edit, ToolButton::new("添加词条"))
                 .clicked()

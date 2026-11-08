@@ -589,6 +589,110 @@ fn removing_single_keeps_batch_and_search_editor_does_not_apply_it_twice() {
 }
 
 #[test]
+fn removing_one_batch_member_preserves_other_members_and_single_edits() {
+    let f = Fixture::new();
+    let mut p = f.ready_project();
+    p.skip = false;
+    let search = call(&mut p, "search", json!({"keyword":"任务"}));
+    let opened = call(
+        &mut p,
+        "text_open",
+        json!({"search_nonce":search["nonce"],"index":0}),
+    );
+    call(
+        &mut p,
+        "text_save",
+        json!({"nonce":opened["nonce"],"text":"阿洛娜同学的委托【保留单条】"}),
+    );
+    let draft = call(
+        &mut p,
+        "batch_preview",
+        json!({"search_nonce":search["nonce"],"indices":[0,1],"old":"委托","new":"神奇"}),
+    );
+    let saved = call(&mut p, "batch_save", json!({"nonce":draft["nonce"]}));
+    let id = saved["batches"][0]["id"].clone();
+    let other = call(&mut p, "search", json!({"keyword":"老师"}));
+    let draft = call(
+        &mut p,
+        "batch_preview",
+        json!({"search_nonce":other["nonce"],"indices":[0],"old":"老师","new":"教员"}),
+    );
+    call(&mut p, "batch_save", json!({"nonce":draft["nonce"]}));
+    let preview = call(&mut p, "preview", json!({}));
+    call(&mut p, "apply", json!({"nonce":preview["nonce"]}));
+    let target = p
+        .edits
+        .iter()
+        .position(|e| e.batch && e.row_id == bajptr_core::database::RowId::Integer(1))
+        .unwrap();
+    let single = p.edits.iter().position(|e| !e.batch).unwrap();
+    let snapshot = p.edits.clone();
+    for payload in [
+        json!({"id":id,"index":target}),
+        json!({"id":"wrong","index":target,"revision":p.revision}),
+        json!({"id":id,"index":single,"revision":p.revision}),
+        json!({"id":id,"index":999,"revision":p.revision}),
+    ] {
+        assert!(
+            p.dispatch("remove_batch_member", &payload, &control())
+                .is_err()
+        );
+        assert_eq!(p.edits, snapshot);
+    }
+    let revision = p.revision;
+    let saved = call(
+        &mut p,
+        "remove_batch_member",
+        json!({"id":id,"index":target,"revision":revision}),
+    );
+    assert_eq!(p.edits.len(), 3);
+    assert_eq!(saved["batches"].as_array().unwrap().len(), 2);
+    assert_eq!(saved["batches"][0]["count"], 1);
+    assert!(
+        p.edits
+            .iter()
+            .any(|e| !e.batch && e.replacement.contains("保留单条"))
+    );
+    assert!(
+        p.dispatch(
+            "remove_batch_member",
+            &json!({"id":id,"index":target,"revision":revision}),
+            &control()
+        )
+        .is_err()
+    );
+    let preview = call(&mut p, "preview", json!({}));
+    assert_eq!(preview["total_changes"], 1);
+    assert_eq!(
+        preview["stats"]["changes"][0]["after"],
+        "阿洛娜同学的委托【保留单条】"
+    );
+    call(&mut p, "history", json!({"undo":true}));
+    assert_eq!(p.edits, snapshot);
+    assert_eq!(call(&mut p, "preview", json!({}))["total_changes"], 0);
+    call(&mut p, "history", json!({"undo":false}));
+    let mut reopened = f.ready_project();
+    assert_eq!(reopened.edits, p.edits);
+    let last = reopened
+        .edits
+        .iter()
+        .position(|e| {
+            e.batch_operation
+                .as_ref()
+                .is_some_and(|b| json!(b.id) == id)
+        })
+        .unwrap();
+    let revision = reopened.revision;
+    let state = call(
+        &mut reopened,
+        "remove_batch_member",
+        json!({"id":id,"index":last,"revision":revision}),
+    );
+    assert_eq!(state["batches"].as_array().unwrap().len(), 1);
+    assert_eq!(reopened.edits.iter().filter(|e| !e.batch).count(), 1);
+}
+
+#[test]
 fn one_batch_operation_is_one_rule_row_with_its_original_selected_scope() {
     let f = Fixture::new();
     let mut p = f.ready_project();
