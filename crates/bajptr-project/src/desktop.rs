@@ -542,7 +542,23 @@ impl Project {
                     )
                 };
                 self.context(&version, &json!(self.revision), control)?;
-                let (value, _) = model::effective(
+                let key = model::game_key(&self.game)?;
+                let related: Vec<_> = self
+                    .edits
+                    .iter()
+                    .filter(|e| {
+                        e.game == key
+                            && e.version == version
+                            && e.table == row.0
+                            && e.row_id == row.1
+                            && e.slot == row.2
+                    })
+                    .collect();
+                let grouped_batch = related
+                    .iter()
+                    .find(|e| e.batch && e.batch_operation.is_some());
+                let single = related.iter().find(|e| !e.batch);
+                let (mut value, _) = model::effective(
                     &row,
                     &self.edits,
                     &model::game_key(&self.game)?,
@@ -550,10 +566,15 @@ impl Project {
                     &Rules::new(self.rules.clone())?,
                     self.skip,
                 )?;
+                if !batch && let Some(batch_edit) = grouped_batch {
+                    value = single.map(|e| e.replacement.clone()).unwrap_or_else(|| {
+                        batch_edit.batch_operation.as_ref().unwrap().before.clone()
+                    });
+                }
                 let nonce = nonce();
                 self.text_draft = json!({"nonce":nonce,"row":row,"version":version,"revision":self.revision,"initial":value,"batch":batch});
                 Ok(
-                    json!({"nonce":nonce,"original":row.3,"text":value,"label":model::title(&row.0),"row_id":row.1,"slot":row.2}),
+                    json!({"nonce":nonce,"original":row.3,"text":value,"label":model::title(&row.0),"row_id":row.1,"slot":row.2,"has_batch":!batch && grouped_batch.is_some()}),
                 )
             }
             "text_save" => {
@@ -764,7 +785,33 @@ impl Project {
                 if i >= values.len() {
                     return Err(invalid("修改位置已变化。"));
                 }
-                values.remove(i);
+                let removed = values.remove(i);
+                if !removed.batch {
+                    let row = (
+                        removed.table.clone(),
+                        removed.row_id.clone(),
+                        removed.slot,
+                        removed.original.clone(),
+                    );
+                    let base = model::effective(
+                        &row,
+                        &[],
+                        &removed.game,
+                        &removed.version,
+                        &Rules::new(self.rules.clone())?,
+                        self.skip,
+                    )?
+                    .0;
+                    for batch in values
+                        .iter_mut()
+                        .filter(|e| e.batch && e.same_address(&removed))
+                    {
+                        if let Some(operation) = &mut batch.batch_operation {
+                            operation.before.clone_from(&base);
+                            batch.replacement = base.replace(&operation.old, &operation.new);
+                        }
+                    }
+                }
                 self.commit(Document::Edits(values), true)?;
                 self.state()
             }

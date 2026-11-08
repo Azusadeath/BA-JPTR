@@ -35,6 +35,47 @@ fn edit_documents_have_named_fields_and_reject_positional_rows() {
     );
 }
 #[test]
+fn single_and_batch_pair_round_trips_but_same_kind_duplicates_are_rejected() {
+    let single = model::Edit {
+        game: "game".into(),
+        version: "a".repeat(64),
+        table: "LocalizeDBSchema".into(),
+        row_id: bajptr_core::database::RowId::Integer(1),
+        slot: 0,
+        original: "任务".into(),
+        replacement: "私人任务".into(),
+        batch: false,
+        batch_operation: None,
+    };
+    let mut batch = single.clone();
+    batch.batch = true;
+    batch.replacement = "私人委托".into();
+    batch.batch_operation = Some(model::BatchOperation {
+        id: "b".repeat(32),
+        old: "任务".into(),
+        new: "委托".into(),
+        before: single.replacement.clone(),
+    });
+    let pair = vec![single.clone(), batch.clone()];
+    assert_eq!(
+        model::parse_edits(&model::edits_bytes(&pair).unwrap()).unwrap(),
+        pair
+    );
+    let resolved = model::final_edits(&pair, "game", &"a".repeat(64)).unwrap();
+    assert_eq!(resolved.len(), 1);
+    assert_eq!(resolved[0].replacement, "私人委托");
+    assert!(
+        model::final_edits(&[single.clone(), single.clone()], "game", &"a".repeat(64)).is_err()
+    );
+    assert!(model::validate_edits(&[batch.clone(), batch.clone()]).is_err());
+    batch.original = "其他原文".into();
+    assert!(model::validate_edits(&[single.clone(), batch.clone()]).is_err());
+    batch.original = single.original.clone();
+    batch.batch_operation = None;
+    assert!(model::validate_edits(&[single, batch]).is_err());
+}
+
+#[test]
 fn wordlists_require_the_single_five_column_format() {
     assert!(model::parse_rules("任务\t委托\n".as_bytes()).is_err());
     assert!(model::parse_rules("任务\t委托\tsub\t备注\t\n".as_bytes()).is_ok());

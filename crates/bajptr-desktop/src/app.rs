@@ -496,6 +496,7 @@ impl Desktop {
                         label: text(&data, "label"),
                         original: text(&data, "original"),
                         value: text(&data, "text"),
+                        has_batch: data["has_batch"] == true,
                         show_original: false,
                         error: String::new(),
                     });

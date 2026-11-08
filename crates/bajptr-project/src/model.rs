@@ -134,6 +134,7 @@ impl Edit {
 }
 pub fn validate_edits(edits: &[Edit]) -> Result<()> {
     let mut seen = HashSet::new();
+    let mut addresses = HashMap::new();
     let mut batches = HashMap::new();
     for e in edits {
         if e.game.is_empty() || !is_version(&e.version) || e.table.is_empty() {
@@ -165,8 +166,16 @@ pub fn validate_edits(edits: &[Edit]) -> Result<()> {
                 return Err(invalid("同一次批量修改的替换参数不一致。"));
             }
         }
-        if !seen.insert((&e.game, &e.version, &e.table, &e.row_id, e.slot)) {
-            return Err(invalid("同一段文本有重复修改，请保留一项。"));
+        let address = (&e.game, &e.version, &e.table, &e.row_id, e.slot);
+        if !seen.insert((address, e.batch)) {
+            return Err(invalid("同一段文本有重复的同类修改，请保留一项。"));
+        }
+        if let Some(previous) = addresses.insert(address, e)
+            && (previous.original != e.original
+                || (previous.batch && previous.batch_operation.is_none())
+                || (e.batch && e.batch_operation.is_none()))
+        {
+            return Err(invalid("单条与批量修改的原文或操作信息不一致。"));
         }
     }
     Ok(())
@@ -200,7 +209,18 @@ pub fn edits_bytes(edits: &[Edit]) -> Result<Vec<u8>> {
 pub fn update_edits(existing: &[Edit], updates: Vec<Edit>) -> Result<Vec<Edit>> {
     let mut values = existing.to_vec();
     for e in updates {
-        if let Some(index) = values.iter().position(|p| p.same_address(&e)) {
+        if !e.batch {
+            for batch in values.iter_mut().filter(|p| p.batch && p.same_address(&e)) {
+                if let Some(operation) = &mut batch.batch_operation {
+                    operation.before.clone_from(&e.replacement);
+                    batch.replacement = operation.before.replace(&operation.old, &operation.new);
+                }
+            }
+        }
+        if let Some(index) = values
+            .iter()
+            .position(|p| p.same_address(&e) && p.batch == e.batch)
+        {
             values[index] = e;
         } else {
             values.push(e);
@@ -217,13 +237,17 @@ pub fn effective(
     rules: &Rules,
     skip: bool,
 ) -> Result<(String, bool)> {
-    if let Some(e) = edits.iter().find(|e| {
-        e.game == game
-            && e.version == version
-            && e.table == row.0
-            && e.row_id == row.1
-            && e.slot == row.2
-    }) {
+    if let Some(e) = edits
+        .iter()
+        .filter(|e| {
+            e.game == game
+                && e.version == version
+                && e.table == row.0
+                && e.row_id == row.1
+                && e.slot == row.2
+        })
+        .max_by_key(|e| e.batch)
+    {
         if e.original != row.3 {
             return Err(invalid("定位记录的底稿原文已变化，请重新查找。"));
         }
@@ -239,6 +263,22 @@ pub fn effective(
         !fields::has_cjk(&row.3),
     )?;
     Ok((result.unwrap_or_else(|| row.3.clone()), false))
+}
+/// The kernel receives one final override per field; paired single records stay
+/// in the project so removing their batch can reveal the saved single text.
+pub fn final_edits(edits: &[Edit], game: &str, version: &str) -> Result<Vec<TextEdit>> {
+    validate_edits(edits)?;
+    let mut seen = HashSet::new();
+    Ok([true, false]
+        .into_iter()
+        .flat_map(|batch| {
+            edits
+                .iter()
+                .filter(move |e| e.game == game && e.version == version && e.batch == batch)
+        })
+        .filter(|e| seen.insert((&e.table, &e.row_id, e.slot)))
+        .map(Edit::core)
+        .collect())
 }
 pub fn game_key(game: &str) -> Result<String> {
     if game.trim().is_empty() {

@@ -52,8 +52,10 @@ impl Config {
             work_dir: None,
         }
     }
-    fn options(&self, game: &str, version: &str) -> Value {
-        json!({"skip_kana":self.skip_kana,"ascii_exact":self.ascii_exact,"tables":self.tables,"explain":true,"edits":self.edits.iter().filter(|e|e.game==game && e.version==version).map(Edit::core).collect::<Vec<_>>()})
+    fn options(&self, game: &str, version: &str) -> Result<Value> {
+        Ok(
+            json!({"skip_kana":self.skip_kana,"ascii_exact":self.ascii_exact,"tables":self.tables,"explain":true,"edits":model::final_edits(&self.edits,game,version)?}),
+        )
     }
     fn check_documents(&self) -> Result<()> {
         if let Some(path) = &self.rules_path {
@@ -331,7 +333,7 @@ impl Engine {
         let identity = region::resource_identity(&live)?;
         let original = self.baseline(game, backup_root, control)?;
         self.open(&original, control)?;
-        let options = config.options(&storage::identity(&live.dir)?, &original.version);
+        let options = config.options(&storage::identity(&live.dir)?, &original.version)?;
         let key = storage::digest(&serde_json::to_vec(&json!([
             identity,
             config.rules,
@@ -421,7 +423,7 @@ impl Engine {
             control.log("正在从初始底稿重建…")?;
             let key = codec::key(region::KEY)?;
             let info = codec::decrypt(&original.bundle, &plain, &key, control)?;
-            let options = config.options(&storage::identity(&live.dir)?, &original.version);
+            let options = config.options(&storage::identity(&live.dir)?, &original.version)?;
             let stats = execute(
                 &mut Session::default(),
                 json!({"op":"patch_file","input":plain,"rules":config.rules,"options":options}),

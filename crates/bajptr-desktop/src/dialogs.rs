@@ -574,6 +574,12 @@ impl Desktop {
             .resizable(true)
             .show(ctx, |ui| {
                 ui.label(&form.label);
+                if form.has_batch {
+                    ui.colored_label(
+                        MUTED,
+                        "此处编辑批量处理前的文本；保存后会再执行该条批量替换。",
+                    );
+                }
                 ui.add_enabled_ui(!self.write_busy(), |ui| {
                     egui::ScrollArea::vertical()
                         .max_height(

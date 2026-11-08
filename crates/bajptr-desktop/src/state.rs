@@ -199,6 +199,7 @@ pub struct TextForm {
     pub label: String,
     pub original: String,
     pub value: String,
+    pub has_batch: bool,
     pub show_original: bool,
     pub error: String,
 }
