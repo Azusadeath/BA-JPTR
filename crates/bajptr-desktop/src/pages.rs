@@ -1,6 +1,6 @@
 use crate::{app::*, state::*};
 use eframe::egui::{self, Color32};
-use serde_json::json;
+use serde_json::{Value, json};
 use std::{path::PathBuf, time::Instant};
 
 impl Desktop {
@@ -223,6 +223,9 @@ impl Desktop {
                         )
                         .changed()
                     {
+                        self.search = Value::Null.into();
+                        self.selection.clear();
+                        self.status = "跳过假名选项已更新，请重新查找".into();
                         self.save_settings();
                     }
                     ui.label(
@@ -405,7 +408,7 @@ impl Desktop {
                 }
                 ui.colored_label(MUTED,format!("已选 {selected} 条（Ctrl 多选，Shift 连选）"));
             });
-            ui.colored_label(MUTED,if self.search.is_null(){"输入文字后点击「查找」。".into()}else{format!("已加载 {} / {} 处。双击可编辑完整文本。",rows.len(),count(&self.search,"total"))});
+            ui.colored_label(MUTED,if self.search.is_null(){"输入文字后点击「查找」".into()}else{format!("已加载 {} / {} 处，双击可编辑完整文本",rows.len(),count(&self.search,"total"))});
         });
         let width = ui.available_width() - 12.;
         let widths = [width - 380., 180., 90., 110.];
@@ -423,9 +426,9 @@ impl Desktop {
                             ui.colored_label(
                                 MUTED,
                                 if self.search.is_null() {
-                                    "输入文字后点击「查找」。"
+                                    "输入文字后点击「查找」"
                                 } else {
-                                    "未找到匹配文本。"
+                                    "未找到匹配文本"
                                 },
                             );
                         },
