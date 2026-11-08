@@ -123,13 +123,14 @@ pub fn execute(session: &mut Session, v: Value, control: &Control<'_>) -> Result
                 .unwrap_or(&database::default_tables())
         )?)),
         "scan" => {
-            let (rows, total) = database::scan(
+            let (rows, total) = database::scan_page(
                 connection(session)?,
                 v.get("tables")
                     .and_then(Value::as_str)
                     .unwrap_or(&database::default_tables()),
                 text(&v, "keyword")?,
                 v.get("limit").and_then(Value::as_u64).unwrap_or(500) as usize,
+                v.get("offset").and_then(Value::as_u64).unwrap_or(0) as usize,
                 control,
             )?;
             Ok(json!({"rows":rows,"total":total}))

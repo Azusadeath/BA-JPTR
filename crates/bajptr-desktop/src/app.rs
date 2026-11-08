@@ -31,6 +31,7 @@ pub struct Desktop {
     pub rule_selection: Option<usize>,
     pub search: Arc<Value>,
     pub keyword: String,
+    pub search_source: String,
     pub selection: Selection,
     pub tables: Vec<Value>,
     pub rule_form: Option<RuleForm>,
@@ -78,6 +79,7 @@ impl Desktop {
             rule_selection: None,
             search: Value::Null.into(),
             keyword: String::new(),
+            search_source: String::new(),
             selection: Selection::default(),
             tables: Vec::new(),
             rule_form: None,
@@ -458,8 +460,17 @@ impl Desktop {
                 "search" => {
                     self.search = data.into();
                     self.selection.clear();
+                    self.search_source = text(&self.search, "source");
                     self.status = format!(
                         "共找到 {} 处；双击编辑，Ctrl、Shift 多选。",
+                        count(&self.search, "total")
+                    );
+                }
+                "search_more" => {
+                    self.search = data.into();
+                    self.status = format!(
+                        "已加载 {} / {} 处；双击编辑，Ctrl、Shift 多选。",
+                        slice(&self.search, "rows").len(),
                         count(&self.search, "total")
                     );
                 }

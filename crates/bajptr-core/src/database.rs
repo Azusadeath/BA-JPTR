@@ -894,6 +894,20 @@ pub fn scan(
     limit: usize,
     control: &Control<'_>,
 ) -> Result<(Vec<TextRow>, u64)> {
+    scan_page(con, pattern, keyword, limit, 0, control)
+}
+
+/// Scan a bounded page of matches while still counting the complete result.
+/// `offset` is measured in matching text fields, so callers can load the next
+/// page without pretending that the first page is the whole search result.
+pub fn scan_page(
+    con: &Connection,
+    pattern: &str,
+    keyword: &str,
+    limit: usize,
+    offset: usize,
+    control: &Control<'_>,
+) -> Result<(Vec<TextRow>, u64)> {
     let mut found = Vec::new();
     let mut total = 0;
     let mut diagnostics = Stats::default();
@@ -941,7 +955,7 @@ pub fn scan(
             for field in fields {
                 if field.text.contains(keyword) {
                     total += 1;
-                    if found.len() < limit {
+                    if total as usize > offset && found.len() < limit {
                         found.push((table.clone(), rid.clone(), field.slot, field.text.into()));
                     }
                 }

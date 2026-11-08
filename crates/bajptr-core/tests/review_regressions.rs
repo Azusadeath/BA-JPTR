@@ -209,6 +209,38 @@ fn without_rowid_tables_use_their_real_single_primary_key() {
 }
 
 #[test]
+fn search_pages_cover_all_matches_and_keep_source_table_filtering_exact() {
+    let con = Connection::open_in_memory().unwrap();
+    con.execute_batch(
+        "CREATE TABLE LocalizeDBSchema(Id INTEGER PRIMARY KEY, Bytes BLOB); CREATE TABLE SkillDBSchema(Id INTEGER PRIMARY KEY, Bytes BLOB)",
+    )
+    .unwrap();
+    for id in 0..3 {
+        con.execute(
+            "INSERT INTO LocalizeDBSchema VALUES (?,?)",
+            rusqlite::params![id, blob(&["攻击"])],
+        )
+        .unwrap();
+    }
+    for id in 0..2 {
+        con.execute(
+            "INSERT INTO SkillDBSchema VALUES (?,?)",
+            rusqlite::params![id, blob(&["攻击"])],
+        )
+        .unwrap();
+    }
+    let (first, total) =
+        database::scan_page(&con, "Localize|Skill", "攻击", 2, 0, &ctl()).unwrap();
+    let (second, total_again) =
+        database::scan_page(&con, "Localize|Skill", "攻击", 2, 2, &ctl()).unwrap();
+    assert_eq!((first.len(), second.len(), total, total_again), (2, 2, 5, 5));
+    let (localize, local_total) =
+        database::scan_page(&con, "^(?:LocalizeDBSchema)$", "攻击", 10, 0, &ctl()).unwrap();
+    assert_eq!(local_total, 3);
+    assert!(localize.iter().all(|row| row.0 == "LocalizeDBSchema"));
+}
+
+#[test]
 fn composite_primary_keys_bind_only_the_selected_record() {
     for columns in ["Id", "Key"] {
         let con = Connection::open_in_memory().unwrap();

@@ -313,7 +313,7 @@ impl Desktop {
             {
                 self.submit(
                     "search",
-                    json!({"keyword":self.keyword}),
+                    json!({"keyword":self.keyword,"source":self.search_source,"offset":0}),
                     "正在查找，保留上次结果…",
                     true,
                 );
@@ -336,6 +336,52 @@ impl Desktop {
                 );
             }
         });
+        let mut source_changed = false;
+        ui.horizontal(|ui| {
+            ui.label("来源表");
+            let selected = if self.search_source.is_empty() {
+                "全部来源表".to_string()
+            } else {
+                self.tables
+                    .iter()
+                    .find(|v| text(v, "name") == self.search_source)
+                    .map(|v| text(v, "label"))
+                    .unwrap_or_else(|| self.search_source.clone())
+            };
+            egui::ComboBox::from_id_salt("search-source")
+                .selected_text(selected)
+                .show_ui(ui, |ui| {
+                    if ui
+                        .selectable_value(&mut self.search_source, String::new(), "全部来源表")
+                        .changed()
+                    {
+                        source_changed = true;
+                    }
+                    for table in &self.tables {
+                        let name = text(table, "name");
+                        if ui
+                            .selectable_value(
+                                &mut self.search_source,
+                                name.clone(),
+                                text(table, "label"),
+                            )
+                            .changed()
+                        {
+                            source_changed = true;
+                        }
+                    }
+                });
+            ui.colored_label(MUTED, "更换来源表后会重新查找");
+        });
+        if source_changed && self.busy.is_none() && !self.keyword.trim().is_empty() {
+            self.selection.clear();
+            self.submit(
+                "search",
+                json!({"keyword":self.keyword,"source":self.search_source,"offset":0}),
+                "正在按来源表查找…",
+                true,
+            );
+        }
         let search = self.search.clone();
         let rows = slice(&search, "rows");
         egui::Panel::bottom("search-actions").show(ui,|ui|{
@@ -350,7 +396,18 @@ impl Desktop {
                 if secondary(ui,true,"单条修改").clicked() { self.show_edits=true; }
                 ui.colored_label(MUTED,format!("已选 {selected} 条（Ctrl 多选，Shift 连选）"));
             });
-            ui.colored_label(MUTED,if self.search.is_null(){"输入文字后点击「查找」。".into()}else{format!("共 {} 处，显示前 {} 条。双击可编辑完整文本。",count(&self.search,"total"),rows.len())});
+            if !self.search.is_null()
+                && rows.len() < count(&self.search, "total") as usize
+                && secondary(ui, self.busy.is_none(), "加载更多").clicked()
+            {
+                self.submit(
+                    "search_more",
+                    json!({"keyword":text(&self.search,"keyword"),"source":text(&self.search,"source"),"offset":rows.len()}),
+                    "正在加载更多搜索结果…",
+                    true,
+                );
+            }
+            ui.colored_label(MUTED,if self.search.is_null(){"输入文字后点击「查找」。".into()}else{format!("已加载 {} / {} 处。双击可编辑完整文本。",rows.len(),count(&self.search,"total"))});
         });
         let width = ui.available_width() - 12.;
         let widths = [width - 380., 180., 90., 110.];

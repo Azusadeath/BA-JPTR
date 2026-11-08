@@ -203,7 +203,7 @@ impl Project {
         let rows: Vec<TextRow> = serde_json::from_value(self.search["rows"].clone())?;
         let rows=rows.into_iter().map(|r|{let (value,explicit)=model::effective(&r,&self.edits,&key,version,&rules,self.skip)?;Ok(json!({"table":r.0,"label":model::title(&r.0),"row_id":r.1,"slot":r.2,"original":r.3,"state":if explicit{"定点修改"}else if value!=r.3{"词表替换"}else{"原文"},"text":value}))}).collect::<Result<Vec<_>>>()?;
         Ok(
-            json!({"rows":rows,"keyword":self.search["keyword"],"total":self.search["total"],"version":version,"nonce":self.search["nonce"]}),
+            json!({"rows":rows,"keyword":self.search["keyword"],"source":self.search["source"],"total":self.search["total"],"version":version,"nonce":self.search["nonce"]}),
         )
     }
     pub fn state(&self) -> Result<Value> {
@@ -436,18 +436,33 @@ impl Project {
                     json!({"old":old,"new":new,"sample":result,"count":count,"draft":{"key":key,"values":values,"sample":sample}}),
                 )
             }
-            "search" => {
+            "search" | "search_more" => {
                 let keyword = text(p, "keyword")?;
+                let source = p.get("source").and_then(Value::as_str).unwrap_or("");
+                let offset = p.get("offset").and_then(Value::as_u64).unwrap_or(0) as usize;
                 let (result, version) = self.engine.scan(
                     &self.game,
                     &self.data.join("backup"),
                     keyword,
+                    source,
                     500,
+                    offset,
                     control,
                 )?;
                 control.check()?;
                 self.version = Some(version.clone());
-                self.search = json!({"game":model::game_key(&self.game)?,"version":version,"rows":result["rows"],"total":result["total"],"nonce":nonce(),"keyword":keyword});
+                if action == "search_more"
+                    && self.search["keyword"] == keyword
+                    && self.search["source"] == source
+                    && self.search["version"] == version
+                {
+                    let mut rows = self.search["rows"].as_array().cloned().unwrap_or_default();
+                    rows.extend(result["rows"].as_array().cloned().unwrap_or_default());
+                    self.search["rows"] = json!(rows);
+                    self.search["total"] = result["total"].clone();
+                } else {
+                    self.search = json!({"game":model::game_key(&self.game)?,"version":version,"rows":result["rows"],"total":result["total"],"nonce":nonce(),"keyword":keyword,"source":source});
+                }
                 if self.searches.len() >= 4 {
                     self.searches.pop_front();
                 }
