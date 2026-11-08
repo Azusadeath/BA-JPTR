@@ -462,16 +462,17 @@ impl Desktop {
                     self.selection.clear();
                     self.search_source = text(&self.search, "source");
                     self.status = format!(
-                        "共找到 {} 处；双击编辑，Ctrl、Shift 多选。",
-                        count(&self.search, "total")
+                        "共找到 {} 处，已加载 {} 处",
+                        count(&self.search, "total"),
+                        slice(&self.search, "rows").len()
                     );
                 }
                 "search_more" => {
                     self.search = data.into();
                     self.status = format!(
-                        "已加载 {} / {} 处；双击编辑，Ctrl、Shift 多选。",
-                        slice(&self.search, "rows").len(),
-                        count(&self.search, "total")
+                        "共找到 {} 处，已加载 {} 处",
+                        count(&self.search, "total"),
+                        slice(&self.search, "rows").len()
                     );
                 }
                 "text_open" => {

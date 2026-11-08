@@ -384,7 +384,7 @@ impl Desktop {
                         }
                     }
                 });
-            ui.colored_label(MUTED, "更换来源表后会重新查找");
+            ui.colored_label(MUTED, "切换后自动查找");
         });
         if source_changed && self.busy.is_none() && !self.keyword.trim().is_empty() {
             self.selection.clear();
@@ -401,31 +401,23 @@ impl Desktop {
             .inner_margin(egui::Margin::symmetric(0, 8))
             .show(ui, |ui| {
             ui.horizontal_wrapped(|ui|{let selected=self.selection.rows.len();
-                if ui.add_enabled(selected==1&&!self.write_busy(),ToolButton::new("编辑文本")).clicked(){self.open_text(*self.selection.rows.first().unwrap());}
-                if ui.add_enabled(selected>0&&!self.write_busy(),ToolButton::new("替换选中文本")).clicked(){self.batch_form=Some(BatchForm{indices:self.selection.rows.iter().copied().collect(),old:text(&self.search,"keyword"),new:String::new(),nonce:String::new(),changes:Vec::new(),error:String::new()});}
-                if ui.add_enabled(selected==1&&!self.write_busy(),ToolButton::new("用此表添加词条")).clicked(){let row=&rows[*self.selection.rows.first().unwrap()];let keyword=text(&self.search,"keyword");let value=json!({"rule":{"old":keyword,"new":keyword,"mode":"sub","source":"-","table":row["table"]}});self.rule_form=Some(RuleForm::new(None,self.revision(),Some(&value)));}
-                if ui.add_enabled(selected==1, ToolButton::new("来源表详情")).clicked() {
-                    let row=&rows[*self.selection.rows.first().unwrap()];
-                    self.table_detail=Some(self.tables.iter().find(|v|v["name"]==row["table"]).cloned().unwrap_or(json!({"name":row["table"],"label":row["label"]})));
-                }
-                ui.colored_label(MUTED,format!("已选 {selected} 条（Ctrl 多选，Shift 连选）"));
-            });
-            ui.colored_label(
-                MUTED,
-                if self.search.is_null() {
-                    "输入文字后点击「查找」".into()
+                if selected == 0 {
+                    ui.colored_label(MUTED, "选择结果后可编辑或批量替换");
                 } else {
-                    format!(
-                        "已加载 {} / {} 处，双击可编辑完整文本",
-                        rows.len(),
-                        count(&self.search, "total")
-                    )
-                },
-            );
+                    if selected == 1 && !self.write_busy() && ui.add(ToolButton::new("编辑文本")).clicked(){self.open_text(*self.selection.rows.first().unwrap());}
+                    if !self.write_busy() && ui.add(ToolButton::new("替换选中文本")).clicked(){self.batch_form=Some(BatchForm{indices:self.selection.rows.iter().copied().collect(),old:text(&self.search,"keyword"),new:String::new(),nonce:String::new(),changes:Vec::new(),error:String::new()});}
+                    if selected == 1 && !self.write_busy() && ui.add(ToolButton::new("用此表添加词条")).clicked(){let row=&rows[*self.selection.rows.first().unwrap()];let keyword=text(&self.search,"keyword");let value=json!({"rule":{"old":keyword,"new":keyword,"mode":"sub","source":"-","table":row["table"]}});self.rule_form=Some(RuleForm::new(None,self.revision(),Some(&value)));}
+                    if selected == 1 && ui.add(ToolButton::new("来源表详情")).clicked() {
+                        let row=&rows[*self.selection.rows.first().unwrap()];
+                        self.table_detail=Some(self.tables.iter().find(|v|v["name"]==row["table"]).cloned().unwrap_or(json!({"name":row["table"],"label":row["table"]})));
+                    }
+                    ui.colored_label(MUTED,format!("已选 {selected} 条"));
+                }
+            });
             });
         let width = ui.available_width() - 12.;
-        let widths = [width - 380., 180., 90., 110.];
-        table_header(ui, &["本次文本", "来源表", "记录", "状态"], &widths);
+        let widths = [width - 270., 180., 90.];
+        table_header(ui, &["本次文本", "来源表", "记录"], &widths);
         let table_height = ui.available_height();
         egui::Frame::new()
             .fill(Color32::WHITE)
@@ -490,7 +482,6 @@ impl Desktop {
                                         text(row, "label"),
                                         format!("{}:{}", row["row_id"], row["slot"])
                                             .replace('"', ""),
-                                        text(row, "state"),
                                     ];
                                     let response = data_row(
                                         ui,
