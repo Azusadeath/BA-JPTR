@@ -118,6 +118,15 @@ impl Desktop {
     pub fn replacement(&mut self, ui: &mut egui::Ui) {
         let state = self.state.clone();
         let rules = slice(&state, "rules");
+        let batches: Vec<_> = slice(&state, "edits")
+            .iter()
+            .filter(|entry| entry["edit"]["batch"] == true)
+            .collect();
+        let selected_rule = self.rule_selection.filter(|i| *i < rules.len());
+        let selected_batch = self
+            .rule_selection
+            .and_then(|i| i.checked_sub(rules.len()))
+            .and_then(|i| batches.get(i));
         let can_edit = self.loaded && self.healthy() && !self.write_busy();
         ui.horizontal_wrapped(|ui| {
             if ui
@@ -128,27 +137,46 @@ impl Desktop {
             }
             if ui
                 .add_enabled(
-                    can_edit && self.rule_selection.is_some_and(|i| i < rules.len()),
+                    can_edit
+                        && (selected_rule.is_some()
+                            || selected_batch.is_some_and(|entry| entry["active"] == true)),
                     ToolButton::new("编辑"),
                 )
                 .clicked()
             {
-                let i = self.rule_selection.unwrap();
-                self.rule_form = Some(RuleForm::new(Some(i), self.revision(), rules.get(i)));
+                if let Some(i) = selected_rule {
+                    self.rule_form = Some(RuleForm::new(Some(i), self.revision(), rules.get(i)));
+                } else if let Some(entry) = selected_batch {
+                    self.submit(
+                        "text_open",
+                        json!({"edit_index":entry["index"]}),
+                        "正在读取批量修改…",
+                        true,
+                    );
+                }
             }
             if ui
                 .add_enabled(
-                    can_edit && self.rule_selection.is_some_and(|i| i < rules.len()),
+                    can_edit && (selected_rule.is_some() || selected_batch.is_some()),
                     ToolButton::new("移除"),
                 )
                 .clicked()
             {
-                self.submit(
-                    "remove_rule",
-                    json!({"index":self.rule_selection,"revision":self.revision()}),
-                    "正在移除词条…",
-                    false,
-                );
+                if let Some(i) = selected_rule {
+                    self.submit(
+                        "remove_rule",
+                        json!({"index":i,"revision":self.revision()}),
+                        "正在移除词条…",
+                        false,
+                    );
+                } else if let Some(entry) = selected_batch {
+                    self.submit(
+                        "remove_edit",
+                        json!({"index":entry["index"],"revision":self.revision()}),
+                        "正在移除批量修改…",
+                        false,
+                    );
+                }
                 self.rule_selection = None;
             }
             if ui
@@ -192,14 +220,10 @@ impl Desktop {
                 .add_enabled(
                     can_edit,
                     ToolButton::new(format!(
-                        "修改记录（单条 {} / 批量 {}）",
+                        "单条修改（{}）",
                         slice(&self.state, "edits")
                             .iter()
                             .filter(|v| v["edit"]["batch"] != true)
-                            .count(),
-                        slice(&self.state, "edits")
-                            .iter()
-                            .filter(|v| v["edit"]["batch"] == true)
                             .count()
                     )),
                 )
@@ -229,9 +253,13 @@ impl Desktop {
                         self.save_settings();
                     }
                     ui.label(
-                        egui::RichText::new(format!("{} 条词条", rules.len()))
-                            .size(13.)
-                            .color(MUTED),
+                        egui::RichText::new(if batches.is_empty() {
+                            format!("{} 条词条", rules.len())
+                        } else {
+                            format!("{} 条词条 · {} 条批量修改", rules.len(), batches.len())
+                        })
+                        .size(13.)
+                        .color(MUTED),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let ready = self.connected && self.healthy() && self.busy.is_none();
@@ -259,7 +287,7 @@ impl Desktop {
             .corner_radius(10)
             .stroke(egui::Stroke::new(1., LINE))
             .show(ui, |ui| {
-                if rules.is_empty() {
+                if rules.is_empty() && batches.is_empty() {
                     ui.allocate_ui_with_layout(
                         ui.available_size(),
                         egui::Layout::centered_and_justified(egui::Direction::TopDown),
@@ -270,8 +298,62 @@ impl Desktop {
                 } else {
                     egui::ScrollArea::vertical()
                         .auto_shrink([false, false])
-                        .show_rows(ui, ROW_HEIGHT, rules.len(), |ui, range| {
+                        .show_rows(ui, ROW_HEIGHT, rules.len() + batches.len(), |ui, range| {
                             for i in range {
+                                if i >= rules.len() {
+                                    let entry = batches[i - rules.len()];
+                                    let edit = &entry["edit"];
+                                    let replacement = text(edit, "replacement");
+                                    let values = [
+                                        text(edit, "original").replace(['\r', '\n'], " "),
+                                        if replacement.is_empty() {
+                                            "（清空文本）".into()
+                                        } else {
+                                            replacement.replace(['\r', '\n'], " ")
+                                        },
+                                        "整段相同".into(),
+                                        "批量修改".into(),
+                                        if entry["active"] == true {
+                                            "—"
+                                        } else {
+                                            "失效"
+                                        }
+                                        .into(),
+                                    ];
+                                    let response = data_row(
+                                        ui,
+                                        i,
+                                        self.rule_selection == Some(i),
+                                        &values,
+                                        &widths,
+                                    )
+                                    .on_hover_text(format!(
+                                        "{} · {}:{}{}",
+                                        text(entry, "label"),
+                                        edit["row_id"],
+                                        edit["slot"],
+                                        if entry["active"] == true {
+                                            ""
+                                        } else {
+                                            "（版本失效）"
+                                        }
+                                    ));
+                                    if response.clicked() {
+                                        self.rule_selection = Some(i);
+                                    }
+                                    if response.double_clicked()
+                                        && can_edit
+                                        && entry["active"] == true
+                                    {
+                                        self.submit(
+                                            "text_open",
+                                            json!({"edit_index":entry["index"]}),
+                                            "正在读取批量修改…",
+                                            true,
+                                        );
+                                    }
+                                    continue;
+                                }
                                 let row = &rules[i];
                                 let new = text(row, "display_new");
                                 let values = [

@@ -241,8 +241,10 @@ impl Desktop {
         if changed {
             self.hits.clear();
             self.preview = None;
+            self.rule_selection = None;
         }
         if game_changed {
+            self.rule_selection = None;
             self.search = Value::Null.into();
             self.selection.clear();
             self.tables.clear();

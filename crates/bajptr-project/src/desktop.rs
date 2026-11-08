@@ -472,7 +472,7 @@ impl Project {
             }
             "text_open" => {
                 self.require(None)?;
-                let (version, row) = if p.get("edit_index").is_some() {
+                let (version, row, batch) = if p.get("edit_index").is_some() {
                     let e = self
                         .edits
                         .get(index(p, "edit_index")?)
@@ -488,6 +488,7 @@ impl Project {
                             e.slot,
                             e.original.clone(),
                         ),
+                        e.batch,
                     )
                 } else {
                     let search = self.find_search(p)?;
@@ -497,6 +498,7 @@ impl Project {
                         rows.get(index(p, "index")?)
                             .ok_or_else(|| invalid("文本位置已变化。"))?
                             .clone(),
+                        false,
                     )
                 };
                 self.context(&version, &json!(self.revision), control)?;
@@ -509,7 +511,7 @@ impl Project {
                     self.skip,
                 )?;
                 let nonce = nonce();
-                self.text_draft = json!({"nonce":nonce,"row":row,"version":version,"revision":self.revision,"initial":value});
+                self.text_draft = json!({"nonce":nonce,"row":row,"version":version,"revision":self.revision,"initial":value,"batch":batch});
                 Ok(
                     json!({"nonce":nonce,"original":row.3,"text":value,"label":model::title(&row.0),"row_id":row.1,"slot":row.2}),
                 )
@@ -532,7 +534,7 @@ impl Project {
                         slot: row.2,
                         original: row.3,
                         replacement,
-                        batch: false,
+                        batch: draft["batch"] == true,
                     };
                     self.commit(
                         Document::Edits(model::update_edits(&self.edits, vec![e])?),

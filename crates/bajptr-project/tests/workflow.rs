@@ -394,6 +394,42 @@ fn single_and_batch_edits_bind_original_search_and_share_undo_history() {
     f.unchanged();
 }
 #[test]
+fn editing_a_saved_batch_entry_preserves_its_kind_and_target() {
+    let f = Fixture::new();
+    let mut p = f.ready_project();
+    let search = call(&mut p, "search", json!({"keyword":"任务"}));
+    let batch = call(
+        &mut p,
+        "batch_preview",
+        json!({"search_nonce":search["nonce"],"indices":[0],"old":"委托","new":"批量结果"}),
+    );
+    call(&mut p, "batch_save", json!({"nonce":batch["nonce"]}));
+    let target = p.edits[0].clone();
+    assert!(target.batch);
+    let opened = call(&mut p, "text_open", json!({"edit_index":0}));
+    call(
+        &mut p,
+        "text_save",
+        json!({"nonce":opened["nonce"],"text":"重新编辑的批量结果"}),
+    );
+    assert_eq!(p.edits.len(), 1);
+    assert!(p.edits[0].batch);
+    assert!(p.edits[0].same_address(&target));
+    assert_eq!(p.edits[0].original, target.original);
+    assert_eq!(f.project().edits, p.edits);
+    let revision = p.revision;
+    call(
+        &mut p,
+        "remove_edit",
+        json!({"index":0,"revision":revision}),
+    );
+    assert!(p.edits.is_empty());
+    call(&mut p, "history", json!({"undo":true}));
+    assert!(p.edits[0].batch);
+    f.unchanged();
+}
+
+#[test]
 fn broken_or_externally_changed_wordlist_is_never_overwritten() {
     let f = Fixture::new();
     let mut p = f.ready_project();
