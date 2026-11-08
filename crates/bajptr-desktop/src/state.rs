@@ -203,6 +203,7 @@ pub struct TextForm {
     pub error: String,
 }
 pub struct BatchForm {
+    pub group_id: String,
     pub indices: Vec<usize>,
     pub old: String,
     pub new: String,
@@ -213,6 +214,7 @@ pub struct BatchForm {
 impl BatchForm {
     pub fn matches(&self, draft: &Value) -> bool {
         draft["indices"] == json!(self.indices)
+            && text(draft, "group_id") == self.group_id
             && text(draft, "old") == self.old
             && text(draft, "new") == self.new
     }
@@ -272,6 +274,7 @@ mod tests {
     #[test]
     fn late_batch_preview_cannot_reenable_save_for_changed_inputs() {
         let mut f = BatchForm {
+            group_id: String::new(),
             indices: vec![0, 2],
             old: "攻击".into(),
             new: "爆炸".into(),

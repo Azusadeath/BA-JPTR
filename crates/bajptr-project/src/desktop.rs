@@ -206,12 +206,52 @@ impl Project {
             json!({"rows":rows,"keyword":self.search["keyword"],"source":self.search["source"],"total":self.search["total"],"version":version,"nonce":self.search["nonce"]}),
         )
     }
+    fn batch_entries(&self, id: &str) -> Result<Vec<Edit>> {
+        let game = model::game_key(&self.game)?;
+        let entries: Vec<_> = self
+            .edits
+            .iter()
+            .filter(|e| {
+                e.game == game
+                    && e.batch_operation
+                        .as_ref()
+                        .is_some_and(|operation| operation.id == id)
+            })
+            .cloned()
+            .collect();
+        if entries.is_empty() {
+            return Err(invalid("这项批量修改已变化，请重新打开。"));
+        }
+        Ok(entries)
+    }
     pub fn state(&self) -> Result<Value> {
         let rules=self.rules.iter().map(|r|{let (old,new,draft)=if r.mode=="re"{self.templates.display(&r.old,&r.new)}else{(r.old.clone(),r.new.clone(),None)};json!({"rule":r,"scope":model::scope_title(&r.table),"display_old":old,"display_new":new,"draft":draft})}).collect::<Vec<_>>();
         let key = model::game_key(&self.game)?;
         let edits=self.edits.iter().enumerate().filter(|(_,e)|e.game==key).map(|(i,e)|json!({"index":i,"edit":e,"label":model::title(&e.table),"active":self.version.as_ref().is_none_or(|v|v==&e.version)})).collect::<Vec<_>>();
+        let mut batches: Vec<Value> = Vec::new();
+        let mut positions = std::collections::HashMap::new();
+        for (index, edit) in self
+            .edits
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| e.game == key && e.batch)
+        {
+            let active = self.version.as_ref().is_none_or(|v| v == &edit.version);
+            if let Some(operation) = &edit.batch_operation {
+                if let Some(&position) = positions.get(&operation.id) {
+                    let row: &mut Value = &mut batches[position];
+                    row["count"] = json!(row["count"].as_u64().unwrap_or(0) + 1);
+                    row["active"] = json!(row["active"] == true && active);
+                } else {
+                    positions.insert(operation.id.clone(), batches.len());
+                    batches.push(json!({"id":operation.id,"old":operation.old,"new":operation.new,"count":1,"active":active}));
+                }
+            } else {
+                batches.push(json!({"index":index,"old":edit.original,"new":edit.replacement,"count":1,"active":active,"label":model::title(&edit.table)}));
+            }
+        }
         Ok(
-            json!({"game":self.game,"skip_kana":self.skip,"revision":self.revision,"rules":rules,"edits":edits,"errors":self.errors,"messages":self.messages,"can_undo":!self.undo.is_empty(),"can_redo":!self.redo.is_empty(),"templates":templates::metadata(),"search":self.search_state()?,"application":self.application}),
+            json!({"game":self.game,"skip_kana":self.skip,"revision":self.revision,"rules":rules,"edits":edits,"batches":batches,"errors":self.errors,"messages":self.messages,"can_undo":!self.undo.is_empty(),"can_redo":!self.redo.is_empty(),"templates":templates::metadata(),"search":self.search_state()?,"application":self.application}),
         )
     }
     // Only read-operation state is rolled back by cancellation. Persisted edits are never rolled back.
@@ -243,6 +283,7 @@ impl Project {
                 | "text_open"
                 | "text_save"
                 | "batch_preview"
+                | "batch_open"
                 | "batch_save"
                 | "preview"
                 | "apply"
@@ -534,6 +575,7 @@ impl Project {
                         original: row.3,
                         replacement,
                         batch: draft["batch"] == true,
+                        batch_operation: None,
                     };
                     self.commit(
                         Document::Edits(model::update_edits(&self.edits, vec![e])?),
@@ -543,11 +585,46 @@ impl Project {
                 self.text_draft = Value::Null;
                 self.state()
             }
+            "batch_open" => {
+                self.require(None)?;
+                let entries = self.batch_entries(text(p, "id")?)?;
+                self.context(&entries[0].version, &json!(self.revision), control)?;
+                let operation = entries[0].batch_operation.as_ref().unwrap();
+                Ok(
+                    json!({"id":operation.id,"old":operation.old,"new":operation.new,"count":entries.len()}),
+                )
+            }
             "batch_preview" => {
                 self.require(None)?;
-                let search = self.find_search(p)?;
-                let version = text(&search, "version")?;
-                self.context(version, &json!(self.revision), control)?;
+                let group_id = p.get("group_id").and_then(Value::as_str).unwrap_or("");
+                let existing = if group_id.is_empty() {
+                    None
+                } else {
+                    Some(self.batch_entries(group_id)?)
+                };
+                let (version, rows) = if let Some(entries) = &existing {
+                    (
+                        entries[0].version.clone(),
+                        entries
+                            .iter()
+                            .map(|e| {
+                                (
+                                    e.table.clone(),
+                                    e.row_id.clone(),
+                                    e.slot,
+                                    e.original.clone(),
+                                )
+                            })
+                            .collect::<Vec<TextRow>>(),
+                    )
+                } else {
+                    let search = self.find_search(p)?;
+                    (
+                        text(&search, "version")?.to_string(),
+                        serde_json::from_value::<Vec<TextRow>>(search["rows"].clone())?,
+                    )
+                };
+                self.context(&version, &json!(self.revision), control)?;
                 let old = text(p, "old")?;
                 let new = text(p, "new")?;
                 if old.is_empty() {
@@ -556,7 +633,14 @@ impl Project {
                 let mut indices: Vec<usize> = serde_json::from_value(p["indices"].clone())?;
                 indices.sort();
                 indices.dedup();
-                let rows: Vec<TextRow> = serde_json::from_value(search["rows"].clone())?;
+                if existing.is_some() && indices != (0..rows.len()).collect::<Vec<_>>() {
+                    return Err(invalid("批量修改的范围已变化，请重新打开。"));
+                }
+                let operation_id = if group_id.is_empty() {
+                    nonce()
+                } else {
+                    group_id.to_string()
+                };
                 let rules = Rules::new(self.rules.clone())?;
                 let key = model::game_key(&self.game)?;
                 let mut changes = Vec::new();
@@ -566,19 +650,34 @@ impl Project {
                         .get(*i)
                         .ok_or_else(|| invalid("选中文字位置已变化。"))?;
                     let (before, _) =
-                        model::effective(row, &self.edits, &key, version, &rules, self.skip)?;
-                    let after = before.replace(old, new);
-                    if before != after {
+                        model::effective(row, &self.edits, &key, &version, &rules, self.skip)?;
+                    let previous = existing
+                        .as_ref()
+                        .map(|entries| entries[*i].batch_operation.as_ref().unwrap());
+                    let base = previous
+                        .map(|operation| operation.before.clone())
+                        .unwrap_or_else(|| before.clone());
+                    let after = base.replace(old, new);
+                    if before != after
+                        || previous
+                            .is_some_and(|operation| operation.old != old || operation.new != new)
+                    {
                         changes.push(json!({"label":model::title(&row.0),"row_id":row.1,"slot":row.2,"before":before,"after":after}));
                         updates.push(Edit {
                             game: key.clone(),
-                            version: version.into(),
+                            version: version.clone(),
                             table: row.0.clone(),
                             row_id: row.1.clone(),
                             slot: row.2,
                             original: row.3.clone(),
                             replacement: after,
                             batch: true,
+                            batch_operation: Some(model::BatchOperation {
+                                id: operation_id.clone(),
+                                old: old.into(),
+                                new: new.into(),
+                                before: base,
+                            }),
                         });
                     }
                 }
@@ -587,7 +686,7 @@ impl Project {
                 self.batch_draft =
                     json!({"nonce":nonce,"edits":edits,"revision":self.revision,"version":version});
                 Ok(
-                    json!({"nonce":nonce,"changes":changes,"draft":{"indices":indices,"old":old,"new":new}}),
+                    json!({"nonce":nonce,"changes":changes,"draft":{"indices":indices,"old":old,"new":new,"group_id":group_id}}),
                 )
             }
             "batch_save" => {
@@ -600,6 +699,26 @@ impl Project {
                     Document::Edits(serde_json::from_value(draft["edits"].clone())?),
                     true,
                 )?;
+                self.state()
+            }
+            "remove_batch" => {
+                self.require(p.get("revision"))?;
+                let id = text(p, "id")?;
+                self.batch_entries(id)?;
+                let game = model::game_key(&self.game)?;
+                let values = self
+                    .edits
+                    .iter()
+                    .filter(|e| {
+                        e.game != game
+                            || !e
+                                .batch_operation
+                                .as_ref()
+                                .is_some_and(|operation| operation.id == id)
+                    })
+                    .cloned()
+                    .collect();
+                self.commit(Document::Edits(values), true)?;
                 self.state()
             }
             "remove_edit" => {

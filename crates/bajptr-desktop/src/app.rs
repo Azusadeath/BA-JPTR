@@ -266,6 +266,18 @@ impl Desktop {
             true,
         );
     }
+    pub fn open_batch(&mut self, entry: &Value) {
+        self.submit(
+            if entry["id"].is_string() {
+                "batch_open"
+            } else {
+                "text_open"
+            },
+            json!({"id":entry["id"],"edit_index":entry["index"]}),
+            "正在读取批量修改…",
+            true,
+        );
+    }
     pub fn open_folder(path: &std::path::Path) {
         #[cfg(windows)]
         {
@@ -446,7 +458,7 @@ impl Desktop {
                     }
                 }
                 "save_rule" | "remove_rule" | "history" | "text_save" | "batch_save"
-                | "remove_edit" | "import_commit" => {
+                | "remove_edit" | "remove_batch" | "import_commit" => {
                     self.apply_state(data);
                     if action == "save_rule" {
                         self.rule_form = None;
@@ -485,6 +497,18 @@ impl Desktop {
                         original: text(&data, "original"),
                         value: text(&data, "text"),
                         show_original: false,
+                        error: String::new(),
+                    });
+                }
+                "batch_open" => {
+                    self.status = "编辑批量修改，保存后预览并应用。".into();
+                    self.batch_form = Some(BatchForm {
+                        group_id: text(&data, "id"),
+                        indices: (0..count(&data, "count") as usize).collect(),
+                        old: text(&data, "old"),
+                        new: text(&data, "new"),
+                        nonce: String::new(),
+                        changes: Vec::new(),
                         error: String::new(),
                     });
                 }

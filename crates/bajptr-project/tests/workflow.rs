@@ -494,6 +494,70 @@ fn single_and_batch_edits_bind_original_search_and_share_undo_history() {
     f.unchanged();
 }
 #[test]
+fn one_batch_operation_is_one_rule_row_with_its_original_selected_scope() {
+    let f = Fixture::new();
+    let mut p = f.ready_project();
+    p.skip = false;
+    call(
+        &mut p,
+        "save_rule",
+        json!({"revision":0,"index":1,"rule":{"old":"任务","new":"神秘","mode":"sub","source":"测试","table":""}}),
+    );
+    let search = call(&mut p, "search", json!({"keyword":"任务"}));
+    assert_eq!(search["rows"].as_array().unwrap().len(), 2);
+    let preview = call(
+        &mut p,
+        "batch_preview",
+        json!({"search_nonce":search["nonce"],"indices":[0,1],"old":"神秘","new":"神奇"}),
+    );
+    let saved = call(&mut p, "batch_save", json!({"nonce":preview["nonce"]}));
+    assert_eq!(p.edits.len(), 2);
+    let batches = saved["batches"].as_array().unwrap();
+    assert_eq!(batches.len(), 1);
+    assert_eq!(batches[0]["old"], "神秘");
+    assert_eq!(batches[0]["new"], "神奇");
+    assert_eq!(batches[0]["count"], 2);
+    let id = batches[0]["id"].clone();
+    let targets = p
+        .edits
+        .iter()
+        .map(|e| (e.table.clone(), e.row_id.clone(), e.slot))
+        .collect::<Vec<_>>();
+    let opened = call(&mut p, "batch_open", json!({"id":id}));
+    assert_eq!(opened["old"], "神秘");
+    assert_eq!(opened["new"], "神奇");
+    let revised = call(
+        &mut p,
+        "batch_preview",
+        json!({"group_id":id,"indices":[0,1],"old":"神秘","new":"奇妙"}),
+    );
+    let saved = call(&mut p, "batch_save", json!({"nonce":revised["nonce"]}));
+    assert_eq!(saved["batches"][0]["id"], id);
+    assert_eq!(saved["batches"][0]["new"], "奇妙");
+    assert_eq!(
+        p.edits
+            .iter()
+            .map(|e| (e.table.clone(), e.row_id.clone(), e.slot))
+            .collect::<Vec<_>>(),
+        targets
+    );
+    assert!(
+        p.edits
+            .iter()
+            .all(|e| e.replacement.contains("奇妙") && !e.replacement.contains("神奇"))
+    );
+    let reopened = f.project();
+    assert_eq!(reopened.state().unwrap()["batches"][0]["new"], "奇妙");
+    let revision = p.revision;
+    call(&mut p, "remove_batch", json!({"id":id,"revision":revision}));
+    assert!(p.edits.is_empty());
+    call(&mut p, "history", json!({"undo":true}));
+    assert_eq!(p.edits.len(), 2);
+    assert_eq!(p.state().unwrap()["batches"].as_array().unwrap().len(), 1);
+    f.unchanged();
+}
+
+#[test]
 fn editing_a_saved_batch_entry_preserves_its_kind_and_target() {
     let f = Fixture::new();
     let mut p = f.ready_project();

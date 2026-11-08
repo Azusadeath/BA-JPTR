@@ -118,10 +118,7 @@ impl Desktop {
     pub fn replacement(&mut self, ui: &mut egui::Ui) {
         let state = self.state.clone();
         let rules = slice(&state, "rules");
-        let batches: Vec<_> = slice(&state, "edits")
-            .iter()
-            .filter(|entry| entry["edit"]["batch"] == true)
-            .collect();
+        let batches = slice(&state, "batches");
         let selected_rule = self.rule_selection.filter(|i| *i < rules.len());
         let selected_batch = self
             .rule_selection
@@ -147,12 +144,7 @@ impl Desktop {
                 if let Some(i) = selected_rule {
                     self.rule_form = Some(RuleForm::new(Some(i), self.revision(), rules.get(i)));
                 } else if let Some(entry) = selected_batch {
-                    self.submit(
-                        "text_open",
-                        json!({"edit_index":entry["index"]}),
-                        "正在读取批量修改…",
-                        true,
-                    );
+                    self.open_batch(entry);
                 }
             }
             if ui
@@ -171,8 +163,12 @@ impl Desktop {
                     );
                 } else if let Some(entry) = selected_batch {
                     self.submit(
-                        "remove_edit",
-                        json!({"index":entry["index"],"revision":self.revision()}),
+                        if entry["id"].is_string() {
+                            "remove_batch"
+                        } else {
+                            "remove_edit"
+                        },
+                        json!({"id":entry["id"],"index":entry["index"],"revision":self.revision()}),
                         "正在移除批量修改…",
                         false,
                     );
@@ -298,17 +294,27 @@ impl Desktop {
                         .show_rows(ui, ROW_HEIGHT, rules.len() + batches.len(), |ui, range| {
                             for i in range {
                                 if i >= rules.len() {
-                                    let entry = batches[i - rules.len()];
-                                    let edit = &entry["edit"];
-                                    let replacement = text(edit, "replacement");
+                                    let entry = &batches[i - rules.len()];
+                                    let replacement = text(entry, "new");
+                                    let grouped = entry["id"].is_string();
                                     let values = [
-                                        text(edit, "original").replace(['\r', '\n'], " "),
+                                        text(entry, "old").replace(['\r', '\n'], " "),
                                         if replacement.is_empty() {
-                                            "（清空文本）".into()
+                                            if grouped {
+                                                "（删除匹配文字）"
+                                            } else {
+                                                "（清空文本）"
+                                            }
+                                            .into()
                                         } else {
                                             replacement.replace(['\r', '\n'], " ")
                                         },
-                                        "整段相同".into(),
+                                        if grouped {
+                                            "包含文字"
+                                        } else {
+                                            "整段相同"
+                                        }
+                                        .into(),
                                         "批量修改".into(),
                                         if entry["active"] == true {
                                             "—"
@@ -325,10 +331,8 @@ impl Desktop {
                                         &widths,
                                     )
                                     .on_hover_text(format!(
-                                        "{} · {}:{}{}",
-                                        text(entry, "label"),
-                                        edit["row_id"],
-                                        edit["slot"],
+                                        "仅修改选中的 {} 条文本{}",
+                                        count(entry, "count"),
                                         if entry["active"] == true {
                                             ""
                                         } else {
@@ -342,12 +346,7 @@ impl Desktop {
                                         && can_edit
                                         && entry["active"] == true
                                     {
-                                        self.submit(
-                                            "text_open",
-                                            json!({"edit_index":entry["index"]}),
-                                            "正在读取批量修改…",
-                                            true,
-                                        );
+                                        self.open_batch(entry);
                                     }
                                     continue;
                                 }
@@ -485,7 +484,7 @@ impl Desktop {
                     ui.colored_label(MUTED, "选择结果后可编辑或批量替换");
                 } else {
                     if selected == 1 && !self.write_busy() && ui.add(ToolButton::new("编辑文本")).clicked(){self.open_text(*self.selection.rows.first().unwrap());}
-                    if !self.write_busy() && ui.add(ToolButton::new("替换选中文本")).clicked(){self.batch_form=Some(BatchForm{indices:self.selection.rows.iter().copied().collect(),old:text(&self.search,"keyword"),new:String::new(),nonce:String::new(),changes:Vec::new(),error:String::new()});}
+                    if !self.write_busy() && ui.add(ToolButton::new("替换选中文本")).clicked(){self.batch_form=Some(BatchForm{group_id:String::new(),indices:self.selection.rows.iter().copied().collect(),old:text(&self.search,"keyword"),new:String::new(),nonce:String::new(),changes:Vec::new(),error:String::new()});}
                     if selected == 1 && !self.write_busy() && ui.add(ToolButton::new("用此表添加词条")).clicked(){let row=&rows[*self.selection.rows.first().unwrap()];let keyword=text(&self.search,"keyword");let value=json!({"rule":{"old":keyword,"new":keyword,"mode":"sub","source":"-","table":row["table"]}});self.rule_form=Some(RuleForm::new(None,self.revision(),Some(&value)));}
                     if selected == 1 && ui.add(ToolButton::new("来源表详情")).clicked() {
                         let row=&rows[*self.selection.rows.first().unwrap()];

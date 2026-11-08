@@ -34,7 +34,7 @@ fn cancellable(action: &str) -> bool {
 fn read_only(action: &str) -> bool {
     matches!(
         action,
-        "check" | "search" | "preview" | "tables" | "baseline"
+        "check" | "search" | "preview" | "tables" | "baseline" | "batch_open"
     )
 }
 impl Worker {

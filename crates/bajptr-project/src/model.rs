@@ -6,7 +6,11 @@ use bajptr_core::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{collections::HashSet, path::Path, sync::OnceLock};
+use std::{
+    collections::{HashMap, HashSet},
+    path::Path,
+    sync::OnceLock,
+};
 pub fn scopes(value: &str) -> Result<Option<Vec<String>>> {
     if value.is_empty() {
         return Ok(None);
@@ -79,6 +83,13 @@ pub fn rules_bytes(rules: &[Rule]) -> Result<Vec<u8>> {
         .into_bytes())
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BatchOperation {
+    pub id: String,
+    pub old: String,
+    pub new: String,
+    pub before: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Edit {
     pub game: String,
     pub version: String,
@@ -89,6 +100,8 @@ pub struct Edit {
     pub replacement: String,
     #[serde(default)]
     pub batch: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub batch_operation: Option<BatchOperation>,
 }
 impl Edit {
     pub fn array(&self) -> Value {
@@ -121,6 +134,7 @@ impl Edit {
 }
 pub fn validate_edits(edits: &[Edit]) -> Result<()> {
     let mut seen = HashSet::new();
+    let mut batches = HashMap::new();
     for e in edits {
         if e.game.is_empty() || !is_version(&e.version) || e.table.is_empty() {
             return Err(invalid("单条修改的定位信息无效，请重新查找原文。"));
@@ -128,6 +142,27 @@ pub fn validate_edits(edits: &[Edit]) -> Result<()> {
         for text in [&e.original, &e.replacement] {
             if text.len() > fields::MAX_STRING || text.chars().any(|c| c < ' ' && c != '\n') {
                 return Err(invalid("文本过长或包含控制字符；换行可使用 Enter。"));
+            }
+        }
+        if let Some(operation) = &e.batch_operation {
+            if !e.batch
+                || operation.id.len() != 32
+                || !operation.id.bytes().all(|c| c.is_ascii_hexdigit())
+                || operation.old.is_empty()
+            {
+                return Err(invalid("批量修改的操作信息无效。"));
+            }
+            for value in [&operation.old, &operation.new, &operation.before] {
+                if value.len() > fields::MAX_STRING || value.chars().any(|c| c < ' ' && c != '\n') {
+                    return Err(invalid("批量修改内容过长或包含控制字符。"));
+                }
+            }
+            let signature = (&e.game, &e.version, &operation.old, &operation.new);
+            if batches
+                .insert(&operation.id, signature)
+                .is_some_and(|previous| previous != signature)
+            {
+                return Err(invalid("同一次批量修改的替换参数不一致。"));
             }
         }
         if !seen.insert((&e.game, &e.version, &e.table, &e.row_id, e.slot)) {
