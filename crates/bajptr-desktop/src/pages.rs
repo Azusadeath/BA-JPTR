@@ -191,7 +191,17 @@ impl Desktop {
             if ui
                 .add_enabled(
                     can_edit,
-                    ToolButton::new(format!("单条修改（{}）", slice(&self.state, "edits").len())),
+                    ToolButton::new(format!(
+                        "修改记录（单条 {} / 批量 {}）",
+                        slice(&self.state, "edits")
+                            .iter()
+                            .filter(|v| v["edit"]["batch"] != true)
+                            .count(),
+                        slice(&self.state, "edits")
+                            .iter()
+                            .filter(|v| v["edit"]["batch"] == true)
+                            .count()
+                    )),
                 )
                 .clicked()
             {
@@ -393,7 +403,6 @@ impl Desktop {
                     let row=&rows[*self.selection.rows.first().unwrap()];
                     self.table_detail=Some(self.tables.iter().find(|v|v["name"]==row["table"]).cloned().unwrap_or(json!({"name":row["table"],"label":row["label"]})));
                 }
-                if secondary(ui,true,"单条修改").clicked() { self.show_edits=true; }
                 ui.colored_label(MUTED,format!("已选 {selected} 条（Ctrl 多选，Shift 连选）"));
             });
             ui.colored_label(MUTED,if self.search.is_null(){"输入文字后点击「查找」。".into()}else{format!("已加载 {} / {} 处。双击可编辑完整文本。",rows.len(),count(&self.search,"total"))});

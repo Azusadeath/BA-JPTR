@@ -87,6 +87,8 @@ pub struct Edit {
     pub slot: usize,
     pub original: String,
     pub replacement: String,
+    #[serde(default)]
+    pub batch: bool,
 }
 impl Edit {
     pub fn array(&self) -> Value {

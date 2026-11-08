@@ -74,6 +74,7 @@ pub fn install(ctx: &egui::Context) {
     style.spacing.window_margin = egui::Margin::same(18);
     style.spacing.menu_margin = egui::Margin::same(8);
     style.spacing.scroll.foreground_color = true;
+    style.spacing.scroll.bar_width = 12.;
     style
         .text_styles
         .insert(egui::TextStyle::Body, FontId::proportional(16.));

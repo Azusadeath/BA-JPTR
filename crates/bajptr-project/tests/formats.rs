@@ -10,6 +10,7 @@ fn edit_documents_have_named_fields_and_reject_positional_rows() {
         slot: 0,
         original: "任务".into(),
         replacement: "委托".into(),
+        batch: false,
     };
     let bytes = model::edits_bytes(std::slice::from_ref(&edit)).unwrap();
     let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();

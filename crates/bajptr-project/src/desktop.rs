@@ -532,6 +532,7 @@ impl Project {
                         slot: row.2,
                         original: row.3,
                         replacement,
+                        batch: false,
                     };
                     self.commit(
                         Document::Edits(model::update_edits(&self.edits, vec![e])?),
@@ -576,6 +577,7 @@ impl Project {
                             slot: row.2,
                             original: row.3.clone(),
                             replacement: after,
+                            batch: true,
                         });
                     }
                 }
