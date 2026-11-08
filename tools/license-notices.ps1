@@ -17,6 +17,14 @@ New-Item -ItemType Directory -Path $destination -Force|Out-Null
 $apacheSource=$metadata.packages|Where-Object {$_.source -and (Test-Path -LiteralPath (Join-Path (Split-Path $_.manifest_path -Parent) 'LICENSE-APACHE'))}|Select-Object -First 1
 if(-not $apacheSource){throw 'Apache license text not available in resolved dependencies.'}
 Copy-Item -LiteralPath (Join-Path (Split-Path $apacheSource.manifest_path -Parent) 'LICENSE-APACHE') -Destination (Join-Path $destination 'STANDARD-APACHE-2.0.txt')
+# Some published crates omit their standard Boost license text. Reuse the
+# complete BSL-1.0 text distributed by another resolved BSL-1.0 dependency.
+$boostSource=$metadata.packages|Where-Object {$_.source -and $_.license -eq 'BSL-1.0' -and (Test-Path -LiteralPath (Join-Path (Split-Path $_.manifest_path -Parent) 'LICENSE'))}|Select-Object -First 1
+if($boostSource){
+    $boostText=[IO.File]::ReadAllText((Join-Path (Split-Path $boostSource.manifest_path -Parent) 'LICENSE'))
+    if(-not $boostText.StartsWith('Boost Software License - Version 1.0')){throw 'Unexpected Boost license text.'}
+    [IO.File]::WriteAllText((Join-Path $destination 'STANDARD-BSL-1.0.txt'),$boostText,[Text.UTF8Encoding]::new($false))
+}
 $inventory=@()
 foreach($id in $seen){
     $package=$packages[$id]
@@ -36,9 +44,10 @@ foreach($id in $seen){
     $selection=$package.license
     if($paths.Count -eq 0){
         if($package.license -match 'Apache-2\.0'){$paths=@('../STANDARD-APACHE-2.0.txt');$selection='Apache-2.0'}
+        elseif($package.license -eq 'BSL-1.0' -and $boostSource){$paths=@('../STANDARD-BSL-1.0.txt');$selection='BSL-1.0'}
         else{throw ('No license text found for '+$package.name)}
     }
-    $inventory+=@{name=$package.name;version=$package.version;license=$package.license;distributed_license=$selection;authors=$package.authors;repository=$package.repository;license_texts=$paths}
+    $inventory+=[pscustomobject][ordered]@{name=$package.name;version=$package.version;license=$package.license;distributed_license=$selection;authors=$package.authors;repository=$package.repository;license_texts=$paths}
 }
 $utf8=[Text.UTF8Encoding]::new($false)
 [IO.File]::WriteAllText((Join-Path $destination 'inventory.json'),(($inventory|Sort-Object name,version)|ConvertTo-Json -Depth 8),$utf8)
