@@ -424,6 +424,7 @@ impl Desktop {
                 } else {
                     egui::ScrollArea::vertical()
                         .auto_shrink([false, false])
+                        .max_height((ui.available_height() - 48.).max(80.))
                         .show_rows(ui, ROW_HEIGHT, rows.len(), |ui, range| {
                             for i in range {
                                 let row = &rows[i];
