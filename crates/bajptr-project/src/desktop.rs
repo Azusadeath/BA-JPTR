@@ -636,13 +636,29 @@ impl Project {
                 if existing.is_some() && indices != (0..rows.len()).collect::<Vec<_>>() {
                     return Err(invalid("批量修改的范围已变化，请重新打开。"));
                 }
-                let operation_id = if group_id.is_empty() {
-                    nonce()
-                } else {
-                    group_id.to_string()
-                };
                 let rules = Rules::new(self.rules.clone())?;
                 let key = model::game_key(&self.game)?;
+                let matching: Vec<_> = self
+                    .edits
+                    .iter()
+                    .filter(|e| e.game == key && e.version == version)
+                    .filter_map(|e| {
+                        e.batch_operation
+                            .as_ref()
+                            .filter(|operation| operation.old == old && operation.new == new)
+                            .map(|operation| (e, operation))
+                    })
+                    .collect();
+                let operation_id = matching
+                    .first()
+                    .map(|(_, operation)| operation.id.clone())
+                    .unwrap_or_else(|| {
+                        if group_id.is_empty() {
+                            nonce()
+                        } else {
+                            group_id.to_string()
+                        }
+                    });
                 let mut changes = Vec::new();
                 let mut updates = Vec::new();
                 for i in &indices {
@@ -653,7 +669,15 @@ impl Project {
                         model::effective(row, &self.edits, &key, &version, &rules, self.skip)?;
                     let previous = existing
                         .as_ref()
-                        .map(|entries| entries[*i].batch_operation.as_ref().unwrap());
+                        .map(|entries| entries[*i].batch_operation.as_ref().unwrap())
+                        .or_else(|| {
+                            matching
+                                .iter()
+                                .find(|(e, _)| {
+                                    e.table == row.0 && e.row_id == row.1 && e.slot == row.2
+                                })
+                                .map(|(_, operation)| *operation)
+                        });
                     let base = previous
                         .map(|operation| operation.before.clone())
                         .unwrap_or_else(|| before.clone());
@@ -681,7 +705,19 @@ impl Project {
                         });
                     }
                 }
-                let edits = model::update_edits(&self.edits, updates)?;
+                let mut edits = model::update_edits(&self.edits, updates)?;
+                // Saving the same replacement extends its selected scope. Keep each
+                // member's original base, including when earlier saves had separate IDs.
+                for edit in &mut edits {
+                    if edit.game == key
+                        && edit.version == version
+                        && let Some(operation) = &mut edit.batch_operation
+                        && operation.old == old
+                        && operation.new == new
+                    {
+                        operation.id.clone_from(&operation_id);
+                    }
+                }
                 let nonce = nonce();
                 self.batch_draft =
                     json!({"nonce":nonce,"edits":edits,"revision":self.revision,"version":version});

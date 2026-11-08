@@ -558,6 +558,170 @@ fn one_batch_operation_is_one_rule_row_with_its_original_selected_scope() {
 }
 
 #[test]
+fn repeated_batches_merge_matching_replacements_and_share_history() {
+    let f = Fixture::new();
+    let mut p = f.ready_project();
+    p.skip = false;
+    call(
+        &mut p,
+        "save_rule",
+        json!({"revision":0,"index":1,"rule":{"old":"任务","new":"神秘","mode":"sub","source":"测试","table":""}}),
+    );
+    let mut id = Value::Null;
+    for index in 0..2 {
+        let search = call(&mut p, "search", json!({"keyword":"任务"}));
+        let preview = call(
+            &mut p,
+            "batch_preview",
+            json!({"search_nonce":search["nonce"],"indices":[index],"old":"神秘","new":"神奇"}),
+        );
+        assert_eq!(preview["changes"].as_array().unwrap().len(), 1);
+        // Previewing the next selection must not add it before Save.
+        assert_eq!(p.edits.len(), index);
+        let saved = call(&mut p, "batch_save", json!({"nonce":preview["nonce"]}));
+        assert_eq!(saved["batches"].as_array().unwrap().len(), 1);
+        assert_eq!(saved["batches"][0]["count"], index + 1);
+        if index == 0 {
+            id = saved["batches"][0]["id"].clone();
+        } else {
+            assert_eq!(saved["batches"][0]["id"], id);
+        }
+    }
+    let saved = p.edits.clone();
+    assert_eq!(f.project().edits, saved);
+    let undone = call(&mut p, "history", json!({"undo":true}));
+    assert_eq!(undone["batches"][0]["count"], 1);
+    assert_eq!(p.edits.len(), 1);
+    let redone = call(&mut p, "history", json!({"undo":false}));
+    assert_eq!(redone["batches"][0]["count"], 2);
+    assert_eq!(p.edits, saved);
+    let opened = call(&mut p, "batch_open", json!({"id":id}));
+    assert_eq!(opened["count"], 2);
+    let edited = call(
+        &mut p,
+        "batch_preview",
+        json!({"group_id":id,"indices":[0,1],"old":"神秘","new":"奇妙"}),
+    );
+    call(&mut p, "batch_save", json!({"nonce":edited["nonce"]}));
+    assert!(p.edits.iter().all(|e| e.replacement.contains("奇妙")));
+    let revision = p.revision;
+    call(&mut p, "remove_batch", json!({"id":id,"revision":revision}));
+    assert!(p.edits.is_empty());
+    f.unchanged();
+}
+
+#[test]
+fn overlapping_batch_selections_are_a_union_without_replacing_twice() {
+    let f = Fixture::new();
+    let mut p = f.ready_project();
+    p.skip = false;
+    for indices in [json!([0]), json!([0, 1])] {
+        let search = call(&mut p, "search", json!({"keyword":"任务"}));
+        let preview = call(
+            &mut p,
+            "batch_preview",
+            json!({"search_nonce":search["nonce"],"indices":indices,"old":"委托","new":"委托委托"}),
+        );
+        assert_eq!(preview["changes"].as_array().unwrap().len(), 1);
+        let saved = call(&mut p, "batch_save", json!({"nonce":preview["nonce"]}));
+        assert_eq!(saved["batches"].as_array().unwrap().len(), 1);
+    }
+    assert_eq!(p.edits.len(), 2);
+    assert_eq!(p.state().unwrap()["batches"][0]["count"], 2);
+    for edit in &p.edits {
+        let operation = edit.batch_operation.as_ref().unwrap();
+        assert_eq!(
+            edit.replacement,
+            operation.before.replace("委托", "委托委托")
+        );
+        assert_eq!(edit.replacement.matches("委托").count(), 2);
+    }
+    let before = p.edits.clone();
+    let search = call(&mut p, "search", json!({"keyword":"任务"}));
+    let duplicate = call(
+        &mut p,
+        "batch_preview",
+        json!({"search_nonce":search["nonce"],"indices":[0,1],"old":"委托","new":"委托委托"}),
+    );
+    assert!(duplicate["changes"].as_array().unwrap().is_empty());
+    assert_eq!(p.edits, before);
+    f.unchanged();
+}
+
+#[test]
+fn batch_merge_preserves_other_games_versions_and_unclassified_legacy_entries() {
+    let f = Fixture::new();
+    let mut p = f.ready_project();
+    p.skip = false;
+    let search = call(&mut p, "search", json!({"keyword":"任务"}));
+    let preview = call(
+        &mut p,
+        "batch_preview",
+        json!({"search_nonce":search["nonce"],"indices":[0],"old":"委托","new":"神奇"}),
+    );
+    call(&mut p, "batch_save", json!({"nonce":preview["nonce"]}));
+    let mut inactive = p.edits[0].clone();
+    inactive.version = "0".repeat(64);
+    inactive.batch_operation.as_mut().unwrap().id = "a".repeat(32);
+    let mut foreign = p.edits[0].clone();
+    foreign.game = "another-game".into();
+    foreign.batch_operation.as_mut().unwrap().id = "b".repeat(32);
+    p.edits[0].batch_operation = None;
+    p.edits.extend([inactive, foreign]);
+    let preserved = p.edits.clone();
+    let search = call(&mut p, "search", json!({"keyword":"任务"}));
+    let preview = call(
+        &mut p,
+        "batch_preview",
+        json!({"search_nonce":search["nonce"],"indices":[1],"old":"委托","new":"神奇"}),
+    );
+    let saved = call(&mut p, "batch_save", json!({"nonce":preview["nonce"]}));
+    assert_eq!(p.edits.len(), 4);
+    assert_eq!(&p.edits[..3], preserved);
+    assert_eq!(saved["batches"].as_array().unwrap().len(), 3);
+    assert!(
+        saved["batches"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|row| row["count"] == 1)
+    );
+    assert_eq!(f.project().edits, p.edits);
+    f.unchanged();
+}
+
+#[test]
+fn different_batch_replacements_remain_separate_until_edited_to_match() {
+    let f = Fixture::new();
+    let mut p = f.ready_project();
+    p.skip = false;
+    for (index, new) in ["甲", "乙"].iter().enumerate() {
+        let search = call(&mut p, "search", json!({"keyword":"任务"}));
+        let preview = call(
+            &mut p,
+            "batch_preview",
+            json!({"search_nonce":search["nonce"],"indices":[index],"old":"委托","new":new}),
+        );
+        call(&mut p, "batch_save", json!({"nonce":preview["nonce"]}));
+    }
+    let state = p.state().unwrap();
+    assert_eq!(state["batches"].as_array().unwrap().len(), 2);
+    let id = state["batches"][0]["id"].clone();
+    let other_id = state["batches"][1]["id"].clone();
+    let preview = call(
+        &mut p,
+        "batch_preview",
+        json!({"group_id":other_id,"indices":[0],"old":"委托","new":"甲"}),
+    );
+    let merged = call(&mut p, "batch_save", json!({"nonce":preview["nonce"]}));
+    assert_eq!(merged["batches"].as_array().unwrap().len(), 1);
+    assert_eq!(merged["batches"][0]["id"], id);
+    assert_eq!(merged["batches"][0]["count"], 2);
+    assert!(p.edits.iter().all(|e| e.replacement.contains('甲')));
+    f.unchanged();
+}
+
+#[test]
 fn editing_a_saved_batch_entry_preserves_its_kind_and_target() {
     let f = Fixture::new();
     let mut p = f.ready_project();
