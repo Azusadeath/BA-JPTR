@@ -75,7 +75,8 @@ try {
     $tables = @(Invoke-Project 'tables')
     if ($tables.Count -ne 1) { throw 'Source table load failed.' }
     $search = Invoke-Project 'search' @{keyword=([char]0x4efb).ToString()+[char]0x52a1}
-    if ($search.total -ne 2) { throw 'Search failed.' }
+    # The other matching fixture text contains kana and must now be skipped.
+    if ($search.total -ne 1 -or $search.rows.Count -ne 1) { throw 'Search must exclude the kana-bearing fixture text.' }
     $opened = Invoke-Project 'text_open' @{index=0;search_nonce=$search.nonce}
     $edited = Invoke-Project 'text_save' @{nonce=$opened.nonce;text='Rust edited text'}
     if ($edited.edits.Count -ne 1) { throw 'Targeted edit failed.' }
@@ -90,7 +91,7 @@ try {
     if ([Convert]::ToBase64String([IO.File]::ReadAllBytes($catalog)) -ne [Convert]::ToBase64String($before)) { throw 'Restore differs from original.' }
     $again = Invoke-Project 'load'
     if ($again.edits.Count -ne 1) { throw 'Restore discarded documents.' }
-    $report = @{passed=$true;baseline_confirmation_required=$true;environment_cleared=$true;separate_user_directories=$true;python_on_child_path=$false;current_format=$true;search=$true;targeted_edit=$true;preview=$true;generate_verified=$generated.verified;apply=$true;export=$true;restore_equal=$true;documents_preserved=$true;game_dir=$game;data_dir=$data}
+    $report = @{passed=$true;baseline_confirmation_required=$true;environment_cleared=$true;separate_user_directories=$true;python_on_child_path=$false;current_format=$true;search=$true;search_skip_kana=$true;targeted_edit=$true;preview=$true;generate_verified=$generated.verified;apply=$true;export=$true;restore_equal=$true;documents_preserved=$true;game_dir=$game;data_dir=$data}
     [IO.File]::WriteAllText((Join-Path $testRoot 'report.json'),($report|ConvertTo-Json),$utf8)
     $report | ConvertTo-Json
 } finally {
