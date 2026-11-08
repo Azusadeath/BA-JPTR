@@ -54,8 +54,6 @@ pub struct TextEdit {
     pub slot: usize,
     pub original: String,
     pub replacement: String,
-    #[serde(default)]
-    pub wordlist_applied: bool,
 }
 #[derive(Debug, Clone, Serialize)]
 pub struct Change {
@@ -300,25 +298,6 @@ pub fn patch_blob(
     options: &Options,
     overrides: &HashMap<usize, String>,
 ) -> Result<(Option<Vec<u8>>, BlobStats)> {
-    patch_blob_composed(
-        blob,
-        rules,
-        view,
-        evidence,
-        options,
-        overrides,
-        &std::collections::HashSet::new(),
-    )
-}
-fn patch_blob_composed(
-    blob: &[u8],
-    rules: &Rules,
-    view: &View,
-    evidence: &mut Evidence,
-    options: &Options,
-    overrides: &HashMap<usize, String>,
-    composed: &std::collections::HashSet<usize>,
-) -> Result<(Option<Vec<u8>>, BlobStats)> {
     let parsed = fields::parse_with_issues(blob, options.ascii_exact || !overrides.is_empty())?;
     let fields = parsed.fields;
     let mut shared = HashMap::new();
@@ -337,18 +316,8 @@ fn patch_blob_composed(
     for f in &fields {
         let explicit = overrides.get(&f.slot);
         if explicit.is_some() {
-            if composed.contains(&f.slot) {
-                if options.skip_kana && fields::has_kana(f.text) {
-                    view.skipped(rules, f.text, evidence, false)
-                        .map_err(|e| field_error(f.slot, e))?;
-                } else {
-                    view.apply(rules, f.text, evidence, !fields::has_cjk(f.text))
-                        .map_err(|e| field_error(f.slot, e))?;
-                }
-            } else {
-                view.skipped(rules, f.text, evidence, true)
-                    .map_err(|e| field_error(f.slot, e))?;
-            }
+            view.skipped(rules, f.text, evidence, true)
+                .map_err(|e| field_error(f.slot, e))?;
         }
         if explicit.is_none() && options.skip_kana && fields::has_kana(f.text) {
             stats.kana_skipped += 1;
@@ -734,37 +703,24 @@ pub fn patch_database(
                     }
                 };
                 let overrides = targets.get(&(table.clone(), rid.clone())).unwrap_or(&empty);
-                let composed = options
-                    .edits
-                    .iter()
-                    .filter(|e| e.wordlist_applied && e.table == *table && e.row_id == rid)
-                    .map(|e| e.slot)
-                    .collect();
-                let (new, bs) = match patch_blob_composed(
-                    blob,
-                    rules,
-                    &view,
-                    &mut evidence,
-                    options,
-                    overrides,
-                    &composed,
-                ) {
-                    Ok(v) => v,
-                    Err(Error::Parse(reason)) => {
-                        stats.parse_failed += 1;
-                        note(
-                            &mut stats,
-                            "parse",
-                            table,
-                            Some(&rid),
-                            None,
-                            format!("FlatBuffer 解析失败：{reason}"),
-                            control,
-                        )?;
-                        continue;
-                    }
-                    Err(error) => return Err(record_error(table, &rid, error)),
-                };
+                let (new, bs) =
+                    match patch_blob(blob, rules, &view, &mut evidence, options, overrides) {
+                        Ok(v) => v,
+                        Err(Error::Parse(reason)) => {
+                            stats.parse_failed += 1;
+                            note(
+                                &mut stats,
+                                "parse",
+                                table,
+                                Some(&rid),
+                                None,
+                                format!("FlatBuffer 解析失败：{reason}"),
+                                control,
+                            )?;
+                            continue;
+                        }
+                        Err(error) => return Err(record_error(table, &rid, error)),
+                    };
                 stats.kana_skipped += bs.kana_skipped;
                 stats.fields_skipped += bs.fields_skipped;
                 for issue in &bs.issues {

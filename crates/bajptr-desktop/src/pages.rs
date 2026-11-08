@@ -484,7 +484,7 @@ impl Desktop {
                     ui.colored_label(MUTED, "选择结果后可编辑或批量替换");
                 } else {
                     if selected == 1 && !self.write_busy() && ui.add(ToolButton::new("编辑文本")).clicked(){self.open_text(*self.selection.rows.first().unwrap());}
-                    if !self.write_busy() && ui.add(ToolButton::new("替换选中文本")).clicked(){self.batch_form=Some(BatchForm{legacy:false,group_id:String::new(),indices:self.selection.rows.iter().copied().collect(),old:text(&self.search,"keyword"),new:String::new(),nonce:String::new(),changes:Vec::new(),error:String::new()});}
+                    if !self.write_busy() && ui.add(ToolButton::new("替换选中文本")).clicked(){self.batch_form=Some(BatchForm{group_id:String::new(),indices:self.selection.rows.iter().copied().collect(),old:text(&self.search,"keyword"),new:String::new(),nonce:String::new(),changes:Vec::new(),error:String::new()});}
                     if selected == 1 && !self.write_busy() && ui.add(ToolButton::new("用此表添加词条")).clicked(){let row=&rows[*self.selection.rows.first().unwrap()];let keyword=text(&self.search,"keyword");let value=json!({"rule":{"old":keyword,"new":keyword,"mode":"sub","source":"-","table":row["table"]}});self.rule_form=Some(RuleForm::new(None,self.revision(),Some(&value)));}
                     if selected == 1 && ui.add(ToolButton::new("来源表详情")).clicked() {
                         let row=&rows[*self.selection.rows.first().unwrap()];

@@ -490,15 +490,12 @@ impl Desktop {
                     );
                 }
                 "text_open" => {
-                    self.status = "编辑文本，默认仅保存手动改动的部分。".into();
+                    self.status = "编辑完整文本，保存后预览并应用。".into();
                     self.text_form = Some(TextForm {
                         nonce: text(&data, "nonce"),
                         label: text(&data, "label"),
                         original: text(&data, "original"),
                         value: text(&data, "text"),
-                        base: text(&data, "base"),
-                        whole: text(&data, "mode") == "override",
-                        conflict: text(&data, "conflict"),
                         show_original: false,
                         error: String::new(),
                     });
@@ -506,7 +503,6 @@ impl Desktop {
                 "batch_open" => {
                     self.status = "编辑批量修改，保存后预览并应用。".into();
                     self.batch_form = Some(BatchForm {
-                        legacy: data["legacy"] == true,
                         group_id: text(&data, "id"),
                         indices: (0..count(&data, "count") as usize).collect(),
                         old: text(&data, "old"),

@@ -90,22 +90,6 @@ pub struct BatchOperation {
     pub before: String,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Operation {
-    pub id: String,
-    #[serde(flatten)]
-    pub kind: OperationKind,
-}
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum OperationKind {
-    Local {
-        base: String,
-        changes: Vec<crate::replay::Change>,
-    },
-    Batch,
-    Override,
-}
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Edit {
     pub game: String,
     pub version: String,
@@ -118,32 +102,8 @@ pub struct Edit {
     pub batch: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub batch_operation: Option<BatchOperation>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub operation: Option<Operation>,
 }
 impl Edit {
-    pub fn operation_id(&self) -> Option<&str> {
-        self.operation.as_ref().map(|o| o.id.as_str())
-    }
-    pub fn apply(&self, current: &str) -> Result<String> {
-        let result = match self.operation.as_ref().map(|o| &o.kind) {
-            Some(OperationKind::Local { base, changes }) => {
-                crate::replay::apply(base, changes, current)?
-            }
-            Some(OperationKind::Batch) => {
-                let batch = self
-                    .batch_operation
-                    .as_ref()
-                    .ok_or_else(|| invalid("批量操作信息缺失。"))?;
-                current.replace(&batch.old, &batch.new)
-            }
-            _ => self.replacement.clone(),
-        };
-        if result.len() > fields::MAX_STRING || result.chars().any(|c| c < ' ' && c != '\n') {
-            return Err(invalid("修改结果过长或包含控制字符。"));
-        }
-        Ok(result)
-    }
     pub fn array(&self) -> Value {
         json!([
             self.game,
@@ -162,7 +122,6 @@ impl Edit {
             slot: self.slot,
             original: self.original.clone(),
             replacement: self.replacement.clone(),
-            wordlist_applied: false,
         }
     }
     pub fn same_address(&self, e: &Edit) -> bool {
@@ -206,42 +165,7 @@ pub fn validate_edits(edits: &[Edit]) -> Result<()> {
                 return Err(invalid("同一次批量修改的替换参数不一致。"));
             }
         }
-        if let Some(operation) = &e.operation {
-            if operation.id.len() != 32 || !operation.id.bytes().all(|c| c.is_ascii_hexdigit()) {
-                return Err(invalid("修改操作标识无效。"));
-            }
-            match &operation.kind {
-                OperationKind::Batch
-                    if !e.batch
-                        || e.batch_operation
-                            .as_ref()
-                            .is_none_or(|b| b.id != operation.id) =>
-                {
-                    return Err(invalid("批量操作信息不一致。"));
-                }
-                OperationKind::Local { base, changes } => {
-                    if e.batch
-                        || base.len() > fields::MAX_STRING
-                        || base.chars().any(|c| c < ' ' && c != '\n')
-                        || changes.is_empty()
-                    {
-                        return Err(invalid("局部修改信息无效。"));
-                    }
-                    if crate::replay::apply(base, changes, base)? != e.replacement {
-                        return Err(invalid("局部修改与保存结果不一致。"));
-                    }
-                }
-                _ => {}
-            }
-        }
-        if !seen.insert((
-            &e.game,
-            &e.version,
-            &e.table,
-            &e.row_id,
-            e.slot,
-            e.operation_id(),
-        )) {
+        if !seen.insert((&e.game, &e.version, &e.table, &e.row_id, e.slot)) {
             return Err(invalid("同一段文本有重复修改，请保留一项。"));
         }
     }
@@ -254,7 +178,7 @@ pub fn is_version(s: &str) -> bool {
 }
 pub fn parse_edits(bytes: &[u8]) -> Result<Vec<Edit>> {
     let value: Value = serde_json::from_slice(bytes)?;
-    if value["format"] != 2 && value["format"] != 3 {
+    if value["format"] != 2 {
         return Err(invalid("单条修改记录格式不受支持。"));
     }
     if !value["edits"]
@@ -264,25 +188,19 @@ pub fn parse_edits(bytes: &[u8]) -> Result<Vec<Edit>> {
         return Err(invalid("单条修改必须使用具名字段格式。"));
     }
     let edits: Vec<Edit> = serde_json::from_value(value["edits"].clone())?;
-    if value["format"] == 2 && edits.iter().any(|e| e.operation.is_some()) {
-        return Err(invalid("操作记录需要新版格式，不能按旧式覆盖读取。"));
-    }
     validate_edits(&edits)?;
     Ok(edits)
 }
 pub fn edits_bytes(edits: &[Edit]) -> Result<Vec<u8>> {
     validate_edits(edits)?;
     Ok(serde_json::to_vec_pretty(
-        &json!({"format":if edits.iter().any(|e|e.operation.is_some()){3}else{2},"edits":edits}),
+        &json!({"format":2,"edits":edits}),
     )?)
 }
 pub fn update_edits(existing: &[Edit], updates: Vec<Edit>) -> Result<Vec<Edit>> {
     let mut values = existing.to_vec();
     for e in updates {
-        if let Some(index) = values
-            .iter()
-            .position(|p| p.same_address(&e) && p.operation_id() == e.operation_id())
-        {
+        if let Some(index) = values.iter().position(|p| p.same_address(&e)) {
             values[index] = e;
         } else {
             values.push(e);
@@ -299,85 +217,28 @@ pub fn effective(
     rules: &Rules,
     skip: bool,
 ) -> Result<(String, bool)> {
-    let applicable: Vec<_> = edits
-        .iter()
-        .filter(|e| {
-            e.game == game
-                && e.version == version
-                && e.table == row.0
-                && e.row_id == row.1
-                && e.slot == row.2
-        })
-        .collect();
-    for e in &applicable {
+    if let Some(e) = edits.iter().find(|e| {
+        e.game == game
+            && e.version == version
+            && e.table == row.0
+            && e.row_id == row.1
+            && e.slot == row.2
+    }) {
         if e.original != row.3 {
             return Err(invalid("定位记录的底稿原文已变化，请重新查找。"));
         }
+        return Ok((e.replacement.clone(), true));
     }
-    let last_override = applicable.iter().rposition(|e| {
-        !matches!(
-            e.operation.as_ref().map(|o| &o.kind),
-            Some(OperationKind::Local { .. } | OperationKind::Batch)
-        )
-    });
-    let result = if last_override.is_some() || (skip && fields::has_kana(&row.3)) {
-        None
-    } else {
-        rules.view(&row.0).apply(
-            rules,
-            &row.3,
-            &mut Evidence::new(rules.values.len(), false),
-            !fields::has_cjk(&row.3),
-        )?
-    };
-    let mut value = result.unwrap_or_else(|| row.3.clone());
-    for edit in &applicable[last_override.unwrap_or(0)..] {
-        value = edit.apply(&value).map_err(|e| {
-            invalid(format!(
-                "{} / 记录 {} / 字段 {}：{e}",
-                title(&row.0),
-                row.1.display(),
-                row.2
-            ))
-        })?;
+    if skip && fields::has_kana(&row.3) {
+        return Ok((row.3.clone(), false));
     }
-    Ok((value, !applicable.is_empty()))
-}
-
-pub fn resolved_edits(
-    edits: &[Edit],
-    game: &str,
-    version: &str,
-    rules: &Rules,
-    skip: bool,
-) -> Result<Vec<TextEdit>> {
-    validate_edits(edits)?;
-    let mut seen = HashSet::new();
-    let mut result = Vec::new();
-    for edit in edits
-        .iter()
-        .filter(|e| e.game == game && e.version == version)
-    {
-        if !seen.insert((&edit.table, &edit.row_id, edit.slot)) {
-            continue;
-        }
-        let row = (
-            edit.table.clone(),
-            edit.row_id.clone(),
-            edit.slot,
-            edit.original.clone(),
-        );
-        let mut target = edit.core();
-        target.replacement = effective(&row, edits, game, version, rules, skip)?.0;
-        target.wordlist_applied = edits.iter().filter(|e| e.same_address(edit)).all(|e| {
-            matches!(
-                e.operation.as_ref().map(|o| &o.kind),
-                Some(OperationKind::Local { .. } | OperationKind::Batch)
-            )
-        });
-        result.push(target);
-    }
-    Ok(result)
+    let result = rules.view(&row.0).apply(
+        rules,
+        &row.3,
+        &mut Evidence::new(rules.values.len(), false),
+        !fields::has_cjk(&row.3),
+    )?;
+    Ok((result.unwrap_or_else(|| row.3.clone()), false))
 }
 pub fn game_key(game: &str) -> Result<String> {
     if game.trim().is_empty() {

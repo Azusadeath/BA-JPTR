@@ -282,7 +282,6 @@ fn composite_primary_keys_bind_only_the_selected_record() {
         );
         let mut options = options(true);
         options.edits.push(TextEdit {
-            wordlist_applied: false,
             table: "LocalizeDBSchema".into(),
             row_id: found[0].1.clone(),
             slot: 0,

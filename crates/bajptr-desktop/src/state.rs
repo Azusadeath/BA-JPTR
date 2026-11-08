@@ -199,14 +199,10 @@ pub struct TextForm {
     pub label: String,
     pub original: String,
     pub value: String,
-    pub base: String,
-    pub whole: bool,
-    pub conflict: String,
     pub show_original: bool,
     pub error: String,
 }
 pub struct BatchForm {
-    pub legacy: bool,
     pub group_id: String,
     pub indices: Vec<usize>,
     pub old: String,
@@ -278,7 +274,6 @@ mod tests {
     #[test]
     fn late_batch_preview_cannot_reenable_save_for_changed_inputs() {
         let mut f = BatchForm {
-            legacy: false,
             group_id: String::new(),
             indices: vec![0, 2],
             old: "攻击".into(),
