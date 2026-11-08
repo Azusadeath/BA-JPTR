@@ -397,7 +397,9 @@ impl Desktop {
         }
         let search = self.search.clone();
         let rows = slice(&search, "rows");
-        egui::Panel::bottom("search-actions").show(ui,|ui|{
+        egui::Frame::new()
+            .inner_margin(egui::Margin::symmetric(0, 8))
+            .show(ui, |ui| {
             ui.horizontal_wrapped(|ui|{let selected=self.selection.rows.len();
                 if ui.add_enabled(selected==1&&!self.write_busy(),ToolButton::new("编辑文本")).clicked(){self.open_text(*self.selection.rows.first().unwrap());}
                 if ui.add_enabled(selected>0&&!self.write_busy(),ToolButton::new("替换选中文本")).clicked(){self.batch_form=Some(BatchForm{indices:self.selection.rows.iter().copied().collect(),old:text(&self.search,"keyword"),new:String::new(),nonce:String::new(),changes:Vec::new(),error:String::new()});}
@@ -409,7 +411,7 @@ impl Desktop {
                 ui.colored_label(MUTED,format!("已选 {selected} 条（Ctrl 多选，Shift 连选）"));
                 ui.colored_label(MUTED,if self.search.is_null(){"输入文字后点击「查找」".into()}else{format!("已加载 {} / {} 处，双击可编辑完整文本",rows.len(),count(&self.search,"total"))});
             });
-        });
+            });
         let width = ui.available_width() - 12.;
         let widths = [width - 380., 180., 90., 110.];
         table_header(ui, &["本次文本", "来源表", "记录", "状态"], &widths);
