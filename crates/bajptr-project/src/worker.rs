@@ -29,7 +29,7 @@ pub struct Worker {
     thread: Option<JoinHandle<()>>,
 }
 fn cancellable(action: &str) -> bool {
-    read_only(action) || matches!(action, "generate" | "apply")
+    read_only(action) || action == "apply"
 }
 fn read_only(action: &str) -> bool {
     matches!(

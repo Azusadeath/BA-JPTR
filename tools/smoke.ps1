@@ -82,16 +82,20 @@ try {
     if ($edited.edits.Count -ne 1) { throw 'Targeted edit failed.' }
     $preview = Invoke-Project 'preview'
     if ($preview.total_changes -ne 1) { throw 'Preview failed.' }
-    $generated = Invoke-Project 'generate'
-    if (-not (Test-Path -LiteralPath $generated.output)) { throw 'Output missing.' }
-    if ([Convert]::ToBase64String([IO.File]::ReadAllBytes($catalog)) -ne [Convert]::ToBase64String($before)) { throw 'Generate changed the game.' }
-    $null = Invoke-Project 'apply' @{nonce=$preview.nonce}
+    $catalogGuard = [IO.File]::Open($catalog,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+    try {
+        $fallback = Invoke-Project 'apply' @{nonce=$preview.nonce}
+        if ($fallback.installed -ne $false -or -not $fallback.verified -or -not $fallback.warning -or -not (Test-Path -LiteralPath $fallback.output)) { throw 'Failed application did not preserve a verified patch and warning.' }
+    } finally { $catalogGuard.Dispose() }
+    if ([Convert]::ToBase64String([IO.File]::ReadAllBytes($catalog)) -ne [Convert]::ToBase64String($before)) { throw 'Failed application changed the catalog.' }
+    $applied = Invoke-Project 'apply' @{nonce=$preview.nonce}
+    if (-not $applied.installed) { throw 'Application retry did not install the patch.' }
     $null = Invoke-Project 'export_text' @{path=(Join-Path $testRoot 'export')}
     $null = Invoke-Project 'restore'
     if ([Convert]::ToBase64String([IO.File]::ReadAllBytes($catalog)) -ne [Convert]::ToBase64String($before)) { throw 'Restore differs from original.' }
     $again = Invoke-Project 'load'
     if ($again.edits.Count -ne 1) { throw 'Restore discarded documents.' }
-    $report = @{passed=$true;baseline_confirmation_required=$true;environment_cleared=$true;separate_user_directories=$true;python_on_child_path=$false;current_format=$true;search=$true;search_skip_kana=$true;targeted_edit=$true;preview=$true;generate_verified=$generated.verified;apply=$true;export=$true;restore_equal=$true;documents_preserved=$true;game_dir=$game;data_dir=$data}
+    $report = @{passed=$true;baseline_confirmation_required=$true;environment_cleared=$true;separate_user_directories=$true;python_on_child_path=$false;current_format=$true;search=$true;search_skip_kana=$true;targeted_edit=$true;preview=$true;fallback_patch_verified=$fallback.verified;fallback_warning=$true;apply_retry=$true;apply=$true;export=$true;restore_equal=$true;documents_preserved=$true;game_dir=$game;data_dir=$data}
     [IO.File]::WriteAllText((Join-Path $testRoot 'report.json'),($report|ConvertTo-Json),$utf8)
     $report | ConvertTo-Json
 } finally {

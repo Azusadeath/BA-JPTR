@@ -482,50 +482,75 @@ impl Engine {
                 .0
                 .to_string();
             let name = format!("{prefix}_{}", checked.crc);
-            let target = if install {
-                live.dir.join(region::BUNDLES).join(&name)
-            } else {
-                let folder = output_root.join(format!(
-                    "patch-{}-{}",
-                    chrono::Local::now().format("%Y%m%d-%H%M%S"),
-                    uuid::Uuid::new_v4().simple()
-                ));
-                fs::create_dir_all(&folder)?;
-                folder.join(&name)
-            };
             let size = encrypted.metadata()?.len();
             // Cancellation is checked before this commit point; publication then finishes.
             control.check()?;
             let commit_control = Control {
                 callback: &|_| true,
             };
-            publish_resource(
-                &mut self.baselines,
-                &encrypted,
-                &target,
+            let entry = region::Entry {
+                size_offset: 0,
+                crc_offset: 0,
                 size,
-                checked.crc,
-                &commit_control,
-            )?;
-            if install {
-                region::publish_catalog(&live, size, checked.crc)?;
-                if let Err(e) = record(game, data, config, "applied", None) {
-                    let _ = control.log(&format!("游戏已应用；状态记录未保存：{e}"));
+                crc: checked.crc,
+            };
+            let mut install_error = None;
+            let target = if install {
+                let target = live.dir.join(region::BUNDLES).join(&name);
+                let installed = (|| -> Result<()> {
+                    publish_resource(
+                        &mut self.baselines,
+                        &encrypted,
+                        &target,
+                        size,
+                        checked.crc,
+                        &commit_control,
+                    )?;
+                    region::publish_catalog(&live, size, checked.crc)
+                })();
+                match installed {
+                    Ok(()) => {
+                        if let Err(e) = record(game, data, config, "applied", None) {
+                            let _ = control.log(&format!("游戏已应用；状态记录未保存：{e}"));
+                        }
+                        target
+                    }
+                    Err(error) => {
+                        // Resource changes and failed verification still block publication.
+                        // Only filesystem errors while installing fall back to a saved patch.
+                        if !matches!(error, crate::Error::Io(_)) {
+                            return Err(error);
+                        }
+                        let reason = error.to_string();
+                        let target = save_patch(
+                            &mut self.baselines,
+                            &encrypted,
+                            output_root,
+                            &live,
+                            &name,
+                            &entry,
+                            &commit_control,
+                        ).map_err(|save_error| invalid(format!(
+                            "应用失败：{reason}\n补丁保存失败：{save_error}\n已校验的暂存文件保留在：{}",
+                            stage.display()
+                        )))?;
+                        install_error = Some(reason);
+                        target
+                    }
                 }
             } else {
-                let mut catalog = live.bytes.clone();
-                catalog[live.entry.size_offset..live.entry.size_offset + 8]
-                    .copy_from_slice(&(size as i64).to_le_bytes());
-                catalog[live.entry.crc_offset..live.entry.crc_offset + 8]
-                    .copy_from_slice(&(checked.crc as i64).to_le_bytes());
-                storage::write_locked(&target.with_file_name("TableCatalog.bytes"), &catalog)?;
-                let marker = live.catalog.with_file_name("TableCatalog.hash");
-                if marker.is_file() {
-                    baseline::copy_sync(&marker, &target.with_file_name("TableCatalog.hash"))?;
-                }
-            }
+                save_patch(
+                    &mut self.baselines,
+                    &encrypted,
+                    output_root,
+                    &live,
+                    &name,
+                    &entry,
+                    &commit_control,
+                )?
+            };
             Ok(
-                json!({"output":target,"stats":stats,"verified":true,"processing_seconds":started.elapsed().as_secs_f64()}),
+                json!({"output":target,"stats":stats,"verified":true,"installed":install && install_error.is_none(),"install_error":install_error,"processing_seconds":started.elapsed().as_secs_f64()}),
             )
         })();
         // A failed stage is kept for diagnosis/recovery; successful scratch data is retired.
@@ -608,6 +633,36 @@ fn remember(cache: &mut VecDeque<(String, Value)>, key: String, value: Value, li
     }
     cache.push_back((key, value));
 }
+fn save_patch(
+    checks: &mut Baselines,
+    source: &Path,
+    output_root: &Path,
+    game: &region::Game,
+    name: &str,
+    entry: &region::Entry,
+    control: &Control<'_>,
+) -> Result<PathBuf> {
+    let folder = output_root.join(format!(
+        "patch-{}-{}",
+        chrono::Local::now().format("%Y%m%d-%H%M%S"),
+        uuid::Uuid::new_v4().simple()
+    ));
+    fs::create_dir_all(&folder)?;
+    let target = folder.join(name);
+    publish_resource(checks, source, &target, entry.size, entry.crc, control)?;
+    let mut catalog = game.bytes.clone();
+    catalog[game.entry.size_offset..game.entry.size_offset + 8]
+        .copy_from_slice(&(entry.size as i64).to_le_bytes());
+    catalog[game.entry.crc_offset..game.entry.crc_offset + 8]
+        .copy_from_slice(&(entry.crc as i64).to_le_bytes());
+    storage::write_locked(&folder.join("TableCatalog.bytes"), &catalog)?;
+    let marker = game.catalog.with_file_name("TableCatalog.hash");
+    if marker.is_file() {
+        baseline::copy_sync(&marker, &folder.join("TableCatalog.hash"))?;
+    }
+    Ok(target)
+}
+
 fn publish_resource(
     checks: &mut Baselines,
     source: &Path,

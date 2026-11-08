@@ -123,7 +123,7 @@ impl Desktop {
                 || self
                     .pending
                     .get(&b.id)
-                    .is_some_and(|action| matches!(action.as_str(), "generate" | "apply"))
+                    .is_some_and(|action| action == "apply")
         })
     }
     pub fn healthy(&self) -> bool {
@@ -199,7 +199,7 @@ impl Desktop {
             let writes = self
                 .pending
                 .get(&busy.id)
-                .is_some_and(|action| matches!(action.as_str(), "generate" | "apply"));
+                .is_some_and(|action| action == "apply");
             // A write may already have passed its commit point. Wait for the
             // actual result instead of discarding it and claiming cancellation.
             if !writes {
@@ -551,8 +551,12 @@ impl Desktop {
                         self.confirm_import = Some(data);
                     }
                 }
-                "generate" | "apply" | "restore" | "export_text" | "export_rules" => {
+                "apply" | "restore" | "export_text" | "export_rules" => {
                     self.status = text(&data, "message");
+                    let warning = text(&data, "warning");
+                    if !warning.is_empty() {
+                        self.error = Some(warning);
+                    }
                     if let Some(v) = data.get("application").and_then(Value::as_str) {
                         self.application = v.into();
                     }

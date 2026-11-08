@@ -125,7 +125,6 @@ impl Icon {
             "应用到游戏" | "保存词条" | "保存修改" | "填入词条" | "确定" => {
                 Self::Apply
             }
-            "仅生成补丁" => Self::Export,
             "选择文件夹" | "打开结果位置" | "打开底稿位置" => Self::Folder,
             "检查底稿" | "刷新" => Self::Refresh,
             "查找" => Self::Search,

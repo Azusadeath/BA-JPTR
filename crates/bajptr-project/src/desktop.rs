@@ -245,7 +245,6 @@ impl Project {
                 | "batch_preview"
                 | "batch_save"
                 | "preview"
-                | "generate"
                 | "apply"
                 | "baseline"
                 | "restore"
@@ -623,23 +622,6 @@ impl Project {
                 self.preview = json!({"nonce":nonce,"stats":stats,"revision":self.revision});
                 Ok(json!({"nonce":nonce,"total_changes":service::total(&stats),"stats":stats}))
             }
-            "generate" => {
-                self.require(None)?;
-                let mut result = self.engine.generate(
-                    PatchJob {
-                        game: &self.game,
-                        data: &self.data,
-                        backup_root: &self.data.join("backup"),
-                        output_root: &self.data.join("output"),
-                        config: &self.config(),
-                        install: false,
-                        expected: None,
-                    },
-                    control,
-                )?;
-                result["message"] = json!("补丁已生成，校验通过。游戏未改动。");
-                Ok(result)
-            }
             "apply" => {
                 self.require(None)?;
                 let draft = self.preview.clone();
@@ -665,6 +647,21 @@ impl Project {
                     },
                     control,
                 )?;
+                if result["installed"] != true {
+                    self.application = "应用未完成，补丁已保存".into();
+                    let output = Path::new(text(&result, "output")?)
+                        .parent()
+                        .unwrap_or(&self.data)
+                        .display()
+                        .to_string();
+                    result["message"] = json!("应用到游戏失败，已自动保存校验通过的补丁。");
+                    result["warning"] = json!(format!(
+                        "应用到游戏失败：{}\n\n已自动保存校验通过的补丁：\n{output}\n\n本次修改尚未确认应用成功。请退出游戏并检查目录写入权限后重试。",
+                        text(&result, "install_error")?
+                    ));
+                    result["application"] = json!(self.application);
+                    return Ok(result);
+                }
                 self.preview = Value::Null;
                 self.application = "已应用，与当前词表一致".into();
                 result["message"] = json!(format!("已应用 {count} 处变化，校验通过。"));

@@ -101,6 +101,104 @@ fn oracle() -> Value {
     serde_json::from_str(include_str!("fixtures/v1/oracle.json")).unwrap()
 }
 
+fn generate_fixture_patch(p: &mut Project) -> bajptr_project::Result<Value> {
+    let config = bajptr_project::service::Config::new(p.rules.clone(), p.edits.clone(), p.skip);
+    p.engine.generate(
+        bajptr_project::service::PatchJob {
+            game: &p.game,
+            data: &p.data,
+            backup_root: &p.data.join("backup"),
+            output_root: &p.data.join("output"),
+            config: &config,
+            install: false,
+            expected: None,
+        },
+        &control(),
+    )
+}
+
+#[test]
+fn desktop_has_no_standalone_patch_generation_action() {
+    let f = Fixture::new();
+    let mut p = f.ready_project();
+    assert!(p.dispatch("generate", &json!({}), &control()).is_err());
+    assert!(!f.data.join("output").exists());
+    f.unchanged();
+}
+
+#[cfg(windows)]
+fn lock_catalog_against_replacement(f: &Fixture) -> fs::File {
+    use std::os::windows::fs::OpenOptionsExt;
+    fs::OpenOptions::new()
+        .read(true)
+        .share_mode(1)
+        .open(f.game.join(region::CATALOG))
+        .unwrap()
+}
+
+#[cfg(windows)]
+#[test]
+fn failed_game_write_saves_a_verified_patch_and_allows_retry() {
+    let f = Fixture::new();
+    let mut p = f.ready_project();
+    let preview = call(&mut p, "preview", json!({}));
+    let locked = lock_catalog_against_replacement(&f);
+    let fallback = call(&mut p, "apply", json!({"nonce":preview["nonce"]}));
+    assert_eq!(fallback["installed"], false);
+    assert_eq!(fallback["verified"], true);
+    assert!(!fallback["install_error"].as_str().unwrap().is_empty());
+    assert!(fallback["warning"].as_str().unwrap().contains("补丁"));
+    assert_ne!(fallback["application"], "已应用，与当前词表一致");
+    let output = PathBuf::from(fallback["output"].as_str().unwrap());
+    assert!(output.starts_with(f.data.join("output")));
+    let catalog = output.with_file_name("TableCatalog.bytes");
+    let entry = region::parse(&fs::read(&catalog).unwrap()).unwrap();
+    let checked = bajptr_core::codec::inspect(
+        &output,
+        &bajptr_core::codec::key(region::KEY).unwrap(),
+        &control(),
+    )
+    .unwrap();
+    assert_eq!(checked.bad, 0);
+    assert_eq!(checked.crc, entry.crc);
+    assert_eq!(fs::metadata(&output).unwrap().len(), entry.size);
+    assert!(output.with_file_name("TableCatalog.hash").is_file());
+    f.unchanged();
+    drop(locked);
+    let applied = call(&mut p, "apply", json!({"nonce":preview["nonce"]}));
+    assert_eq!(applied["installed"], true);
+    assert_eq!(applied["application"], "已应用，与当前词表一致");
+    assert_ne!(fs::read(f.game.join(region::CATALOG)).unwrap(), f.before);
+    assert_eq!(fs::read_dir(f.data.join("output")).unwrap().count(), 1);
+}
+
+#[cfg(windows)]
+#[test]
+fn failed_fallback_save_reports_both_errors_and_keeps_recovery_files() {
+    let f = Fixture::new();
+    let mut p = f.ready_project();
+    let preview = call(&mut p, "preview", json!({}));
+    fs::write(f.data.join("output"), b"blocked output directory").unwrap();
+    let _locked = lock_catalog_against_replacement(&f);
+    let error = p
+        .dispatch("apply", &json!({"nonce":preview["nonce"]}), &control())
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("应用失败") && error.contains("补丁保存失败"),
+        "{error}"
+    );
+    assert!(error.contains("暂存"), "{error}");
+    assert!(
+        walkdir::WalkDir::new(f.data.join("work"))
+            .into_iter()
+            .filter_map(Result::ok)
+            .any(|e| e.file_name() == "encrypted.db")
+    );
+    assert_ne!(p.application, "已应用，与当前词表一致");
+    f.unchanged();
+}
+
 #[test]
 fn first_baseline_requires_confirmation_and_survives_restart() {
     let f = Fixture::new();
@@ -108,7 +206,7 @@ fn first_baseline_requires_confirmation_and_survives_restart() {
     let status = call(&mut p, "check", json!({}));
     assert_eq!(status["baseline_status"]["state"], "missing");
     assert!(!f.data.join("backup/_baselines").exists());
-    for action in ["tables", "baseline", "preview", "generate", "restore"] {
+    for action in ["tables", "baseline", "preview", "apply", "restore"] {
         assert!(
             p.dispatch(action, &json!({}), &control()).is_err(),
             "{action}"
@@ -258,7 +356,7 @@ fn external_same_version_content_can_only_replace_baseline_after_confirmation() 
     let folder = PathBuf::from(before["folder"].as_str().unwrap());
     let record = fs::read(folder.join("baseline.json")).unwrap();
     // A separately installed text resource with the same game's version marker.
-    let generated = call(&mut p, "generate", json!({}));
+    let generated = generate_fixture_patch(&mut p).unwrap();
     let external = PathBuf::from(generated["output"].as_str().unwrap());
     let bytes = fs::read(&external).unwrap();
     let crc = bajptr_core::codec::inspect(
@@ -329,7 +427,9 @@ fn whole_wordlist_regenerates_from_one_immutable_baseline_and_restore_preserves_
     let f = Fixture::new();
     let mut p = f.ready_project();
     let preview = call(&mut p, "preview", json!({}));
-    call(&mut p, "apply", json!({"nonce":preview["nonce"]}));
+    let applied = call(&mut p, "apply", json!({"nonce":preview["nonce"]}));
+    assert_eq!(applied["installed"], true);
+    assert!(!f.data.join("output").exists());
     assert_ne!(fs::read(f.game.join(region::CATALOG)).unwrap(), f.before);
     assert_eq!(call(&mut p, "preview", json!({}))["total_changes"], 0);
     let revision = p.revision;
@@ -548,6 +648,7 @@ fn cancelling_apply_during_encryption_leaves_game_unchanged_and_preview_reusable
         },
     );
     assert!(matches!(cancelled, Err(bajptr_project::Error::Cancelled)));
+    assert!(!f.data.join("output").exists());
     f.unchanged();
     let applied = call(&mut project, "apply", json!({"nonce":preview["nonce"]}));
     assert_eq!(applied["application"], "已应用，与当前词表一致");
@@ -668,11 +769,12 @@ fn invalid_regex_output_reports_its_location_and_never_publishes_a_patch() {
         "save_rule",
         json!({"revision":0,"index":0,"rule":{"old":"阿罗娜","new":"\\t","mode":"re","source":"回归","table":""}}),
     );
-    for action in ["preview", "generate"] {
-        let error = p
-            .dispatch(action, &json!({}), &control())
-            .unwrap_err()
-            .to_string();
+    let errors = [
+        p.dispatch("preview", &json!({}), &control()).unwrap_err(),
+        generate_fixture_patch(&mut p).unwrap_err(),
+    ];
+    for error in errors {
+        let error = error.to_string();
         for detail in [
             "LocalizeDBSchema",
             "记录",
