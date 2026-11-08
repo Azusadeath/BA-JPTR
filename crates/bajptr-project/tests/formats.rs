@@ -12,6 +12,7 @@ fn edit_documents_have_named_fields_and_reject_positional_rows() {
         replacement: "委托".into(),
         batch: false,
         batch_operation: None,
+        operation: None,
     };
     let bytes = model::edits_bytes(std::slice::from_ref(&edit)).unwrap();
     let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
@@ -34,6 +35,33 @@ fn edit_documents_have_named_fields_and_reject_positional_rows() {
         .is_err()
     );
 }
+#[test]
+fn replay_records_require_new_format_and_validate_the_saved_delta() {
+    let entry = json!({"game":"game","version":"a".repeat(64),"table":"LocalizeDBSchema","row_id":1,"slot":0,"original":"任务","replacement":"委托 ","batch":false,"operation":{"id":"b".repeat(32),"kind":"local","base":"委托","changes":[{"start":2,"end":2,"text":" "}]}});
+    let bytes = serde_json::to_vec(&json!({"format":3,"edits":[entry]})).unwrap();
+    let edits = model::parse_edits(&bytes).unwrap();
+    assert_eq!(
+        model::parse_edits(&model::edits_bytes(&edits).unwrap()).unwrap(),
+        edits
+    );
+    assert!(
+        model::parse_edits(&serde_json::to_vec(&json!({"format":2,"edits":[entry]})).unwrap())
+            .is_err()
+    );
+    let mut bad = entry.clone();
+    bad["replacement"] = json!("静态结果与局部修改不一致");
+    assert!(
+        model::parse_edits(&serde_json::to_vec(&json!({"format":3,"edits":[bad]})).unwrap())
+            .is_err()
+    );
+    let mut bad = entry;
+    bad["operation"]["changes"][0]["end"] = json!(999);
+    assert!(
+        model::parse_edits(&serde_json::to_vec(&json!({"format":3,"edits":[bad]})).unwrap())
+            .is_err()
+    );
+}
+
 #[test]
 fn wordlists_require_the_single_five_column_format() {
     assert!(model::parse_rules("任务\t委托\n".as_bytes()).is_err());

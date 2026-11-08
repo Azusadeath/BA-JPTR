@@ -1,7 +1,7 @@
 //! Desktop's existing action contract; all project mutation stays on its worker.
 use crate::{
     Control, Result, baseline, invalid,
-    model::{self, Edit},
+    model::{self, Edit, Operation, OperationKind},
     service::{self, Config, Engine, PatchJob},
     storage::{self, Store},
     templates::{self, Templates},
@@ -201,7 +201,14 @@ impl Project {
         let key = model::game_key(&self.game)?;
         let version = text(&self.search, "version")?;
         let rows: Vec<TextRow> = serde_json::from_value(self.search["rows"].clone())?;
-        let rows=rows.into_iter().map(|r|{let (value,explicit)=model::effective(&r,&self.edits,&key,version,&rules,self.skip)?;Ok(json!({"table":r.0,"label":model::title(&r.0),"row_id":r.1,"slot":r.2,"original":r.3,"state":if explicit{"定点修改"}else if value!=r.3{"词表替换"}else{"原文"},"text":value}))}).collect::<Result<Vec<_>>>()?;
+        let rows=rows.into_iter().map(|r| {
+            let result=model::effective(&r,&self.edits,&key,version,&rules,self.skip);
+            let (value,explicit,conflict)=match result {
+                Ok((value,explicit))=>(value,explicit,String::new()),
+                Err(error)=>("修改冲突，请打开单条修改处理".into(),true,error.to_string()),
+            };
+            json!({"table":r.0,"label":model::title(&r.0),"row_id":r.1,"slot":r.2,"original":r.3,"state":if explicit{"定点修改"}else if value!=r.3{"词表替换"}else{"原文"},"text":value,"conflict":conflict})
+        }).collect::<Vec<_>>();
         Ok(
             json!({"rows":rows,"keyword":self.search["keyword"],"source":self.search["source"],"total":self.search["total"],"version":version,"nonce":self.search["nonce"]}),
         )
@@ -227,7 +234,57 @@ impl Project {
     pub fn state(&self) -> Result<Value> {
         let rules=self.rules.iter().map(|r|{let (old,new,draft)=if r.mode=="re"{self.templates.display(&r.old,&r.new)}else{(r.old.clone(),r.new.clone(),None)};json!({"rule":r,"scope":model::scope_title(&r.table),"display_old":old,"display_new":new,"draft":draft})}).collect::<Vec<_>>();
         let key = model::game_key(&self.game)?;
-        let edits=self.edits.iter().enumerate().filter(|(_,e)|e.game==key).map(|(i,e)|json!({"index":i,"edit":e,"label":model::title(&e.table),"active":self.version.as_ref().is_none_or(|v|v==&e.version)})).collect::<Vec<_>>();
+        let rules_engine = Rules::new(self.rules.clone())?;
+        let mut rendered = std::collections::HashMap::new();
+        let mut edits = Vec::new();
+        for (i, e) in self.edits.iter().enumerate().filter(|(_, e)| e.game == key) {
+            let active = self.version.as_ref().is_none_or(|v| v == &e.version);
+            let address = (&e.version, &e.table, &e.row_id, e.slot);
+            let prior = rendered.entry(address).or_insert_with(|| {
+                model::effective(
+                    &(
+                        e.table.clone(),
+                        e.row_id.clone(),
+                        e.slot,
+                        e.original.clone(),
+                    ),
+                    &[],
+                    &key,
+                    &e.version,
+                    &rules_engine,
+                    self.skip,
+                )
+                .map(|v| v.0)
+                .map_err(|e| e.to_string())
+            });
+            let before = prior.clone();
+            let after = match &before {
+                Ok(v) => e.apply(v).map_err(|e| e.to_string()),
+                Err(error) => {
+                    if matches!(
+                        e.operation.as_ref().map(|o| &o.kind),
+                        Some(OperationKind::Local { .. } | OperationKind::Batch)
+                    ) {
+                        Err(error.clone())
+                    } else {
+                        e.apply("").map_err(|e| e.to_string())
+                    }
+                }
+            };
+            let conflict = if active {
+                after.as_ref().err().cloned().unwrap_or_default()
+            } else {
+                String::new()
+            };
+            let mode_label = match e.operation.as_ref().map(|o| &o.kind) {
+                Some(OperationKind::Local { .. }) => "局部修改 · 跟随当前词表",
+                Some(OperationKind::Batch) => "批量规则",
+                Some(OperationKind::Override) => "整段覆盖 · 不跟随词表",
+                None => "旧记录 · 整段覆盖（保持原效果）",
+            };
+            edits.push(json!({"index":i,"edit":e,"label":model::title(&e.table),"active":active,"mode_label":mode_label,"display_before":before.unwrap_or_else(|_|e.original.clone()),"display_after":after.as_ref().cloned().unwrap_or_else(|_|e.replacement.clone()),"conflict":conflict}));
+            *prior = after;
+        }
         let mut batches: Vec<Value> = Vec::new();
         let mut positions = std::collections::HashMap::new();
         for (index, edit) in self
@@ -512,13 +569,20 @@ impl Project {
             }
             "text_open" => {
                 self.require(None)?;
-                let (version, row, batch) = if p.get("edit_index").is_some() {
+                let requested = p
+                    .get("edit_index")
+                    .and_then(Value::as_u64)
+                    .map(|i| i as usize);
+                let (version, row, edit_index) = if let Some(i) = requested {
                     let e = self
                         .edits
-                        .get(index(p, "edit_index")?)
+                        .get(i)
                         .ok_or_else(|| invalid("修改位置已变化。"))?;
                     if e.game != model::game_key(&self.game)? {
                         return Err(invalid("这项修改不属于当前游戏。"));
+                    }
+                    if e.batch && e.operation.is_some() {
+                        return Err(invalid("请在替换主表编辑这项批量规则。"));
                     }
                     (
                         e.version.clone(),
@@ -528,32 +592,75 @@ impl Project {
                             e.slot,
                             e.original.clone(),
                         ),
-                        e.batch,
+                        Some(i),
                     )
                 } else {
                     let search = self.find_search(p)?;
                     let rows: Vec<TextRow> = serde_json::from_value(search["rows"].clone())?;
-                    (
-                        text(&search, "version")?.to_string(),
-                        rows.get(index(p, "index")?)
-                            .ok_or_else(|| invalid("文本位置已变化。"))?
-                            .clone(),
-                        false,
-                    )
+                    let row = rows
+                        .get(index(p, "index")?)
+                        .ok_or_else(|| invalid("文本位置已变化。"))?
+                        .clone();
+                    let version = text(&search, "version")?.to_string();
+                    let key = model::game_key(&self.game)?;
+                    let last = self.edits.iter().enumerate().rev().find(|(_, e)| {
+                        e.game == key
+                            && e.version == version
+                            && e.table == row.0
+                            && e.row_id == row.1
+                            && e.slot == row.2
+                    });
+                    let i = last.filter(|(_, e)| !e.batch).map(|(i, _)| i);
+                    (version, row, i)
                 };
                 self.context(&version, &json!(self.revision), control)?;
-                let (value, _) = model::effective(
-                    &row,
-                    &self.edits,
-                    &model::game_key(&self.game)?,
-                    &version,
-                    &Rules::new(self.rules.clone())?,
-                    self.skip,
-                )?;
+                let key = model::game_key(&self.game)?;
+                let rules = Rules::new(self.rules.clone())?;
+                let prior = &self.edits[..edit_index.unwrap_or(self.edits.len())];
+                let prior_result = model::effective(&row, prior, &key, &version, &rules, self.skip);
+                let is_override = edit_index.is_some_and(|i| {
+                    !matches!(
+                        self.edits[i].operation.as_ref().map(|o| &o.kind),
+                        Some(OperationKind::Local { .. } | OperationKind::Batch)
+                    )
+                });
+                let base = match prior_result {
+                    Ok(value) => value.0,
+                    Err(_) if is_override => row.3.clone(),
+                    Err(error) => return Err(error),
+                };
+                let mut conflict = String::new();
+                let (value, mode, batch, id) = if let Some(i) = edit_index {
+                    let edit = &self.edits[i];
+                    let value = match edit.apply(&base) {
+                        Ok(v) => v,
+                        Err(error) => {
+                            conflict = error.to_string();
+                            edit.replacement.clone()
+                        }
+                    };
+                    let mode = if edit.operation.is_none()
+                        || matches!(
+                            edit.operation.as_ref().map(|o| &o.kind),
+                            Some(OperationKind::Override)
+                        ) {
+                        "override"
+                    } else {
+                        "local"
+                    };
+                    (
+                        value,
+                        mode,
+                        edit.batch,
+                        edit.operation_id().map(str::to_string),
+                    )
+                } else {
+                    (base.clone(), "local", false, None)
+                };
                 let nonce = nonce();
-                self.text_draft = json!({"nonce":nonce,"row":row,"version":version,"revision":self.revision,"initial":value,"batch":batch});
+                self.text_draft = json!({"nonce":nonce,"row":row,"version":version,"revision":self.revision,"initial":value,"base":base,"mode":mode,"batch":batch,"edit_index":edit_index,"operation_id":id,"conflict":conflict});
                 Ok(
-                    json!({"nonce":nonce,"original":row.3,"text":value,"label":model::title(&row.0),"row_id":row.1,"slot":row.2}),
+                    json!({"nonce":nonce,"original":row.3,"text":value,"label":model::title(&row.0),"row_id":row.1,"slot":row.2,"mode":mode,"conflict":conflict,"base":base}),
                 )
             }
             "text_save" => {
@@ -564,23 +671,66 @@ impl Project {
                 let version = text(&draft, "version")?;
                 self.context(version, &draft["revision"], control)?;
                 let replacement = text(p, "text")?.replace("\r\n", "\n").replace('\r', "\n");
-                if json!(replacement) != draft["initial"] {
+                let mode = p
+                    .get("mode")
+                    .and_then(Value::as_str)
+                    .unwrap_or(text(&draft, "mode")?);
+                if !matches!(mode, "local" | "override") {
+                    return Err(invalid("修改方式无效。"));
+                }
+                if !text(&draft, "conflict")?.is_empty()
+                    && mode == "local"
+                    && p["resolve_conflict"] != true
+                {
+                    return Err(invalid("请先按当前词表重新编辑，或明确选择整段覆盖。"));
+                }
+                if json!(replacement) != draft["initial"]
+                    || mode != text(&draft, "mode")?
+                    || !text(&draft, "conflict")?.is_empty()
+                {
                     let row: TextRow = serde_json::from_value(draft["row"].clone())?;
-                    let e = Edit {
-                        game: model::game_key(&self.game)?,
-                        version: version.into(),
-                        table: row.0,
-                        row_id: row.1,
-                        slot: row.2,
-                        original: row.3,
-                        replacement,
-                        batch: draft["batch"] == true,
-                        batch_operation: None,
-                    };
-                    self.commit(
-                        Document::Edits(model::update_edits(&self.edits, vec![e])?),
-                        true,
-                    )?;
+                    let mut values = self.edits.clone();
+                    let old_index = draft["edit_index"].as_u64().map(|i| i as usize);
+                    let base = text(&draft, "base")?;
+                    let changes = crate::replay::difference(base, &replacement);
+                    if mode == "local" && changes.is_empty() {
+                        if let Some(i) = old_index {
+                            values.remove(i);
+                        }
+                    } else {
+                        let id = draft["operation_id"]
+                            .as_str()
+                            .map(str::to_string)
+                            .unwrap_or_else(nonce);
+                        let e = Edit {
+                            game: model::game_key(&self.game)?,
+                            version: version.into(),
+                            table: row.0,
+                            row_id: row.1,
+                            slot: row.2,
+                            original: row.3,
+                            replacement,
+                            batch: draft["batch"] == true,
+                            batch_operation: None,
+                            operation: Some(Operation {
+                                id,
+                                kind: if mode == "override" {
+                                    OperationKind::Override
+                                } else {
+                                    OperationKind::Local {
+                                        base: base.into(),
+                                        changes,
+                                    }
+                                },
+                            }),
+                        };
+                        if let Some(i) = old_index {
+                            values[i] = e;
+                        } else {
+                            values.push(e);
+                        }
+                    }
+                    self.commit(Document::Edits(values), true)?;
                 }
                 self.text_draft = Value::Null;
                 self.state()
@@ -591,7 +741,7 @@ impl Project {
                 self.context(&entries[0].version, &json!(self.revision), control)?;
                 let operation = entries[0].batch_operation.as_ref().unwrap();
                 Ok(
-                    json!({"id":operation.id,"old":operation.old,"new":operation.new,"count":entries.len()}),
+                    json!({"id":operation.id,"old":operation.old,"new":operation.new,"count":entries.len(),"legacy":entries[0].operation.is_none()}),
                 )
             }
             "batch_preview" => {
@@ -638,20 +788,20 @@ impl Project {
                 }
                 let rules = Rules::new(self.rules.clone())?;
                 let key = model::game_key(&self.game)?;
-                let matching: Vec<_> = self
-                    .edits
-                    .iter()
-                    .filter(|e| e.game == key && e.version == version)
-                    .filter_map(|e| {
-                        e.batch_operation
+                let matching = self.edits.iter().find(|e| {
+                    e.game == key
+                        && e.version == version
+                        && matches!(
+                            e.operation.as_ref().map(|o| &o.kind),
+                            Some(OperationKind::Batch)
+                        )
+                        && e.batch_operation
                             .as_ref()
-                            .filter(|operation| operation.old == old && operation.new == new)
-                            .map(|operation| (e, operation))
-                    })
-                    .collect();
+                            .is_some_and(|o| o.old == old && o.new == new)
+                });
                 let operation_id = matching
-                    .first()
-                    .map(|(_, operation)| operation.id.clone())
+                    .and_then(Edit::operation_id)
+                    .map(str::to_string)
                     .unwrap_or_else(|| {
                         if group_id.is_empty() {
                             nonce()
@@ -659,65 +809,122 @@ impl Project {
                             group_id.to_string()
                         }
                     });
+                let mut edits = self.edits.clone();
                 let mut changes = Vec::new();
-                let mut updates = Vec::new();
                 for i in &indices {
                     let row = rows
                         .get(*i)
                         .ok_or_else(|| invalid("选中文字位置已变化。"))?;
-                    let (before, _) =
-                        model::effective(row, &self.edits, &key, &version, &rules, self.skip)?;
-                    let previous = existing
-                        .as_ref()
-                        .map(|entries| entries[*i].batch_operation.as_ref().unwrap())
-                        .or_else(|| {
-                            matching
-                                .iter()
-                                .find(|(e, _)| {
-                                    e.table == row.0 && e.row_id == row.1 && e.slot == row.2
-                                })
-                                .map(|(_, operation)| *operation)
-                        });
-                    let base = previous
-                        .map(|operation| operation.before.clone())
-                        .unwrap_or_else(|| before.clone());
-                    let after = base.replace(old, new);
-                    if before != after
-                        || previous
-                            .is_some_and(|operation| operation.old != old || operation.new != new)
-                    {
-                        changes.push(json!({"label":model::title(&row.0),"row_id":row.1,"slot":row.2,"before":before,"after":after}));
-                        updates.push(Edit {
-                            game: key.clone(),
-                            version: version.clone(),
-                            table: row.0.clone(),
-                            row_id: row.1.clone(),
-                            slot: row.2,
-                            original: row.3.clone(),
-                            replacement: after,
-                            batch: true,
-                            batch_operation: Some(model::BatchOperation {
+                    let before =
+                        model::effective(row, &self.edits, &key, &version, &rules, self.skip)?.0;
+                    let source = existing.as_ref().map(|entries| &entries[*i]);
+                    let original_position = source.and_then(|e| {
+                        self.edits
+                            .iter()
+                            .position(|p| p.same_address(e) && p.operation_id() == e.operation_id())
+                    });
+                    let old_position = source.and_then(|e| {
+                        edits
+                            .iter()
+                            .position(|p| p.same_address(e) && p.operation_id() == e.operation_id())
+                    });
+                    let already = edits.iter().position(|e| {
+                        e.game == key
+                            && e.version == version
+                            && e.table == row.0
+                            && e.row_id == row.1
+                            && e.slot == row.2
+                            && e.operation_id() == Some(&operation_id)
+                    });
+                    if source.is_none() && already.is_some() {
+                        continue;
+                    }
+                    let position = old_position.unwrap_or(edits.len());
+                    let base = model::effective(
+                        row,
+                        &self.edits[..original_position.unwrap_or(self.edits.len())],
+                        &key,
+                        &version,
+                        &rules,
+                        self.skip,
+                    )?
+                    .0;
+                    let replacement = base.replace(old, new);
+                    if source.is_none() && replacement == base {
+                        continue;
+                    }
+                    let entry = Edit {
+                        game: key.clone(),
+                        version: version.clone(),
+                        table: row.0.clone(),
+                        row_id: row.1.clone(),
+                        slot: row.2,
+                        original: row.3.clone(),
+                        replacement,
+                        batch: true,
+                        batch_operation: Some(model::BatchOperation {
+                            id: operation_id.clone(),
+                            old: old.into(),
+                            new: new.into(),
+                            before: base,
+                        }),
+                        operation: if source.is_some_and(|e| e.operation.is_none()) {
+                            None
+                        } else {
+                            Some(Operation {
                                 id: operation_id.clone(),
-                                old: old.into(),
-                                new: new.into(),
-                                before: base,
-                            }),
-                        });
+                                kind: OperationKind::Batch,
+                            })
+                        },
+                    };
+                    if old_position.is_some() {
+                        if already.is_some_and(|other| other != position) {
+                            edits.remove(position);
+                        } else {
+                            edits[position] = entry;
+                        }
+                    } else {
+                        edits.push(entry);
+                    }
+                    let after = model::effective(row, &edits, &key, &version, &rules, self.skip)?.0;
+                    if source.is_some() || before != after {
+                        changes.push(json!({"label":model::title(&row.0),"row_id":row.1,"slot":row.2,"before":before,"after":after}));
                     }
                 }
-                let mut edits = model::update_edits(&self.edits, updates)?;
-                // Saving the same replacement extends its selected scope. Keep each
-                // member's original base, including when earlier saves had separate IDs.
+                // A group edit can merge into an existing rule; canonicalize all
+                // matching members without reordering operations on each text.
                 for edit in &mut edits {
                     if edit.game == key
                         && edit.version == version
-                        && let Some(operation) = &mut edit.batch_operation
-                        && operation.old == old
-                        && operation.new == new
+                        && matches!(
+                            edit.operation.as_ref().map(|o| &o.kind),
+                            Some(OperationKind::Batch)
+                        )
+                        && let Some(batch) = &mut edit.batch_operation
+                        && batch.old == old
+                        && batch.new == new
                     {
-                        operation.id.clone_from(&operation_id);
+                        batch.id.clone_from(&operation_id);
+                        edit.operation
+                            .as_mut()
+                            .unwrap()
+                            .id
+                            .clone_from(&operation_id);
                     }
                 }
+                let mut seen = std::collections::HashSet::new();
+                edits.retain(|e| {
+                    e.operation_id().is_none()
+                        || seen.insert((
+                            e.game.clone(),
+                            e.version.clone(),
+                            e.table.clone(),
+                            e.row_id.clone(),
+                            e.slot,
+                            e.operation_id().map(str::to_string),
+                        ))
+                });
+                model::validate_edits(&edits)?;
                 let nonce = nonce();
                 self.batch_draft =
                     json!({"nonce":nonce,"edits":edits,"revision":self.revision,"version":version});

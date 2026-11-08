@@ -455,6 +455,195 @@ fn whole_wordlist_regenerates_from_one_immutable_baseline_and_restore_preserves_
     assert_eq!(baselines, 1);
 }
 #[test]
+fn local_edit_replays_over_current_rules_in_search_preview_and_apply() {
+    let f = Fixture::new();
+    let mut p = f.ready_project();
+    let search = call(&mut p, "search", json!({"keyword":"任务"}));
+    let opened = call(
+        &mut p,
+        "text_open",
+        json!({"index":0,"search_nonce":search["nonce"]}),
+    );
+    assert_eq!(opened["text"], "阿洛娜同学的委托");
+    call(
+        &mut p,
+        "text_save",
+        json!({"nonce":opened["nonce"],"text":"阿洛娜同学的委托 "}),
+    );
+    let with_rules = call(&mut p, "preview", json!({}));
+    assert_eq!(with_rules["stats"]["rule_hits"][0][5], 1);
+    assert_eq!(with_rules["stats"]["rule_hits"][1][5], 1);
+    let revision = p.revision;
+    call(
+        &mut p,
+        "remove_rule",
+        json!({"index":1,"revision":revision}),
+    );
+    let search = call(&mut p, "search", json!({"keyword":"任务"}));
+    assert_eq!(search["rows"][0]["text"], "阿洛娜同学的任务 ");
+    let preview = call(&mut p, "preview", json!({}));
+    assert_eq!(
+        preview["stats"]["changes"][0]["after"],
+        search["rows"][0]["text"]
+    );
+    call(&mut p, "apply", json!({"nonce":preview["nonce"]}));
+    assert_eq!(call(&mut p, "preview", json!({}))["total_changes"], 0);
+    let mut reopened = f.project();
+    assert_eq!(
+        call(&mut reopened, "search", json!({"keyword":"任务"}))["rows"][0]["text"],
+        "阿洛娜同学的任务 "
+    );
+    call(&mut p, "restore", json!({}));
+    f.unchanged();
+}
+
+#[test]
+fn consecutive_batch_operations_keep_their_sources_and_remove_independently() {
+    let f = Fixture::new();
+    let mut p = f.ready_project();
+    let mut ids = Vec::new();
+    for (old, new) in [("委托", "神奇"), ("神奇", "奇妙")] {
+        let search = call(&mut p, "search", json!({"keyword":"任务"}));
+        let preview = call(
+            &mut p,
+            "batch_preview",
+            json!({"search_nonce":search["nonce"],"indices":[0],"old":old,"new":new}),
+        );
+        let saved = call(&mut p, "batch_save", json!({"nonce":preview["nonce"]}));
+        ids.push(saved["batches"].as_array().unwrap().last().unwrap()["id"].clone());
+    }
+    assert_eq!(p.state().unwrap()["batches"].as_array().unwrap().len(), 2);
+    let revision = p.revision;
+    call(
+        &mut p,
+        "save_rule",
+        json!({"revision":revision,"index":0,"rule":{"old":"阿罗娜","new":"新名字","mode":"sub","source":"测试","table":""}}),
+    );
+    assert_eq!(
+        call(&mut p, "search", json!({"keyword":"任务"}))["rows"][0]["text"],
+        "新名字的奇妙"
+    );
+    let revision = p.revision;
+    call(
+        &mut p,
+        "remove_batch",
+        json!({"id":ids[1],"revision":revision}),
+    );
+    assert_eq!(
+        call(&mut p, "search", json!({"keyword":"任务"}))["rows"][0]["text"],
+        "新名字的神奇"
+    );
+    let preview = call(&mut p, "preview", json!({}));
+    assert_eq!(preview["stats"]["changes"][0]["after"], "新名字的神奇");
+    f.unchanged();
+}
+
+#[test]
+fn local_and_batch_operations_on_one_field_can_be_removed_independently() {
+    let f = Fixture::new();
+    let mut p = f.ready_project();
+    let search = call(&mut p, "search", json!({"keyword":"任务"}));
+    let preview = call(
+        &mut p,
+        "batch_preview",
+        json!({"search_nonce":search["nonce"],"indices":[0],"old":"委托","new":"神奇"}),
+    );
+    let state = call(&mut p, "batch_save", json!({"nonce":preview["nonce"]}));
+    let first_id = state["batches"][0]["id"].clone();
+    let opened = call(
+        &mut p,
+        "text_open",
+        json!({"index":0,"search_nonce":search["nonce"]}),
+    );
+    call(
+        &mut p,
+        "text_save",
+        json!({"nonce":opened["nonce"],"text":"阿洛娜同学的神奇 "}),
+    );
+    let preview = call(
+        &mut p,
+        "batch_preview",
+        json!({"search_nonce":search["nonce"],"indices":[0],"old":"神奇","new":"奇妙"}),
+    );
+    call(&mut p, "batch_save", json!({"nonce":preview["nonce"]}));
+    assert_eq!(p.edits.len(), 3);
+    assert_eq!(f.project().edits, p.edits);
+    let revision = p.revision;
+    call(
+        &mut p,
+        "remove_edit",
+        json!({"index":1,"revision":revision}),
+    );
+    assert_eq!(p.state().unwrap()["batches"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        call(&mut p, "search", json!({"keyword":"任务"}))["rows"][0]["text"],
+        "阿洛娜同学的奇妙"
+    );
+    let revision = p.revision;
+    call(
+        &mut p,
+        "remove_batch",
+        json!({"id":first_id,"revision":revision}),
+    );
+    assert_eq!(p.state().unwrap()["batches"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        call(&mut p, "search", json!({"keyword":"任务"}))["rows"][0]["text"],
+        "阿洛娜同学的委托"
+    );
+    call(&mut p, "history", json!({"undo":true}));
+    assert_eq!(
+        call(&mut p, "search", json!({"keyword":"任务"}))["rows"][0]["text"],
+        "阿洛娜同学的奇妙"
+    );
+    f.unchanged();
+}
+
+#[test]
+fn overlapping_wordlist_change_reports_conflict_without_losing_local_edit() {
+    let f = Fixture::new();
+    let mut p = f.ready_project();
+    let search = call(&mut p, "search", json!({"keyword":"任务"}));
+    let opened = call(
+        &mut p,
+        "text_open",
+        json!({"index":0,"search_nonce":search["nonce"]}),
+    );
+    call(
+        &mut p,
+        "text_save",
+        json!({"nonce":opened["nonce"],"text":"阿洛娜同学的私人委托"}),
+    );
+    let saved = p.edits.clone();
+    let revision = p.revision;
+    call(
+        &mut p,
+        "save_rule",
+        json!({"revision":revision,"index":1,"rule":{"old":"任务","new":"新任务","mode":"sub","source":"测试","table":""}}),
+    );
+    let result = p.dispatch("preview", &json!({}), &control());
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("冲突"));
+    assert_eq!(p.edits, saved);
+    let opened = call(&mut p, "text_open", json!({"edit_index":0}));
+    assert!(opened["conflict"].as_str().is_some_and(|s| !s.is_empty()));
+    assert!(
+        p.dispatch(
+            "text_save",
+            &json!({"nonce":opened["nonce"],"text":opened["text"]}),
+            &control()
+        )
+        .is_err()
+    );
+    call(
+        &mut p,
+        "text_save",
+        json!({"nonce":opened["nonce"],"text":"阿洛娜同学的私人委托","mode":"override"}),
+    );
+    assert!(p.dispatch("preview", &json!({}), &control()).is_ok());
+    f.unchanged();
+}
+
+#[test]
 fn single_and_batch_edits_bind_original_search_and_share_undo_history() {
     let f = Fixture::new();
     let mut p = f.ready_project();
@@ -663,10 +852,13 @@ fn batch_merge_preserves_other_games_versions_and_unclassified_legacy_entries() 
     let mut inactive = p.edits[0].clone();
     inactive.version = "0".repeat(64);
     inactive.batch_operation.as_mut().unwrap().id = "a".repeat(32);
+    inactive.operation.as_mut().unwrap().id = "a".repeat(32);
     let mut foreign = p.edits[0].clone();
     foreign.game = "another-game".into();
     foreign.batch_operation.as_mut().unwrap().id = "b".repeat(32);
+    foreign.operation.as_mut().unwrap().id = "b".repeat(32);
     p.edits[0].batch_operation = None;
+    p.edits[0].operation = None;
     p.edits.extend([inactive, foreign]);
     let preserved = p.edits.clone();
     let search = call(&mut p, "search", json!({"keyword":"任务"}));
@@ -722,7 +914,7 @@ fn different_batch_replacements_remain_separate_until_edited_to_match() {
 }
 
 #[test]
-fn editing_a_saved_batch_entry_preserves_its_kind_and_target() {
+fn editing_a_legacy_batch_entry_preserves_its_kind_and_target() {
     let f = Fixture::new();
     let mut p = f.ready_project();
     let search = call(&mut p, "search", json!({"keyword":"任务"}));
@@ -732,6 +924,7 @@ fn editing_a_saved_batch_entry_preserves_its_kind_and_target() {
         json!({"search_nonce":search["nonce"],"indices":[0],"old":"委托","new":"批量结果"}),
     );
     call(&mut p, "batch_save", json!({"nonce":batch["nonce"]}));
+    p.edits[0].operation = None;
     let target = p.edits[0].clone();
     assert!(target.batch);
     let opened = call(&mut p, "text_open", json!({"edit_index":0}));

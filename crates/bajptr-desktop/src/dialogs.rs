@@ -575,10 +575,20 @@ impl Desktop {
             .show(ctx, |ui| {
                 ui.label(&form.label);
                 ui.add_enabled_ui(!self.write_busy(), |ui| {
+                    ui.checkbox(&mut form.whole, "整段覆盖（此段不再跟随词表）");
+                    if !form.conflict.is_empty() {
+                        ui.colored_label(RED, &form.conflict);
+                        if ui.button("按当前词表和前序修改重新编辑").clicked() {
+                            form.value = form.base.clone();
+                            form.whole = false;
+                            form.conflict.clear();
+                        }
+                    }
                     egui::ScrollArea::vertical()
                         .max_height(
                             (ctx.content_rect().height()
-                                - 320.
+                                - 355.
+                                - if form.conflict.is_empty() { 0. } else { 90. }
                                 - if form.show_original { 110. } else { 0. })
                             .clamp(120., 320.),
                         )
@@ -596,7 +606,8 @@ impl Desktop {
                         }
                         if ui.button("恢复此条原文").clicked() {
                             form.value = form.original.clone();
-                            form.error = "已填回底稿原文，点击保存后生效。".into();
+                            form.whole = true;
+                            form.error = "已填回底稿原文，并选择整段覆盖；保存后生效。".into();
                         }
                     });
                     if form.show_original {
@@ -610,10 +621,10 @@ impl Desktop {
                         ui.colored_label(RED, &form.error);
                     }
                     ui.horizontal(|ui| {
-                        if primary(ui, true, "保存修改").clicked() {
+                        if primary(ui, form.conflict.is_empty() || form.whole, "保存修改").clicked() {
                             self.submit(
                                 "text_save",
-                                json!({"nonce":form.nonce,"text":form.value}),
+                                json!({"nonce":form.nonce,"text":form.value,"mode":if form.whole{"override"}else{"local"},"resolve_conflict":form.conflict.is_empty()}),
                                 "正在保存单条修改…",
                                 false,
                             );
@@ -635,7 +646,7 @@ impl Desktop {
         };
         let mut open = true;
         let mut close = false;
-        window(if form.group_id.is_empty(){"替换选中文本"}else{"编辑批量修改"},ctx,820.).open(&mut open).show(ctx,|ui|{ui.label(format!("仅修改选中的 {} 条文本",form.indices.len()));ui.add_enabled_ui(!self.write_busy(),|ui|{
+        window(if form.group_id.is_empty(){"替换选中文本"}else{"编辑批量修改"},ctx,820.).open(&mut open).show(ctx,|ui|{ui.label(format!("仅修改选中的 {} 条文本",form.indices.len()));if form.legacy{ui.colored_label(MUTED,"旧批量记录保留原来的整段覆盖效果，不自动转换。");}ui.add_enabled_ui(!self.write_busy(),|ui|{
             ui.label("查找文字");let old=ui.add(egui::TextEdit::singleline(&mut form.old).font(egui::TextStyle::Body).desired_width(f32::INFINITY));ui.label("替换为");let new=ui.add(egui::TextEdit::singleline(&mut form.new).font(egui::TextStyle::Body).desired_width(f32::INFINITY));
             if old.changed()||new.changed(){form.nonce.clear();form.changes.clear();form.error.clear();}
             if ui.button("预览选中").clicked(){self.submit("batch_preview",json!({"group_id":form.group_id,"indices":form.indices,"search_nonce":text(&self.search,"nonce"),"old":form.old,"new":form.new}),"正在预览选中文本…",true);}
@@ -880,8 +891,10 @@ if ui.button("取消").clicked(){close=true;}});
                             for entry in edits {
                                 ui.group(|ui| {
                                     ui.set_min_width(ui.available_width());
-                                    let edit = &entry["edit"];
                                     let active = entry["active"] == true;
+                                    ui.colored_label(MUTED, text(entry, "mode_label"));
+                                    let conflict=text(entry,"conflict");
+                                    if !conflict.is_empty(){ui.colored_label(RED,conflict);}
                                     ui.horizontal(|ui| {
                                         ui.with_layout(
                                             egui::Layout::right_to_left(egui::Align::Center),
@@ -918,9 +931,9 @@ if ui.button("取消").clicked(){close=true;}});
                                     });
                                     ui.add(
                                         egui::Label::new(format!(
-                                            "原文：{}\n本次：{}",
-                                            text(edit, "original"),
-                                            text(edit, "replacement")
+                                            "修改前：{}\n本次：{}",
+                                            text(entry, "display_before"),
+                                            text(entry, "display_after")
                                         ))
                                         .wrap(),
                                     );

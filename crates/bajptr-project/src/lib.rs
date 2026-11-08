@@ -3,6 +3,7 @@ pub mod cleanup;
 pub mod desktop;
 pub mod model;
 pub mod region;
+pub mod replay;
 pub mod service;
 pub mod storage;
 pub mod templates;
