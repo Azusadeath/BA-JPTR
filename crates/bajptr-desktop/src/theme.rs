@@ -8,6 +8,8 @@ pub const BG: Color32 = Color32::from_rgb(244, 247, 251);
 pub const LINE: Color32 = Color32::from_rgb(226, 233, 242);
 pub const SOFT_BLUE: Color32 = Color32::from_rgb(233, 243, 254);
 pub const ROW_HEIGHT: f32 = 40.;
+const DISABLED_FILL: Color32 = Color32::from_rgb(232, 237, 243);
+const DISABLED_TEXT: Color32 = Color32::from_rgb(83, 100, 122);
 
 pub fn install(ctx: &egui::Context) {
     let root = std::env::var_os("SystemRoot")
@@ -282,39 +284,57 @@ pub fn action_width(ui: &egui::Ui, label: &str) -> f32 {
 }
 pub fn action(ui: &mut egui::Ui, enabled: bool, label: &str, kind: ButtonKind) -> egui::Response {
     let icon = Icon::for_label(label);
-    let color = if enabled && ui.is_enabled() {
+    let active = enabled && ui.is_enabled();
+    let color = if active {
         match kind {
             ButtonKind::Primary => Color32::WHITE,
             ButtonKind::Soft => BLUE,
             _ => TEXT,
         }
     } else {
-        Color32::from_rgb(151, 164, 181)
+        DISABLED_TEXT
     };
     let galley = ui
         .painter()
         .layout_no_wrap(label.into(), FontId::proportional(14.5), color);
     let width = galley.size().x + 24. + if icon.is_some() { 24. } else { 0. };
     let mut button = egui::Button::new("").min_size(vec2(width, 36.));
-    match kind {
-        ButtonKind::Primary => button = button.fill(BLUE).stroke(Stroke::NONE),
-        ButtonKind::Soft => button = button.fill(SOFT_BLUE).stroke(Stroke::NONE),
-        ButtonKind::Quiet => button = button.frame(false),
-        _ => {}
+    if active {
+        match kind {
+            ButtonKind::Primary => button = button.fill(BLUE).stroke(Stroke::NONE),
+            ButtonKind::Soft => button = button.fill(SOFT_BLUE).stroke(Stroke::NONE),
+            ButtonKind::Quiet => button = button.frame(false),
+            _ => {}
+        }
+    } else {
+        button = button.frame(false);
     }
     let response = ui.add_enabled(enabled, button);
-    response.widget_info(|| {
-        egui::WidgetInfo::labeled(egui::Role::Button, enabled && ui.is_enabled(), label)
-    });
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, active, label));
+    let mut painter = ui.painter().clone();
+    if !active {
+        // The explicit disabled palette already expresses the state. Applying
+        // ancestor disabled alpha again would wash out its text and icons.
+        painter.set_opacity(1.);
+        if !matches!(kind, ButtonKind::Quiet) {
+            painter.rect(
+                response.rect,
+                7,
+                DISABLED_FILL,
+                Stroke::new(1., LINE),
+                egui::StrokeKind::Inside,
+            );
+        }
+    }
     if let Some(icon) = icon {
         paint_icon(
-            ui.painter(),
+            &painter,
             pos2(response.rect.left() + 12., response.rect.center().y - 8.),
             icon,
             color,
         );
     }
-    ui.painter().galley(
+    painter.galley(
         pos2(
             response.rect.left() + 12. + if icon.is_some() { 24. } else { 0. },
             response.rect.center().y - galley.size().y * 0.5,
@@ -367,5 +387,110 @@ pub fn app_icon() -> egui::IconData {
         rgba: bajptr_brand::rgba(64),
         width: 64,
         height: 64,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn composite(color: Color32, background: [f32; 3]) -> [f32; 3] {
+        let rgba = color.to_srgba_unmultiplied();
+        let alpha = f32::from(rgba[3]) / 255.;
+        std::array::from_fn(|i| f32::from(rgba[i]) / 255. * alpha + background[i] * (1. - alpha))
+    }
+    fn luminance(color: [f32; 3]) -> f32 {
+        color
+            .into_iter()
+            .zip([0.2126, 0.7152, 0.0722])
+            .map(|(v, w)| {
+                w * if v <= 0.04045 {
+                    v / 12.92
+                } else {
+                    ((v + 0.055) / 1.055).powf(2.4)
+                }
+            })
+            .sum()
+    }
+    #[test]
+    fn disabled_primary_is_readable_and_cannot_activate_directly_or_through_parent() {
+        for inherited in [false, true] {
+            let ctx = egui::Context::default();
+            install(&ctx);
+            let draw = |events| {
+                let mut rect = egui::Rect::NOTHING;
+                let mut enabled = true;
+                let mut clicked = false;
+                let output = ctx.run_ui(
+                    egui::RawInput {
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| {
+                        let response = ui
+                            .add_enabled_ui(!inherited, |ui| primary(ui, inherited, "保存修改"))
+                            .inner;
+                        rect = response.rect;
+                        enabled = response.enabled();
+                        clicked = response.clicked();
+                    },
+                );
+                (output, rect, enabled, clicked)
+            };
+            let (output, rect, _, _) = draw(vec![]);
+            let text_color = output
+                .shapes
+                .iter()
+                .find_map(|shape| match &shape.shape {
+                    egui::Shape::Text(text) if text.galley.job.text == "保存修改" => {
+                        text.override_text_color.or_else(|| {
+                            text.galley
+                                .rows
+                                .first()?
+                                .visuals
+                                .mesh
+                                .vertices
+                                .first()
+                                .map(|v| v.color)
+                        })
+                    }
+                    _ => None,
+                })
+                .expect("rendered label");
+            let fill = output
+                .shapes
+                .iter()
+                .rev()
+                .find_map(|shape| match &shape.shape {
+                    egui::Shape::Rect(r) if r.fill.a() > 0 => Some(r.fill),
+                    _ => None,
+                })
+                .expect("rendered button background");
+            let bg = composite(fill, [1.; 3]);
+            let fg = composite(text_color, bg);
+            let ratio = (luminance(bg) + 0.05) / (luminance(fg) + 0.05);
+            assert!(ratio >= 4.5, "inherited={inherited}: contrast {ratio}");
+            let pos = rect.center();
+            let events = vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ];
+            let (_, _, enabled, clicked) = draw(events);
+            assert!(
+                !enabled && !clicked,
+                "disabled painting must not enable interaction"
+            );
+        }
     }
 }
