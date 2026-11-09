@@ -143,6 +143,7 @@ impl Project {
         Ok(())
     }
     fn changed(&mut self) {
+        self.engine.invalidate_prepared();
         self.revision += 1;
         self.preview = Value::Null;
         self.batch_draft = Value::Null;
@@ -293,6 +294,7 @@ impl Project {
                 | "batch_open"
                 | "batch_save"
                 | "preview"
+                | "prepare_patch"
                 | "apply"
                 | "baseline"
                 | "restore"
@@ -857,7 +859,7 @@ impl Project {
                 self.preview = json!({"nonce":nonce,"stats":stats,"revision":self.revision});
                 Ok(json!({"nonce":nonce,"total_changes":service::total(&stats),"stats":stats}))
             }
-            "apply" => {
+            "prepare_patch" | "apply" => {
                 self.require(None)?;
                 let draft = self.preview.clone();
                 if draft.is_null()
@@ -870,18 +872,28 @@ impl Project {
                 if count == 0 || draft["stats"]["parse_failed"] != 0 {
                     return Err(invalid("当前预览无法应用，请检查结果。"));
                 }
-                let mut result = self.engine.generate(
-                    PatchJob {
-                        game: &self.game,
-                        data: &self.data,
-                        backup_root: &self.data.join("backup"),
-                        output_root: &self.data.join("output"),
-                        config: &self.config(),
-                        install: true,
-                        expected: Some(&draft["stats"]["comparison_identity"]),
-                    },
-                    control,
-                )?;
+                let config = self.config();
+                let backup_root = self.data.join("backup");
+                let output_root = self.data.join("output");
+                let job = PatchJob {
+                    game: &self.game,
+                    data: &self.data,
+                    backup_root: &backup_root,
+                    output_root: &output_root,
+                    config: &config,
+                    install: true,
+                    expected: Some(&draft["stats"]["comparison_identity"]),
+                };
+                if action == "prepare_patch" {
+                    let mut result = self.engine.prepare(job, control)?;
+                    result["nonce"] = draft["nonce"].clone();
+                    return Ok(result);
+                }
+                let mut result = if p["prepared"] == true {
+                    self.engine.apply_prepared(job, control)?
+                } else {
+                    self.engine.generate(job, control)?
+                };
                 if result["installed"] != true {
                     self.application = "应用未完成，补丁已保存".into();
                     let output = Path::new(text(&result, "output")?)
@@ -916,7 +928,7 @@ impl Project {
                 self.preview = Value::Null;
                 self.application = "已恢复底稿；词表尚未应用".into();
                 Ok(
-                    json!({"message":"已恢复为当前版本初始底稿，词表和单条修改已保留。","application":self.application}),
+                    json!({"message":"已恢复为当前版本初始底稿，词表、单条及批量修改记录已保留。","application":self.application}),
                 )
             }
             "export_text" => {

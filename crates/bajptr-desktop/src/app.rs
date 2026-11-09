@@ -61,7 +61,21 @@ impl Desktop {
         ctx.options_mut(|options| options.zoom_with_keyboard = false);
         crate::theme::install(ctx);
         let backend = Backend::start(&project, &data, ctx.clone());
-        let mut app = Self {
+        let mut app = Self::initial();
+        match backend {
+            Ok(backend) => {
+                app.backend = Some(backend);
+                app.submit("load", json!({}), "正在读取修改记录…", false);
+            }
+            Err(error) => {
+                app.status = error.clone();
+                app.error = Some(error);
+            }
+        }
+        app
+    }
+    fn initial() -> Self {
+        Self {
             backend: None,
             pending: HashMap::new(),
             obsolete: HashSet::new(),
@@ -103,18 +117,46 @@ impl Desktop {
             hits: Vec::new(),
             table_detail: None,
             startup_probe: crate::startup::Probe::from_environment(),
+        }
+    }
+    pub fn restore_context_status(&mut self) {
+        if self.busy.is_some() {
+            return;
+        }
+        self.status = if !self.search.is_null() {
+            format!(
+                "共找到 {} 处，已加载 {} 处",
+                count(&self.search, "total"),
+                slice(&self.search, "rows").len()
+            )
+        } else if self.connected {
+            "底稿已就绪。修改自动保存，预览后应用。".into()
+        } else {
+            "请选择游戏目录并检查底稿。".into()
         };
-        match backend {
-            Ok(backend) => {
-                app.backend = Some(backend);
-                app.submit("load", json!({}), "正在读取修改记录…", false);
+    }
+    pub fn search_input_changed(&mut self) {
+        self.search = Value::Null.into();
+        self.selection.clear();
+        let stale: Vec<_> = self
+            .pending
+            .iter()
+            .filter(|(_, action)| matches!(action.as_str(), "search" | "search_more" | "text_open"))
+            .map(|(id, _)| *id)
+            .collect();
+        for id in stale {
+            self.obsolete.insert(id);
+            if self.busy.as_ref().is_some_and(|busy| busy.id == id) {
+                self.busy = None;
             }
-            Err(error) => {
-                app.status = error.clone();
-                app.error = Some(error);
+            if let Some(backend) = &mut self.backend {
+                let _ = backend.send("cancel", json!({"target":id}));
             }
         }
-        app
+        self.restore_context_status();
+        if self.busy.is_none() {
+            self.status = "搜索条件已修改，请重新查找。".into();
+        }
     }
     pub fn revision(&self) -> u64 {
         count(&self.state, "revision")
@@ -261,7 +303,9 @@ impl Desktop {
             self.confirm_baseline = None;
             self.baseline_check = Value::Null;
         }
-        if let Some(search) = value.get("search") {
+        if let Some(search) = value.get("search").filter(|search| {
+            search.is_null() || (!self.search.is_null() && search["nonce"] == self.search["nonce"])
+        }) {
             if search.is_null() {
                 self.selection.clear();
             }
@@ -369,6 +413,9 @@ impl Desktop {
                         if let Some(f) = &mut self.batch_form {
                             f.error = message.clone();
                         }
+                        if action == "batch_preview" {
+                            self.restore_context_status();
+                        }
                     }
                     "remove_batch_member" => {
                         if let Some(form) = &mut self.batch_scope {
@@ -378,6 +425,14 @@ impl Desktop {
                     "template" => {
                         if let Some(f) = &mut self.template_form {
                             f.error = message.clone();
+                        }
+                        self.restore_context_status();
+                    }
+                    "prepare_patch" => {
+                        if let Some(preview) = &mut self.preview {
+                            let preview = Arc::make_mut(preview);
+                            preview["preparation_error"] = json!(message);
+                            preview["prepared"] = json!(false);
                         }
                     }
                     "check" => {
@@ -544,7 +599,6 @@ impl Desktop {
                     });
                 }
                 "batch_preview" => {
-                    self.status = "选中替换预览已完成。".into();
                     if let Some(f) = &mut self.batch_form {
                         if !f.matches(&data["draft"]) {
                             continue;
@@ -557,9 +611,9 @@ impl Desktop {
                             String::new()
                         };
                     }
+                    self.restore_context_status();
                 }
                 "template" => {
-                    self.status = "模板试写已完成。".into();
                     if let Some(f) = &mut self.template_form {
                         let draft = &data["draft"];
                         if text(draft, "key") == f.key
@@ -576,6 +630,7 @@ impl Desktop {
                             f.error.clear();
                         }
                     }
+                    self.restore_context_status();
                 }
                 "preview" => {
                     self.hits = list(&data["stats"], "rule_hits")
@@ -593,7 +648,29 @@ impl Desktop {
                         Some(0)
                     };
                     self.status = format!("预览完成：{} 处变化。", count(&data, "total_changes"));
+                    let can_prepare = count(&data, "total_changes") > 0
+                        && count(&data["stats"], "parse_failed") == 0;
+                    let nonce = text(&data, "nonce");
                     self.preview = Some(data.into());
+                    if can_prepare {
+                        self.submit(
+                            "prepare_patch",
+                            json!({"nonce":nonce}),
+                            "预览已就绪，正在后台准备补丁…",
+                            true,
+                        );
+                    }
+                }
+                "prepare_patch" => {
+                    if let Some(preview) = &mut self.preview
+                        && preview["nonce"] == data["nonce"]
+                    {
+                        let preview = Arc::make_mut(preview);
+                        preview["prepared"] = data["ready"].clone();
+                        preview["preparation_error"] = json!("");
+                        preview["prepared_reused"] = data["reused"].clone();
+                    }
+                    self.status = "补丁已准备，可在预览界面确认应用。".into();
                 }
                 "baseline" => {
                     self.baseline = data;
@@ -810,6 +887,31 @@ pub fn data_row(
 #[cfg(test)]
 mod view_tests {
     use super::*;
+
+    #[test]
+    fn typing_new_search_clears_old_results_selection_and_late_requests() {
+        let mut app = Desktop::initial();
+        app.keyword = "技能".into();
+        app.connected = true;
+        app.search =
+            json!({"keyword":"任务","nonce":"old","total":1,"rows":[{"text":"任务"}]}).into();
+        app.selection.click(0, false, false);
+        app.pending.insert(7, "search_more".into());
+        app.busy = Some(Busy {
+            id: 7,
+            cancellable: true,
+        });
+        app.search_input_changed();
+        assert!(app.search.is_null());
+        assert!(app.selection.rows.is_empty());
+        assert!(app.obsolete.contains(&7));
+        assert!(app.busy.is_none());
+        app.apply_state(json!({"game":"","revision":0,"search":{"nonce":"old","keyword":"任务","total":1,"rows":[{}]}}));
+        assert!(
+            app.search.is_null(),
+            "a later document state must not restore the cleared search"
+        );
+    }
 
     #[test]
     fn whole_row_preserves_ctrl_shift_and_double_click() {

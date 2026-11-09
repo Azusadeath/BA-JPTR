@@ -126,6 +126,164 @@ fn desktop_has_no_standalone_patch_generation_action() {
     f.unchanged();
 }
 
+#[test]
+fn prepared_preview_never_writes_game_and_reopens_without_rebuilding() {
+    let f = Fixture::new();
+    let mut p = f.ready_project();
+    let preview = call(&mut p, "preview", json!({}));
+    let prepared = call(&mut p, "prepare_patch", json!({"nonce":preview["nonce"]}));
+    assert_eq!(prepared["ready"], true);
+    assert_eq!(prepared["reused"], false);
+    assert!(!f.data.join("output").exists());
+    f.unchanged();
+    let reopened = call(&mut p, "preview", json!({}));
+    let reused = call(&mut p, "prepare_patch", json!({"nonce":reopened["nonce"]}));
+    assert_eq!(reused["cache_id"], prepared["cache_id"]);
+    assert_eq!(reused["reused"], true);
+    let applied = p
+        .dispatch(
+            "apply",
+            &json!({"nonce":reopened["nonce"],"prepared":true}),
+            &Control {
+                callback: &|message| {
+                    !message.is_some_and(|m| {
+                        m.starts_with("正在从初始底稿重建") || m.starts_with("正在加密数据库")
+                    })
+                },
+            },
+        )
+        .unwrap();
+    assert_eq!(applied["installed"], true);
+    assert_eq!(applied["prepared_reused"], true);
+    assert!(!f.data.join("output").exists());
+}
+
+#[test]
+fn editing_invalidates_prepared_patch_and_confirm_requires_ready_patch() {
+    let f = Fixture::new();
+    let mut p = f.ready_project();
+    let preview = call(&mut p, "preview", json!({}));
+    assert!(
+        p.dispatch(
+            "apply",
+            &json!({"nonce":preview["nonce"],"prepared":true}),
+            &control()
+        )
+        .is_err()
+    );
+    let prepared = call(&mut p, "prepare_patch", json!({"nonce":preview["nonce"]}));
+    let revision = p.revision;
+    call(
+        &mut p,
+        "save_rule",
+        json!({"revision":revision,"index":0,"rule":{"old":"阿罗娜","new":"不同的新名字","mode":"sub","source":"测试","table":""}}),
+    );
+    assert!(!Path::new(prepared["prepared_path"].as_str().unwrap()).exists());
+    assert!(
+        p.dispatch(
+            "apply",
+            &json!({"nonce":preview["nonce"],"prepared":true}),
+            &control()
+        )
+        .is_err()
+    );
+    let fresh = call(&mut p, "preview", json!({}));
+    let replacement = call(&mut p, "prepare_patch", json!({"nonce":fresh["nonce"]}));
+    assert_ne!(replacement["cache_id"], prepared["cache_id"]);
+    assert_eq!(replacement["reused"], false);
+    f.unchanged();
+}
+
+#[test]
+fn changed_prepared_file_is_rejected_before_game_write() {
+    let f = Fixture::new();
+    let mut p = f.ready_project();
+    let preview = call(&mut p, "preview", json!({}));
+    let prepared = call(&mut p, "prepare_patch", json!({"nonce":preview["nonce"]}));
+    let path = Path::new(prepared["prepared_path"].as_str().unwrap());
+    let mut bytes = fs::read(path).unwrap();
+    bytes[4000] ^= 1;
+    fs::write(path, bytes).unwrap();
+    assert!(
+        p.dispatch(
+            "apply",
+            &json!({"nonce":preview["nonce"],"prepared":true}),
+            &control()
+        )
+        .is_err()
+    );
+    f.unchanged();
+}
+
+#[test]
+fn prepared_patch_rejects_external_inputs_and_option_change_clears_cache() {
+    for external in ["rules", "game", "baseline", "option"] {
+        let f = Fixture::new();
+        let mut p = f.ready_project();
+        let preview = call(&mut p, "preview", json!({}));
+        let prepared = call(&mut p, "prepare_patch", json!({"nonce":preview["nonce"]}));
+        match external {
+            "rules" => {
+                fs::write(f.data.join(".gui/rules.tsv"), "外部规则\t新内容\tsub\t\t\n").unwrap()
+            }
+            "game" => {
+                let path = region::locate(f.game.to_str().unwrap()).unwrap().bundle;
+                let mut bytes = fs::read(&path).unwrap();
+                bytes[4000] ^= 1;
+                fs::write(path, bytes).unwrap();
+            }
+            "baseline" => {
+                let baseline = call(&mut p, "baseline", json!({}));
+                let folder = Path::new(baseline["folder"].as_str().unwrap());
+                let path = folder.join("baseline.json");
+                let mut value: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+                value["format"] = json!(1);
+                fs::write(path, serde_json::to_vec(&value).unwrap()).unwrap();
+            }
+            _ => {
+                let revision = p.revision;
+                call(
+                    &mut p,
+                    "settings",
+                    json!({"game":f.game,"revision":revision,"skip_kana":false}),
+                );
+                assert!(!Path::new(prepared["prepared_path"].as_str().unwrap()).exists());
+            }
+        }
+        assert!(
+            p.dispatch(
+                "apply",
+                &json!({"nonce":preview["nonce"],"prepared":true}),
+                &control()
+            )
+            .is_err(),
+            "{external}"
+        );
+        f.unchanged();
+    }
+}
+
+#[test]
+fn cancelled_preparation_can_retry_without_writing_game_or_exporting_patch() {
+    let f = Fixture::new();
+    let mut p = f.ready_project();
+    let preview = call(&mut p, "preview", json!({}));
+    let result = p.dispatch(
+        "prepare_patch",
+        &json!({"nonce":preview["nonce"]}),
+        &Control {
+            callback: &|message| !message.is_some_and(|m| m.starts_with("正在加密数据库")),
+        },
+    );
+    assert!(matches!(result, Err(bajptr_project::Error::Cancelled)));
+    assert!(!f.data.join("output").exists());
+    f.unchanged();
+    assert_eq!(
+        call(&mut p, "prepare_patch", json!({"nonce":preview["nonce"]}))["ready"],
+        true
+    );
+}
+
 #[cfg(windows)]
 fn lock_catalog_against_replacement(f: &Fixture) -> fs::File {
     use std::os::windows::fs::OpenOptionsExt;
@@ -134,6 +292,52 @@ fn lock_catalog_against_replacement(f: &Fixture) -> fs::File {
         .share_mode(1)
         .open(f.game.join(region::CATALOG))
         .unwrap()
+}
+
+#[cfg(windows)]
+#[test]
+fn prepared_install_failure_exports_patch_and_retries_without_rebuilding() {
+    let f = Fixture::new();
+    let mut p = f.ready_project();
+    let preview = call(&mut p, "preview", json!({}));
+    call(&mut p, "prepare_patch", json!({"nonce":preview["nonce"]}));
+    let locked = lock_catalog_against_replacement(&f);
+    let no_build = Control {
+        callback: &|message| {
+            !message.is_some_and(|m| {
+                m.starts_with("正在从初始底稿重建") || m.starts_with("正在加密数据库")
+            })
+        },
+    };
+    let fallback = p
+        .dispatch(
+            "apply",
+            &json!({"nonce":preview["nonce"],"prepared":true}),
+            &no_build,
+        )
+        .unwrap();
+    assert_eq!(fallback["installed"], false);
+    assert_eq!(fallback["prepared_reused"], true);
+    let output = Path::new(fallback["output"].as_str().unwrap());
+    let checked = bajptr_core::codec::inspect(
+        output,
+        &bajptr_core::codec::key(region::KEY).unwrap(),
+        &control(),
+    )
+    .unwrap();
+    assert_eq!(checked.bad, 0);
+    assert!(output.with_file_name("TableCatalog.bytes").is_file());
+    f.unchanged();
+    drop(locked);
+    assert_eq!(
+        p.dispatch(
+            "apply",
+            &json!({"nonce":preview["nonce"],"prepared":true}),
+            &no_build
+        )
+        .unwrap()["installed"],
+        true
+    );
 }
 
 #[cfg(windows)]

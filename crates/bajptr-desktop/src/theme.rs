@@ -121,7 +121,7 @@ impl Icon {
             "重做" => Self::Redo,
             "导入词表" => Self::Import,
             "导出词表" | "导出文本" => Self::Export,
-            "预览替换" | "预览选中" => Self::Preview,
+            "预览替换" | "预览选中" | "预览并应用" => Self::Preview,
             "应用到游戏" | "保存词条" | "保存修改" | "填入词条" | "确定" => {
                 Self::Apply
             }

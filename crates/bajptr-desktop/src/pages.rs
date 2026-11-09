@@ -269,10 +269,7 @@ impl Desktop {
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let ready = self.connected && self.healthy() && self.busy.is_none();
-                        if primary(ui, ready, "应用到游戏").clicked() {
-                            self.submit("preview", json!({}), "正在比较本次最终变化…", true);
-                        }
-                        if secondary(ui, ready, "预览替换").clicked() {
+                        if primary(ui, ready, "预览并应用").clicked() {
                             self.submit("preview", json!({}), "正在比较本次最终变化…", true);
                         }
                     });
@@ -300,6 +297,7 @@ impl Desktop {
                     );
                 } else {
                     egui::ScrollArea::vertical()
+                        .id_salt("replacement-rows")
                         .auto_shrink([false, false])
                         .show_rows(ui, ROW_HEIGHT, rules.len() + batches.len(), |ui, range| {
                             for i in range {
@@ -400,12 +398,15 @@ impl Desktop {
         ui.spacing_mut().item_spacing.y = 6.;
         ui.horizontal(|ui| {
             ui.label("底稿原文");
-            ui.add_sized(
+            let input = ui.add_sized(
                 [ui.available_width() - 255., 36.],
                 egui::TextEdit::singleline(&mut self.keyword)
                     .font(egui::TextStyle::Body)
                     .hint_text("输入要查找的文字"),
             );
+            if input.changed() {
+                self.search_input_changed();
+            }
             if primary(
                 ui,
                 self.connected && self.busy.is_none() && !self.keyword.trim().is_empty(),
@@ -535,6 +536,7 @@ impl Desktop {
                 } else {
                     let has_more = rows.len() < count(&self.search, "total") as usize;
                     egui::ScrollArea::vertical()
+                        .id_salt(("search-rows", text(&self.search, "nonce")))
                         .auto_shrink([false, false])
                         .max_height(ui.available_height().max(80.))
                         .show_rows(
@@ -599,6 +601,7 @@ impl Desktop {
     }
     pub fn restore_page(&mut self, ui: &mut egui::Ui) {
         egui::ScrollArea::vertical()
+            .id_salt("restore-page")
             .auto_shrink([false, true])
             .show(ui, |ui| {
                 egui::Frame::new()
@@ -611,7 +614,7 @@ impl Desktop {
                         ui.set_min_width(width);
                         ui.set_max_width(width);
                         ui.heading("恢复初始底稿");
-                        ui.colored_label(MUTED, "恢复游戏文字，保留词表和单条修改。");
+                        ui.colored_label(MUTED, "恢复游戏文字，保留词表、单条及批量修改记录。");
                         ui.add_space(15.);
                         if self.baseline.is_null() {
                             ui.label("点击刷新检查底稿；首次使用或资源更新后需确认保存。");

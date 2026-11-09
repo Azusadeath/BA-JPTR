@@ -89,9 +89,24 @@ pub struct Engine {
     scans: VecDeque<(String, Value)>,
     search_tables: VecDeque<(String, Value)>,
     previews: VecDeque<(String, Value)>,
+    prepared: Option<PreparedPatch>,
+}
+
+#[derive(Clone)]
+struct PreparedPatch {
+    key: String,
+    output: PathBuf,
+    size: u64,
+    crc: u32,
+    stats: Value,
+    seconds: f64,
 }
 impl Engine {
     pub fn close(&mut self) {
+        self.invalidate_prepared();
+        self.close_session();
+    }
+    fn close_session(&mut self) {
         self.session = Session::default();
         self.source_key.clear();
         self.scans.clear();
@@ -105,7 +120,7 @@ impl Engine {
             baseline::stamp(&original.bundle)?
         );
         if key != self.source_key {
-            self.close();
+            self.close_session();
             control.log("正在读取初始底稿…")?;
             execute(
                 &mut self.session,
@@ -420,7 +435,108 @@ impl Engine {
         }
         Ok(stats)
     }
+    pub fn invalidate_prepared(&mut self) {
+        if let Some(patch) = self.prepared.take() {
+            crate::cleanup::retire_success(
+                patch.output.parent().unwrap(),
+                &Control {
+                    callback: &|_| true,
+                },
+            );
+        }
+    }
+    fn preparation_key(
+        game: &region::Game,
+        original: &Baseline,
+        config: &Config,
+    ) -> Result<String> {
+        Ok(storage::digest(&serde_json::to_vec(&json!([
+            region::resource_identity(game)?,
+            storage::identity(&original.bundle)?,
+            format!("{:?}", baseline::stamp(&original.bundle)?),
+            storage::revision(&original.catalog)?,
+            storage::revision(&original.catalog.with_file_name("baseline.json"))?,
+            config.rules,
+            config.edits,
+            config.options(&storage::identity(&game.dir)?, &original.version)?
+        ]))?))
+    }
+    /// Prepare a private, verified patch without publishing anything to the game
+    /// or the user's fallback output directory. Closing the preview keeps it.
+    pub fn prepare(&mut self, job: PatchJob<'_>, control: &Control<'_>) -> Result<Value> {
+        job.config.check_documents()?;
+        let live = region::locate(job.game)?;
+        if job.expected.is_some_and(|expected| {
+            region::resource_identity(&live).ok().as_ref() != Some(expected)
+        }) {
+            return Err(invalid("游戏资源已变化，请重新预览。"));
+        }
+        let original = self.baseline(job.game, job.backup_root, control)?;
+        let key = Self::preparation_key(&live, &original, job.config)?;
+        if let Some(patch) = self
+            .prepared
+            .as_ref()
+            .filter(|patch| patch.key == key)
+            .cloned()
+        {
+            self.check_prepared(&patch, control)?;
+            return Ok(
+                json!({"ready":true,"reused":true,"cache_id":patch.output.parent().unwrap().file_name(),"prepared_path":patch.output}),
+            );
+        }
+        self.invalidate_prepared();
+        let private_output = job.data.join("work/prepared");
+        let result = self.generate(
+            PatchJob {
+                output_root: &private_output,
+                install: false,
+                ..job
+            },
+            control,
+        )?;
+        let output = PathBuf::from(
+            result["output"]
+                .as_str()
+                .ok_or_else(|| invalid("补丁准备位置无效。"))?,
+        );
+        let entry = region::parse(&fs::read(output.with_file_name("TableCatalog.bytes"))?)?;
+        crate::cleanup::mark(output.parent().unwrap())?;
+        self.prepared = Some(PreparedPatch {
+            key,
+            output: output.clone(),
+            size: entry.size,
+            crc: entry.crc,
+            stats: result["stats"].clone(),
+            seconds: result["processing_seconds"].as_f64().unwrap_or(0.),
+        });
+        Ok(
+            json!({"ready":true,"reused":false,"cache_id":output.parent().unwrap().file_name(),"prepared_path":output}),
+        )
+    }
+    fn check_prepared(&mut self, patch: &PreparedPatch, control: &Control<'_>) -> Result<()> {
+        self.baselines.checked(
+            &patch.output,
+            &region::Entry {
+                size_offset: 0,
+                crc_offset: 0,
+                size: patch.size,
+                crc: patch.crc,
+            },
+            control,
+        )
+    }
+    pub fn apply_prepared(&mut self, job: PatchJob<'_>, control: &Control<'_>) -> Result<Value> {
+        self.generate_inner(job, true, control)
+    }
     pub fn generate(&mut self, job: PatchJob<'_>, control: &Control<'_>) -> Result<Value> {
+        self.generate_inner(job, false, control)
+    }
+    fn generate_inner(
+        &mut self,
+        job: PatchJob<'_>,
+        require_prepared: bool,
+        control: &Control<'_>,
+    ) -> Result<Value> {
         let PatchJob {
             game,
             data,
@@ -439,7 +555,57 @@ impl Engine {
         }
         let original = self.baselines.resolve(&live, backup_root, control)?;
         let source_stat = baseline::stamp(&original.bundle)?;
-        self.close();
+        let cache_key = Self::preparation_key(&live, &original, config)?;
+        if install {
+            if let Some(patch) = self
+                .prepared
+                .as_ref()
+                .filter(|patch| patch.key == cache_key)
+                .cloned()
+            {
+                self.check_prepared(&patch, control)?;
+                let _rules_lock = config
+                    .rules_path
+                    .as_ref()
+                    .map(|p| Lock::acquire(p))
+                    .transpose()?;
+                let _edits_lock = config
+                    .edits_path
+                    .as_ref()
+                    .map(|p| Lock::acquire(p))
+                    .transpose()?;
+                config.check_documents()?;
+                if Self::preparation_key(&region::locate(game)?, &original, config)? != cache_key {
+                    return Err(invalid("游戏资源或底稿已变化，请重新预览。"));
+                }
+                control.check()?;
+                let mut result = self.publish_patch(
+                    &PatchJob {
+                        game,
+                        data,
+                        backup_root,
+                        output_root,
+                        config,
+                        install,
+                        expected,
+                    },
+                    &live,
+                    &patch,
+                    control,
+                )?;
+                result["prepared_reused"] = json!(true);
+                if result["installed"] == true {
+                    self.invalidate_prepared();
+                }
+                return Ok(result);
+            }
+            if require_prepared {
+                return Err(invalid(
+                    "补丁尚未准备完成或已失效，请重新预览并等待准备完成。",
+                ));
+            }
+        }
+        self.close_session();
         let stage_root = config.work_dir.clone().unwrap_or_else(|| data.join("work"));
         fs::create_dir_all(&stage_root)?;
         let stage = stage_root.join(format!("patch-{}", uuid::Uuid::new_v4().simple()));
@@ -524,63 +690,28 @@ impl Engine {
                 size,
                 crc: checked.crc,
             };
-            let mut install_error = None;
-            let target = if install {
-                let target = live.dir.join(region::BUNDLES).join(&name);
-                let installed = (|| -> Result<()> {
-                    publish_resource(
-                        &mut self.baselines,
-                        &encrypted,
-                        &target,
-                        size,
-                        checked.crc,
-                        &commit_control,
-                    )?;
-                    region::publish_catalog(&live, size, checked.crc)
-                })();
-                match installed {
-                    Ok(()) => {
-                        if let Err(e) = record(game, data, config, "applied", None) {
-                            let _ = control.log(&format!("游戏已应用；状态记录未保存：{e}"));
-                        }
-                        target
-                    }
-                    Err(error) => {
-                        // Resource changes and failed verification still block publication.
-                        // Only filesystem errors while installing fall back to a saved patch.
-                        if !matches!(error, crate::Error::Io(_)) {
-                            return Err(error);
-                        }
-                        let reason = error.to_string();
-                        let target = save_patch(
-                            &mut self.baselines,
-                            &encrypted,
-                            output_root,
-                            &live,
-                            &name,
-                            &entry,
-                            &commit_control,
-                        ).map_err(|save_error| invalid(format!(
-                            "应用失败：{reason}\n补丁保存失败：{save_error}\n已校验的暂存文件保留在：{}",
-                            stage.display()
-                        )))?;
-                        install_error = Some(reason);
-                        target
-                    }
-                }
-            } else {
-                save_patch(
-                    &mut self.baselines,
-                    &encrypted,
-                    output_root,
-                    &live,
-                    &name,
-                    &entry,
-                    &commit_control,
-                )?
+            let patch = PreparedPatch {
+                key: cache_key.clone(),
+                output: encrypted,
+                size: entry.size,
+                crc: entry.crc,
+                stats,
+                seconds: started.elapsed().as_secs_f64(),
             };
-            Ok(
-                json!({"output":target,"stats":stats,"verified":true,"installed":install && install_error.is_none(),"install_error":install_error,"processing_seconds":started.elapsed().as_secs_f64()}),
+            self.publish_patch_named(
+                &PatchJob {
+                    game,
+                    data,
+                    backup_root,
+                    output_root,
+                    config,
+                    install,
+                    expected,
+                },
+                &live,
+                &patch,
+                &name,
+                &commit_control,
             )
         })();
         // A failed stage is kept for diagnosis/recovery; successful scratch data is retired.
@@ -588,6 +719,102 @@ impl Engine {
             crate::cleanup::retire_success(&stage, control);
         }
         result
+    }
+    fn publish_patch(
+        &mut self,
+        job: &PatchJob<'_>,
+        live: &region::Game,
+        patch: &PreparedPatch,
+        control: &Control<'_>,
+    ) -> Result<Value> {
+        let name = patch.output.file_name().unwrap().to_string_lossy();
+        self.publish_patch_named(job, live, patch, &name, control)
+    }
+    fn publish_patch_named(
+        &mut self,
+        job: &PatchJob<'_>,
+        live: &region::Game,
+        patch: &PreparedPatch,
+        name: &str,
+        control: &Control<'_>,
+    ) -> Result<Value> {
+        let PatchJob {
+            game,
+            data,
+            output_root,
+            config,
+            install,
+            ..
+        } = job;
+        // This is the same final publication path for fresh and prepared patches.
+        // Validation and cancellation happen before entry; publication then finishes.
+        let commit_control = Control {
+            callback: &|_| true,
+        };
+        let entry = region::Entry {
+            size_offset: 0,
+            crc_offset: 0,
+            size: patch.size,
+            crc: patch.crc,
+        };
+        let mut install_error = None;
+        let target = if *install {
+            let target = live.dir.join(region::BUNDLES).join(name);
+            let installed = (|| -> Result<()> {
+                publish_resource(
+                    &mut self.baselines,
+                    &patch.output,
+                    &target,
+                    patch.size,
+                    patch.crc,
+                    &commit_control,
+                )?;
+                region::publish_catalog(live, patch.size, patch.crc)
+            })();
+            match installed {
+                Ok(()) => {
+                    if let Err(e) = record(game, data, config, "applied", None) {
+                        let _ = control.log(&format!("游戏已应用；状态记录未保存：{e}"));
+                    }
+                    target
+                }
+                Err(error) => {
+                    // Resource changes and failed verification still block publication.
+                    // Only filesystem errors while installing fall back to a saved patch.
+                    if !matches!(error, crate::Error::Io(_)) {
+                        return Err(error);
+                    }
+                    let reason = error.to_string();
+                    let target = save_patch(
+                            &mut self.baselines,
+                            &patch.output,
+                            output_root,
+                            live,
+                            name,
+                            &entry,
+                            &commit_control,
+                        ).map_err(|save_error| invalid(format!(
+                            "应用失败：{reason}\n补丁保存失败：{save_error}\n已校验的暂存文件保留在：{}",
+                            patch.output.parent().unwrap().display()
+                        )))?;
+                    install_error = Some(reason);
+                    target
+                }
+            }
+        } else {
+            save_patch(
+                &mut self.baselines,
+                &patch.output,
+                output_root,
+                live,
+                name,
+                &entry,
+                &commit_control,
+            )?
+        };
+        Ok(
+            json!({"output":target,"stats":patch.stats,"verified":true,"installed":*install && install_error.is_none(),"install_error":install_error,"processing_seconds":patch.seconds}),
+        )
     }
     pub fn restore(
         &mut self,
@@ -635,6 +862,11 @@ impl Engine {
             let _ = control.log(&format!("底稿已恢复；状态记录未保存：{e}"));
         }
         Ok(original)
+    }
+}
+impl Drop for Engine {
+    fn drop(&mut self) {
+        self.invalidate_prepared();
     }
 }
 fn memory(value: &Value) -> usize {

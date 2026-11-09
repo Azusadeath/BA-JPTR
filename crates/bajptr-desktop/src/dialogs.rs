@@ -28,6 +28,12 @@ fn window<'a>(title: &'a str, ctx: &egui::Context, width: f32) -> egui::Window<'
 
 impl Desktop {
     pub fn dialogs(&mut self, ctx: &egui::Context) {
+        let before = [
+            self.rule_form.is_some(),
+            self.template_form.is_some(),
+            self.text_form.is_some(),
+            self.batch_form.is_some(),
+        ];
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) && !self.write_busy() {
             if self.table_detail.is_some() {
                 self.table_detail = None;
@@ -125,6 +131,19 @@ impl Desktop {
             if !open || close {
                 self.error = None;
             }
+        }
+        let after = [
+            self.rule_form.is_some(),
+            self.template_form.is_some(),
+            self.text_form.is_some(),
+            self.batch_form.is_some(),
+        ];
+        if before
+            .into_iter()
+            .zip(after)
+            .any(|(before, after)| before && !after)
+        {
+            self.restore_context_status();
         }
     }
     fn rule_dialog(&mut self, ctx: &egui::Context) {
@@ -649,6 +668,7 @@ impl Desktop {
             if old.changed()||new.changed(){form.nonce.clear();form.changes.clear();form.error.clear();}
             if ui.button("预览选中").clicked(){self.submit("batch_preview",json!({"group_id":form.group_id,"indices":form.indices,"search_nonce":text(&self.search,"nonce"),"old":form.old,"new":form.new}),"正在预览选中文本…",true);}
             egui::ScrollArea::vertical().max_height(ctx.content_rect().height()*0.35).show(ui,|ui|{for change in &form.changes{ui.label(RichText::new(format!("{} · {}:{}",text(change,"label"),change["row_id"],change["slot"])).color(MUTED));ui.label(format!("当前：{}\n替换后：{}",text(change,"before"),text(change,"after")));ui.separator();}});
+            if form.new.is_empty() && !form.old.is_empty(){ui.colored_label(MUTED,"留空将删除选中文本中的匹配文字。");}
             ui.colored_label(RED,&form.error);ui.horizontal(|ui|{if primary(ui,!form.nonce.is_empty()&&!form.changes.is_empty(),"保存修改").clicked(){self.submit("batch_save",json!({"nonce":form.nonce}),"正在保存选中文本修改…",false);}
 if ui.button("取消").clicked(){close=true;}});
         });});
@@ -881,20 +901,60 @@ if ui.button("取消").clicked(){close=true;}});
                         "存在无法解析的记录，已禁止应用。展开“处理详情”查看位置与原因。",
                     );
                 }
+                let preparing = self.busy.as_ref().is_some_and(|busy| {
+                    self.pending
+                        .get(&busy.id)
+                        .is_some_and(|action| action == "prepare_patch")
+                });
+                let ready = preview["prepared"] == true;
+                let preparation_error = text(&preview, "preparation_error");
+                if count(&preview, "total_changes") > 0 && count(stats, "parse_failed") == 0 {
+                    if preparing {
+                        ui.horizontal(|ui| {
+                            ui.spinner();
+                            ui.colored_label(
+                                MUTED,
+                                "正在后台准备补丁，可先核对预览；关闭窗口会保留本次准备。",
+                            );
+                        });
+                    } else if ready {
+                        ui.colored_label(
+                            MUTED,
+                            if preview["prepared_reused"] == true {
+                                "已复用准备好的补丁，确认后应用。"
+                            } else {
+                                "补丁已准备，确认后应用。"
+                            },
+                        );
+                    } else {
+                        if !preparation_error.is_empty() {
+                            ui.colored_label(RED, &preparation_error);
+                        }
+                        if secondary(ui, self.busy.is_none(), "重新准备补丁").clicked() {
+                            self.submit(
+                                "prepare_patch",
+                                json!({"nonce":text(&preview,"nonce")}),
+                                "正在后台准备补丁…",
+                                true,
+                            );
+                        }
+                    }
+                }
                 ui.horizontal(|ui| {
                     if primary(
                         ui,
                         count(&preview, "total_changes") > 0
                             && count(stats, "parse_failed") == 0
-                            && !self.write_busy(),
+                            && ready
+                            && self.busy.is_none(),
                         "应用到游戏",
                     )
                     .clicked()
                     {
                         self.submit(
                             "apply",
-                            json!({"nonce":text(&preview,"nonce")}),
-                            "正在从底稿生成并校验补丁…",
+                            json!({"nonce":text(&preview,"nonce"),"prepared":true}),
+                            "正在校验并应用准备好的补丁…",
                             true,
                         );
                         close = true;
@@ -1060,7 +1120,9 @@ if ui.button("取消").clicked(){close=true;}});
             window("恢复初始底稿", ctx, 520.)
                 .open(&mut open)
                 .show(ctx, |ui| {
-                    ui.label("恢复当前版本的初始游戏文字？词表和单条修改会保留。");
+                    ui.label(
+                        "恢复当前版本的底稿文字；保留词表、单条及批量修改记录。请先退出游戏。",
+                    );
                     ui.horizontal(|ui| {
                         if primary(ui, !self.write_busy(), "恢复底稿").clicked() {
                             self.submit("restore", json!({}), "正在恢复初始底稿…", false);
