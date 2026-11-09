@@ -176,7 +176,6 @@ pub struct ScopeForm {
     pub available: Vec<Value>,
     pub checked: BTreeSet<String>,
     pub filter: String,
-    pub manual: String,
     pub error: String,
 }
 impl ScopeForm {
@@ -195,7 +194,6 @@ impl ScopeForm {
             available,
             checked,
             filter: String::new(),
-            manual: String::new(),
             error: String::new(),
         }
     }

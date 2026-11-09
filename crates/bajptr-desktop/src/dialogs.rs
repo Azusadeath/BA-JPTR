@@ -553,7 +553,7 @@ impl Desktop {
                     .max_height((ctx.content_rect().height() - 350.).clamp(150., 320.))
                     .show(ui, |ui| {
                         if available.is_empty() {
-                            ui.colored_label(MUTED, "正在读取来源表，也可手动添加完整表名。");
+                            ui.colored_label(MUTED, "未读取到来源表。");
                         }
                         for row in available {
                             let name = text(&row, "name");
@@ -582,25 +582,6 @@ impl Desktop {
                             }
                         }
                     });
-                ui.collapsing("高级 · 手动添加表名", |ui| {
-                    ui.horizontal(|ui| {
-                        ui.add(
-                            egui::TextEdit::singleline(&mut form.manual)
-                                .font(egui::TextStyle::Body)
-                                .hint_text("手动添加完整表名")
-                                .desired_width(350.),
-                        );
-                        if ui.button("添加").clicked() {
-                            let name = form.manual.trim().to_string();
-                            if !name.is_empty() {
-                                form.checked.insert(name.clone());
-                                form.available.push(json!({"name":name,"label":name}));
-                                form.manual.clear();
-                                form.error.clear();
-                            }
-                        }
-                    });
-                });
                 if !form.error.is_empty() {
                     ui.colored_label(RED, &form.error);
                 }
