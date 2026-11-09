@@ -246,7 +246,8 @@ impl Desktop {
                 self.rule_selection = None;
             }
             ui.separator();
-            ui.menu_button("词表", |ui| {
+            let wordlist = ui.add_enabled(can_edit, ToolButton::new("词表"));
+            egui::Popup::menu(&wordlist).show(|ui| {
                 if ui
                     .add_enabled(can_edit, ToolButton::new("导入词表"))
                     .clicked()
