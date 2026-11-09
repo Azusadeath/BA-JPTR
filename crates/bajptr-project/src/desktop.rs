@@ -3,6 +3,7 @@ use crate::{
     Control, Result, baseline, invalid,
     model::{self, Edit},
     service::{self, Config, Engine, PatchJob},
+    sources::{self, Inventory, Notice, Sources},
     storage::{self, Store},
     templates::{self, Templates},
 };
@@ -12,7 +13,7 @@ use bajptr_core::{
 };
 use serde_json::{Value, json};
 use std::{
-    collections::VecDeque,
+    collections::{BTreeSet, VecDeque},
     fs,
     path::{Path, PathBuf},
 };
@@ -57,6 +58,8 @@ pub struct Project {
     tables: Value,
     pub application: String,
     templates: Templates,
+    source_history: Sources,
+    source_current: Option<Vec<String>>,
 }
 impl Project {
     pub fn new(data: PathBuf) -> Self {
@@ -83,6 +86,8 @@ impl Project {
             tables: json!([]),
             application: "应用状态待核对，先预览".into(),
             templates: Templates::new(root.join("template-drafts.json")),
+            source_history: Sources::default(),
+            source_current: None,
         }
     }
     fn config(&self) -> Config {
@@ -126,6 +131,13 @@ impl Project {
             Ok(v) => self.edits = v,
             Err(e) => self.errors["text-edits.json"] = json!(e.to_string()),
         }
+        match self
+            .store
+            .load("source-history.json", Sources::parse, Sources::default())
+        {
+            Ok(value) => self.source_history = value,
+            Err(e) => self.errors["source-history.json"] = json!(e.to_string()),
+        }
         self.state()
     }
     fn require(&self, revision: Option<&Value>) -> Result<()> {
@@ -153,7 +165,11 @@ impl Project {
         self.require(None)?;
         let previous = match document {
             Document::Rules(values) => {
-                let values = model::normalize(values)?;
+                let values = if let Some(names) = &self.source_current {
+                    sources::freeze(&values, &names.iter().cloned().collect())?
+                } else {
+                    model::normalize(values)?
+                };
                 self.store
                     .save("rules.tsv", &model::rules_bytes(&values)?)?;
                 if values == self.rules {
@@ -186,6 +202,146 @@ impl Project {
             .baseline(&self.game, &self.data.join("backup"), control)?;
         self.version = Some(baseline.version.clone());
         Ok(baseline.version)
+    }
+    fn source_notices(&self) -> Result<Vec<Value>> {
+        let key = model::game_key(&self.game)?;
+        let Some(history) = self.source_history.games.get(&key) else {
+            return Ok(vec![]);
+        };
+        let mut output = Vec::new();
+        for notice in &history.notices {
+            for (index, rule) in self.rules.iter().enumerate().filter(|(_, r)| {
+                (r.old.as_str(), r.new.as_str(), r.mode.as_str())
+                    == (
+                        notice.old.as_str(),
+                        notice.new.as_str(),
+                        notice.mode.as_str(),
+                    )
+            }) {
+                if model::scopes(&rule.table)?.is_some_and(|names| names.contains(&notice.table)) {
+                    continue;
+                }
+                output.push(json!({"index":index,"old":notice.old,"new":notice.new,"mode":notice.mode,"table":notice.table,"label":model::title(&notice.table),"fields":notice.fields,"example":notice.example}));
+            }
+        }
+        Ok(output)
+    }
+    fn synchronize_sources(&mut self, control: &Control<'_>) -> Result<Value> {
+        self.require(None)?;
+        let version = self.current_version(control)?;
+        let key = model::game_key(&self.game)?;
+        let metadata = self.store.root.join("tables-cache.json");
+        let mut previous = self.source_history.games.get(&key).cloned();
+        if previous.is_none() {
+            let live = crate::region::locate(&self.game)?;
+            let folder = baseline::location(&live, &self.data.join("backup"))?;
+            let prefix =
+                storage::identity(folder.parent().unwrap())? + std::path::MAIN_SEPARATOR_STR;
+            if let Some(cache) = fs::read(&metadata)
+                .ok()
+                .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+                && cache["format"] == 2
+                && cache["identity"][0].as_str().is_some_and(|s| {
+                    storage::identity(Path::new(s)).is_ok_and(|path| path.starts_with(&prefix))
+                })
+                && let Some(names) = cache["tables"].as_array().filter(|names| {
+                    names
+                        .iter()
+                        .all(|n| n.as_str().is_some_and(|n| !n.is_empty()))
+                })
+            {
+                previous = Some(Inventory {
+                    known: names
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect(),
+                    notices: vec![],
+                });
+            }
+        }
+        // Do not overwrite the previous cache until migration and notices are durable.
+        let names: Vec<String> = serde_json::from_value(self.engine.observed_tables(
+            &self.game,
+            &self.data.join("backup"),
+            &metadata,
+            control,
+        )?)?;
+        let current: BTreeSet<_> = names.iter().cloned().collect();
+        if previous.is_none() && self.rules.iter().any(|r| r.table.is_empty()) {
+            self.source_current = None;
+            return Ok(
+                json!({"tables":names.iter().map(|n|model::table_info(n)).collect::<Vec<_>>(),"state":self.state()?,"missing_history":true}),
+            );
+        }
+        let mut history = previous.clone().unwrap_or_else(|| Inventory {
+            known: current.clone(),
+            notices: vec![],
+        });
+        let values = sources::freeze(&self.rules, &history.known)?;
+        let added: Vec<_> = current.difference(&history.known).cloned().collect();
+        if !added.is_empty() && !values.is_empty() {
+            let matches = self.engine.source_rule_matches(
+                &self.game,
+                &self.data.join("backup"),
+                &added,
+                &values,
+                self.skip,
+                control,
+            )?;
+            for found in matches {
+                let rule = &values[found.rule_index];
+                history.notices.push(Notice {
+                    table: found.table,
+                    old: rule.old.clone(),
+                    new: rule.new.clone(),
+                    mode: rule.mode.clone(),
+                    fields: found.fields,
+                    example: found.example,
+                });
+            }
+        }
+        history.known.extend(current);
+        let mut next = self.source_history.clone();
+        next.games.insert(key, history);
+        control.check()?;
+        let migrated = self.rules.iter().filter(|r| r.table.is_empty()).count();
+        if self.current_version(control)? != version {
+            return Err(invalid("来源表核对期间资源版本发生变化，请重新检查底稿。"));
+        }
+        if values != self.rules {
+            self.store.check("rules.tsv")?;
+            let bytes = fs::read(self.store.root.join("rules.tsv"))?;
+            let recovery = self.store.root.join(format!(
+                "rules-before-fixed-sources-{}.tsv",
+                &storage::digest(&bytes)[..16]
+            ));
+            if !recovery.exists() {
+                storage::atomic_write(&recovery, &bytes, Some(&None))?;
+            }
+            self.store
+                .save("rules.tsv", &model::rules_bytes(&values)?)?;
+            self.rules = values;
+            // Migration is a compatibility conversion, not an undoable rule edit.
+            self.undo.clear();
+            self.redo.clear();
+            self.changed();
+        }
+        self.store
+            .save("source-history.json", &serde_json::to_vec(&next)?)?;
+        self.source_history = next;
+        self.source_current = Some(names.clone());
+        self.tables = json!(names);
+        // Cache refresh is optional. Source history above is the authoritative inventory.
+        let _ = self.engine.tables_cached(
+            &self.game,
+            &self.data.join("backup"),
+            Some(&metadata),
+            control,
+        );
+        Ok(
+            json!({"tables":names.iter().map(|n|model::table_info(n)).collect::<Vec<_>>(),"state":self.state()?,"migrated":migrated,"missing_history":false}),
+        )
     }
     fn context(&mut self, version: &str, revision: &Value, control: &Control<'_>) -> Result<()> {
         self.require(Some(revision))?;
@@ -233,7 +389,7 @@ impl Project {
         Ok(entries)
     }
     pub fn state(&self) -> Result<Value> {
-        let rules=self.rules.iter().map(|r|{let (old,new,draft)=if r.mode=="re"{self.templates.display(&r.old,&r.new)}else{(r.old.clone(),r.new.clone(),None)};json!({"rule":r,"scope":model::scope_title(&r.table),"display_old":old,"display_new":new,"draft":draft})}).collect::<Vec<_>>();
+        let rules=self.rules.iter().map(|r|{let (old,new,draft)=if r.mode=="re"{self.templates.display(&r.old,&r.new)}else{(r.old.clone(),r.new.clone(),None)};json!({"rule":r,"scope":if r.table.is_empty(){"待选择来源表".into()}else{model::scope_title(&r.table)},"display_old":old,"display_new":new,"draft":draft})}).collect::<Vec<_>>();
         let key = model::game_key(&self.game)?;
         let edits=self.edits.iter().enumerate().filter(|(_,e)|e.game==key).map(|(i,e)|json!({"index":i,"edit":e,"label":model::title(&e.table),"active":self.version.as_ref().is_none_or(|v|v==&e.version)})).collect::<Vec<_>>();
         let mut batches: Vec<Value> = Vec::new();
@@ -259,7 +415,7 @@ impl Project {
             }
         }
         Ok(
-            json!({"game":self.game,"skip_kana":self.skip,"revision":self.revision,"rules":rules,"edits":edits,"batches":batches,"errors":self.errors,"messages":self.messages,"can_undo":!self.undo.is_empty(),"can_redo":!self.redo.is_empty(),"templates":templates::metadata(),"search":self.search_state()?,"application":self.application}),
+            json!({"game":self.game,"skip_kana":self.skip,"revision":self.revision,"rules":rules,"edits":edits,"batches":batches,"errors":self.errors,"messages":self.messages,"can_undo":!self.undo.is_empty(),"can_redo":!self.redo.is_empty(),"templates":templates::metadata(),"search":self.search_state()?,"application":self.application,"source_notices":self.source_notices()?}),
         )
     }
     // Only read-operation state is rolled back by cancellation. Persisted edits are never rolled back.
@@ -287,6 +443,7 @@ impl Project {
         if matches!(
             action,
             "tables"
+                | "sources"
                 | "search"
                 | "text_open"
                 | "text_save"
@@ -331,6 +488,7 @@ impl Project {
                     if self.game != game {
                         self.engine.close();
                         self.version = None;
+                        self.source_current = None;
                     }
                     self.search = Value::Null;
                     self.searches.clear();
@@ -375,8 +533,22 @@ impl Project {
                 self.batch_draft = Value::Null;
                 self.text_draft = Value::Null;
                 self.tables = json!([]);
+                self.source_current = None;
                 self.application = "底稿已保存，请重新预览".into();
                 baseline::info(&original)
+            }
+            "sources" => self.synchronize_sources(control),
+            "sources_ack" => {
+                self.require(p.get("revision"))?;
+                let key = model::game_key(&self.game)?;
+                let mut next = self.source_history.clone();
+                if let Some(game) = next.games.get_mut(&key) {
+                    game.notices.clear();
+                }
+                self.store
+                    .save("source-history.json", &serde_json::to_vec(&next)?)?;
+                self.source_history = next;
+                self.state()
             }
             "tables" => {
                 let names: Vec<String> = serde_json::from_value(self.engine.tables_cached(

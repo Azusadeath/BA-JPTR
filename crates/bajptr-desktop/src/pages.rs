@@ -313,7 +313,10 @@ impl Desktop {
                         .color(MUTED),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let ready = self.connected && self.healthy() && self.busy.is_none();
+                        let ready = self.connected
+                            && self.sources_ready
+                            && self.healthy()
+                            && self.busy.is_none();
                         if primary(ui, ready, "预览并应用").clicked() {
                             self.submit("preview", json!({}), "正在比较本次最终变化…", true);
                         }

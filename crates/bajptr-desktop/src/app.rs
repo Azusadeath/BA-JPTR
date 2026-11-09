@@ -36,6 +36,8 @@ pub struct Desktop {
     pub search_source: String,
     pub selection: Selection,
     pub tables: Vec<Value>,
+    pub sources_ready: bool,
+    pub show_source_notices: bool,
     pub rule_form: Option<RuleForm>,
     pub scope_form: Option<ScopeForm>,
     pub template_form: Option<TemplateForm>,
@@ -102,6 +104,8 @@ impl Desktop {
             search_source: String::new(),
             selection: Selection::default(),
             tables: Vec::new(),
+            sources_ready: false,
+            show_source_notices: false,
             rule_form: None,
             scope_form: None,
             template_form: None,
@@ -196,6 +200,7 @@ impl Desktop {
             || self.confirm_baseline.is_some()
             || self.error.is_some()
             || self.table_detail.is_some()
+            || self.show_source_notices
     }
     pub fn submit(&mut self, action: &str, payload: Value, title: &str, cancellable: bool) {
         if self.write_busy() {
@@ -234,14 +239,11 @@ impl Desktop {
         }
     }
     pub fn background_tables(&mut self) {
-        if self.pending.values().any(|a| a == "tables") || !self.connected {
+        if self.pending.values().any(|a| a == "sources") || !self.connected || self.busy.is_some() {
             return;
         }
-        if let Some(backend) = &mut self.backend
-            && let Ok(id) = backend.send("tables", json!({}))
-        {
-            self.pending.insert(id, "tables".into());
-        }
+        self.sources_ready = false;
+        self.submit("sources", json!({}), "正在核对来源表与词条范围…", false);
     }
     pub fn cancel(&mut self) {
         if let Some(busy) = &self.busy
@@ -270,6 +272,8 @@ impl Desktop {
     pub fn save_settings(&mut self) {
         self.path_changed = None;
         self.connected = false;
+        self.sources_ready = false;
+        self.show_source_notices = false;
         self.confirm_baseline = None;
         self.baseline_check = Value::Null;
         self.submit(
@@ -300,6 +304,8 @@ impl Desktop {
             }
         }
         if game_changed {
+            self.sources_ready = false;
+            self.show_source_notices = false;
             self.edit_view = EditView::default();
             self.batch_scope = None;
             self.search_source.clear();
@@ -543,6 +549,30 @@ impl Desktop {
                         f.available = self.tables.clone();
                     }
                 }
+                "sources" => {
+                    self.apply_state(data["state"].clone());
+                    self.tables = list(&data, "tables");
+                    self.sources_ready = data["missing_history"] != true;
+                    if let Some(form) = &mut self.scope_form {
+                        form.available = self.tables.clone();
+                    }
+                    if !self.sources_ready {
+                        self.error = Some("没有找到旧词条上次记录的来源表。请逐条选择来源范围后再预览；未自动把当前新表加入旧词条。".into());
+                    } else if !slice(&self.state, "source_notices").is_empty() {
+                        self.show_source_notices = true;
+                    }
+                    if count(&data, "migrated") > 0 {
+                        self.logs.push(format!(
+                            "已将 {} 条旧词条固定到上次记录的来源范围。",
+                            count(&data, "migrated")
+                        ));
+                    }
+                    self.restore_context_status();
+                }
+                "sources_ack" => {
+                    self.apply_state(data);
+                    self.show_source_notices = false;
+                }
                 "save_rule"
                 | "remove_rule"
                 | "history"
@@ -555,6 +585,9 @@ impl Desktop {
                     self.apply_state(data);
                     if action == "save_rule" {
                         self.rule_form = None;
+                        if !self.sources_ready {
+                            self.background_tables();
+                        }
                     }
                     if action == "text_save" {
                         self.text_form = None;

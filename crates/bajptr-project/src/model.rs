@@ -20,10 +20,9 @@ pub fn scopes(value: &str) -> Result<Option<Vec<String>>> {
     } else {
         vec![value.into()]
     };
-    if names.is_empty()
-        || names
-            .iter()
-            .any(|s| s.is_empty() || s.trim() != s || s.chars().any(char::is_control))
+    if names
+        .iter()
+        .any(|s| s.is_empty() || s.trim() != s || s.chars().any(char::is_control))
     {
         return Err(invalid("来源表列表或表名无效。"));
     }
@@ -307,6 +306,7 @@ pub fn table_info(name: &str) -> Value {
 pub fn scope_title(scope: &str) -> String {
     match scopes(scope).ok().flatten() {
         None => title(""),
+        Some(n) if n.is_empty() => "未选来源表".into(),
         Some(n) if n.len() > 2 => format!("已选 {} 张表", n.len()),
         Some(n) => n.iter().map(|s| title(s)).collect::<Vec<_>>().join("、"),
     }

@@ -263,6 +263,7 @@ impl Desktop {
         self.batch_dialog(ctx);
         self.batch_scope_dialog(ctx);
         self.preview_dialog(ctx);
+        self.source_notices_dialog(ctx);
         self.edit_manager(ctx);
         self.confirmations(ctx);
         if let Some(detail) = self.table_detail.clone() {
@@ -448,8 +449,8 @@ impl Desktop {
                 });
                 ui.separator();
                 ui.horizontal(|ui| {
-                    let label = if form.scope.is_empty() {
-                        "全部来源表".into()
+                    let label = if form.scope.is_empty() || form.scope == "[]" {
+                        "未选来源表".into()
                     } else if form.scope.starts_with('[') {
                         format!(
                             "已选 {} 张表",
@@ -483,6 +484,8 @@ impl Desktop {
                     if primary(
                         ui,
                         !form.old.is_empty()
+                            && !form.scope.is_empty()
+                            && form.scope != "[]"
                             && (form.mode != "re" || form.raw || !form.draft.is_null()),
                         "保存词条",
                     )
@@ -509,10 +512,6 @@ impl Desktop {
         window("选择来源表", ctx, 650.)
             .open(&mut open)
             .show(ctx, |ui| {
-                let mut unrestricted = form.unrestricted;
-                if ui.checkbox(&mut unrestricted, "不限来源").changed() {
-                    form.toggle_unrestricted(unrestricted);
-                }
                 ui.horizontal(|ui| {
                     ui.add(
                         egui::TextEdit::singleline(&mut form.filter)
@@ -540,9 +539,7 @@ impl Desktop {
                             form.error.clear();
                         }
                     }
-                    if !form.unrestricted {
-                        ui.colored_label(MUTED, format!("已选 {} 张表", form.checked.len()));
-                    }
+                    ui.colored_label(MUTED, format!("已选 {} 张表", form.checked.len()));
                 });
                 let mut available = form.available.clone();
                 for name in form.checked.clone() {
@@ -564,7 +561,7 @@ impl Desktop {
                             if !format!("{name} {label}").to_lowercase().contains(&needle) {
                                 continue;
                             }
-                            let mut checked = form.unrestricted || form.checked.contains(&name);
+                            let mut checked = form.checked.contains(&name);
                             let response = ui
                                 .allocate_ui_with_layout(
                                     egui::vec2(ui.available_width(), 34.),
@@ -577,9 +574,6 @@ impl Desktop {
                                 .inner;
                             if response.changed() {
                                 form.error.clear();
-                                if form.unrestricted {
-                                    form.toggle_unrestricted(false);
-                                }
                                 if checked {
                                     form.checked.insert(name);
                                 } else {
@@ -601,7 +595,6 @@ impl Desktop {
                             if !name.is_empty() {
                                 form.checked.insert(name.clone());
                                 form.available.push(json!({"name":name,"label":name}));
-                                form.unrestricted = false;
                                 form.manual.clear();
                                 form.error.clear();
                             }
@@ -873,6 +866,78 @@ if ui.button("取消").clicked(){close=true;}});
         });
         if open && !close {
             self.batch_scope = Some(form);
+        }
+    }
+    fn source_notices_dialog(&mut self, ctx: &egui::Context) {
+        if !self.show_source_notices {
+            return;
+        }
+        let notices = list(&self.state, "source_notices");
+        if notices.is_empty() {
+            self.show_source_notices = false;
+            return;
+        }
+        let mut open = true;
+        let mut edit = None;
+        window("新增来源表 · 词条命中", ctx, 860.)
+            .open(&mut open)
+            .show(ctx, |ui| {
+                ui.label("以下词条在新增来源表中命中，尚未加入替换范围。");
+                egui::ScrollArea::vertical()
+                    .id_salt("new-source-notices")
+                    .max_height((ctx.content_rect().height() - 240.).max(180.))
+                    .show(ui, |ui| {
+                        for notice in &notices {
+                            ui.push_id((text(notice, "table"), count(notice, "index")), |ui| {
+                                ui.horizontal_wrapped(|ui| {
+                                    ui.label(format!(
+                                        "{} · {} 段",
+                                        text(notice, "label"),
+                                        count(notice, "fields")
+                                    ))
+                                    .on_hover_text(text(notice, "table"));
+                                    if secondary(ui, !self.write_busy(), "编辑词条").clicked() {
+                                        edit = Some(count(notice, "index") as usize);
+                                    }
+                                });
+                                ui.add(
+                                    egui::Label::new(format!(
+                                        "{} → {}（{}）",
+                                        text(notice, "old"),
+                                        if text(notice, "new").is_empty() {
+                                            "删除匹配文字".into()
+                                        } else {
+                                            text(notice, "new")
+                                        },
+                                        mode_name(&text(notice, "mode"))
+                                    ))
+                                    .wrap(),
+                                );
+                                ui.colored_label(
+                                    MUTED,
+                                    text(notice, "example").replace(['\r', '\n'], " "),
+                                );
+                                ui.separator();
+                            });
+                        }
+                    });
+                if secondary(ui, !self.write_busy(), "已读").clicked() {
+                    self.submit(
+                        "sources_ack",
+                        json!({"revision":self.revision()}),
+                        "正在保存提醒状态…",
+                        false,
+                    );
+                }
+            });
+        if let Some(index) = edit {
+            let rules = list(&self.state, "rules");
+            if let Some(rule) = rules.get(index) {
+                self.rule_form = Some(RuleForm::new(Some(index), self.revision(), Some(rule)));
+            }
+            self.show_source_notices = false;
+        } else if !open {
+            self.show_source_notices = false;
         }
     }
     fn preview_dialog(&mut self, ctx: &egui::Context) {

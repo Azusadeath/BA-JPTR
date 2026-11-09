@@ -631,8 +631,8 @@ impl Rules {
                 } else {
                     vec![r.table.clone()]
                 };
-                if names.is_empty() || names.iter().any(|n| n.is_empty() || n.trim() != n) {
-                    return Err(invalid("来源表列表不能为空，表名不能包含两端空格。"));
+                if names.iter().any(|n| n.is_empty() || n.trim() != n) {
+                    return Err(invalid("表名不能为空或包含两端空格。"));
                 }
                 Some(names.into_iter().collect::<HashSet<String>>())
             };
@@ -724,6 +724,21 @@ impl Rules {
         view.subs
             .sort_by_key(|i| std::cmp::Reverse(self.values[*i].old.chars().count()));
         view
+    }
+    /// Match each rule against unchanged text for source-update notices.
+    /// Scopes and replacement precedence do not hide potential matches here.
+    pub fn original_matches(&self, text: &str) -> Result<Vec<usize>> {
+        let cjk = crate::fields::has_cjk(text);
+        self.values
+            .iter()
+            .enumerate()
+            .filter(|(_, rule)| cjk || rule.mode == "exact")
+            .filter_map(|(index, _)| match self.matches(index, text) {
+                Ok(true) => Some(Ok(index)),
+                Ok(false) => None,
+                Err(e) => Some(Err(rule_error(index, &self.values[index].old, e))),
+            })
+            .collect()
     }
     fn matches(&self, i: usize, text: &str) -> Result<bool> {
         let r = &self.values[i];

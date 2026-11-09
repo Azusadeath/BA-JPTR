@@ -829,6 +829,101 @@ pub fn patch_database(
 }
 
 pub type TextRow = (String, RowId, usize, String);
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SourceRuleMatch {
+    pub table: String,
+    pub rule_index: usize,
+    pub fields: u64,
+    pub example: String,
+}
+
+/// Inspect only newly introduced sources. Never apply replacements or write data.
+pub fn source_rule_matches(
+    con: &Connection,
+    names: &[String],
+    rules: &Rules,
+    skip_kana: bool,
+    control: &Control<'_>,
+) -> Result<Vec<SourceRuleMatch>> {
+    let mut output = Vec::new();
+    for table in names {
+        control.log(&format!("正在检查新增来源表：{table}"))?;
+        let key = key_name(con, table)?;
+        let mut statement = con.prepare(&format!(
+            "SELECT {key},Bytes FROM {} ORDER BY 1",
+            quote(table)
+        ))?;
+        let mut rows = statement.query([])?;
+        let covered = rules
+            .values
+            .iter()
+            .map(|rule| -> Result<bool> {
+                if rule.table.is_empty() {
+                    return Ok(false);
+                }
+                let names: Vec<String> = if rule.table.starts_with('[') {
+                    serde_json::from_str(&rule.table)?
+                } else {
+                    vec![rule.table.clone()]
+                };
+                Ok(names.iter().any(|name| name == table))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let mut hits = vec![0u64; rules.values.len()];
+        let mut examples = vec![String::new(); rules.values.len()];
+        while let Some(row) = rows.next()? {
+            control.check()?;
+            let rid = RowId::from_sql(row.get_ref(0)?)?;
+            let blob = match row.get_ref(1)? {
+                ValueRef::Null => continue,
+                ValueRef::Blob(blob) => blob,
+                _ => {
+                    return Err(record_error(
+                        table,
+                        &rid,
+                        invalid("文本记录不是 Bytes 数据。"),
+                    ));
+                }
+            };
+            let parsed =
+                fields::parse_with_issues(blob, true).map_err(|e| record_error(table, &rid, e))?;
+            if !parsed.issues.is_empty() {
+                return Err(record_error(
+                    table,
+                    &rid,
+                    invalid("存在无法解析的文本字段，未标记此来源表为已检查。"),
+                ));
+            }
+            for field in parsed.fields {
+                if skip_kana && fields::has_kana(field.text) {
+                    continue;
+                }
+                for index in rules
+                    .original_matches(field.text)
+                    .map_err(|e| record_error(table, &rid, field_error(field.slot, e)))?
+                {
+                    if covered[index] {
+                        continue;
+                    }
+                    hits[index] += 1;
+                    if examples[index].is_empty() {
+                        examples[index] = field.text.chars().take(160).collect();
+                    }
+                }
+            }
+        }
+        for (index, fields) in hits.into_iter().enumerate().filter(|(_, count)| *count > 0) {
+            output.push(SourceRuleMatch {
+                table: table.clone(),
+                rule_index: index,
+                fields,
+                example: examples[index].clone(),
+            });
+        }
+    }
+    Ok(output)
+}
 fn read_fields<'a>(
     blob: &'a [u8],
     table: &str,

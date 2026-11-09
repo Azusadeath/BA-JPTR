@@ -55,6 +55,54 @@ fn simple_db() -> Connection {
 }
 
 #[test]
+fn new_source_matches_report_original_text_without_applying_rules() {
+    let con = simple_db();
+    for text in ["任务开始", "任务", "任务アロナ"] {
+        con.execute(
+            "INSERT INTO LocalizeDBSchema(Bytes) VALUES (?)",
+            [blob(&[text])],
+        )
+        .unwrap();
+    }
+    let mut rules = vec![
+        rule("任务", "委托", "sub"),
+        rule("任务", "工作", "exact"),
+        rule("任.开始", "起步", "re"),
+    ];
+    for rule in &mut rules {
+        rule.table = "LocalizeOtherDBSchema".into();
+    }
+    let compiled = Rules::new(rules).unwrap();
+    let report =
+        database::source_rule_matches(&con, &["LocalizeDBSchema".into()], &compiled, true, &ctl())
+            .unwrap();
+    assert_eq!(
+        report
+            .iter()
+            .map(|m| (m.rule_index, m.fields))
+            .collect::<Vec<_>>(),
+        vec![(0, 2), (1, 1), (2, 1)]
+    );
+    assert!(
+        report
+            .iter()
+            .all(|m| m.table == "LocalizeDBSchema" && m.example.contains("任务"))
+    );
+    let before: Vec<u8> = con
+        .query_row(
+            "SELECT Bytes FROM LocalizeDBSchema WHERE rowid=1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(fields::parse(&before, false).unwrap()[0].text, "任务开始");
+    let included =
+        database::source_rule_matches(&con, &["LocalizeDBSchema".into()], &compiled, false, &ctl())
+            .unwrap();
+    assert_eq!(included[0].fields, 3);
+}
+
+#[test]
 fn empty_then_nonempty_matches_agree_in_sample_preview_and_written_blob() {
     let (sample, hits) = rules::regex_sample("a*|b", "X", "b").unwrap();
     assert_eq!((sample.as_str(), hits), ("XXX", 3));

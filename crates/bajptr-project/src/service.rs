@@ -235,11 +235,55 @@ impl Engine {
     pub fn tables(&mut self, game: &str, root: &Path, control: &Control<'_>) -> Result<Value> {
         self.tables_cached(game, root, None, control)
     }
+    pub fn source_rule_matches(
+        &mut self,
+        game: &str,
+        root: &Path,
+        names: &[String],
+        rules: &[Rule],
+        skip_kana: bool,
+        control: &Control<'_>,
+    ) -> Result<Vec<database::SourceRuleMatch>> {
+        let original = self.baseline(game, root, control)?;
+        self.open(&original, control)?;
+        database::source_rule_matches(
+            &self
+                .session
+                .database
+                .as_ref()
+                .ok_or_else(|| invalid("底稿尚未读取。"))?
+                .con,
+            names,
+            &bajptr_core::rules::Rules::new(rules.to_vec())?,
+            skip_kana,
+            control,
+        )
+    }
     pub fn tables_cached(
         &mut self,
         game: &str,
         root: &Path,
         metadata: Option<&Path>,
+        control: &Control<'_>,
+    ) -> Result<Value> {
+        self.table_names(game, root, metadata, true, control)
+    }
+    /// Reuse valid metadata without replacing a previous inventory during migration.
+    pub fn observed_tables(
+        &mut self,
+        game: &str,
+        root: &Path,
+        metadata: &Path,
+        control: &Control<'_>,
+    ) -> Result<Value> {
+        self.table_names(game, root, Some(metadata), false, control)
+    }
+    fn table_names(
+        &mut self,
+        game: &str,
+        root: &Path,
+        metadata: Option<&Path>,
+        publish: bool,
         control: &Control<'_>,
     ) -> Result<Value> {
         let original = self.baseline(game, root, control)?;
@@ -263,7 +307,7 @@ impl Engine {
         if region::source_identity(&region::locate(game)?, &original.bundle)? != identity {
             return Err(invalid("游戏资源在读取期间发生变化，请重试。"));
         }
-        if let Some(path) = metadata {
+        if publish && let Some(path) = metadata {
             let _ = storage::atomic_write(
                 path,
                 &serde_json::to_vec(&json!({"format":2,"identity":identity,"tables":tables}))?,

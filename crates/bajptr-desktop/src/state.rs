@@ -175,7 +175,6 @@ impl RuleForm {
 pub struct ScopeForm {
     pub available: Vec<Value>,
     pub checked: BTreeSet<String>,
-    pub unrestricted: bool,
     pub filter: String,
     pub manual: String,
     pub error: String,
@@ -195,24 +194,10 @@ impl ScopeForm {
         Self {
             available,
             checked,
-            unrestricted: scope.is_empty(),
             filter: String::new(),
             manual: String::new(),
             error: String::new(),
         }
-    }
-    pub fn all_names(&self) -> BTreeSet<String> {
-        self.available
-            .iter()
-            .map(|v| text(v, "name"))
-            .chain(self.checked.iter().cloned())
-            .collect()
-    }
-    pub fn toggle_unrestricted(&mut self, enabled: bool) {
-        if self.unrestricted && !enabled {
-            self.checked = self.all_names();
-        }
-        self.unrestricted = enabled;
     }
     pub fn visible_names(&self) -> BTreeSet<String> {
         let needle = self.filter.to_lowercase();
@@ -237,7 +222,6 @@ impl ScopeForm {
     }
     pub fn update_visible(&mut self, operation: &str) {
         let visible = self.visible_names();
-        self.toggle_unrestricted(false);
         for name in visible {
             match operation {
                 "select" => {
@@ -256,10 +240,8 @@ impl ScopeForm {
         self.error.clear();
     }
     pub fn encode(&self) -> Result<String, String> {
-        if self.unrestricted {
-            Ok(String::new())
-        } else if self.checked.is_empty() {
-            Err("请至少选择一张来源表，或勾选「不限来源」。".into())
+        if self.checked.is_empty() {
+            Err("请至少选择一张来源表。".into())
         } else if self.checked.len() == 1 {
             Ok(self.checked.first().unwrap().clone())
         } else {
@@ -422,19 +404,22 @@ mod tests {
         assert!(s.anchor.is_none());
     }
     #[test]
-    fn empty_scope_selection_never_becomes_unrestricted() {
+    fn source_selection_requires_explicit_tables() {
         let mut s = ScopeForm::new("A", vec![json!({"name":"A"}), json!({"name":"B"})]);
         s.checked.clear();
         assert!(s.encode().is_err());
-        s.toggle_unrestricted(true);
-        assert_eq!(s.encode().unwrap(), "");
-        s.toggle_unrestricted(false);
-        assert_eq!(s.checked, BTreeSet::from(["A".into(), "B".into()]));
+        s.update_visible("select");
+        assert_eq!(s.encode().unwrap(), r#"["A","B"]"#);
+        assert!(
+            ScopeForm::new("", vec![json!({"name":"New"})])
+                .encode()
+                .is_err()
+        );
     }
     #[test]
     fn filtered_scope_actions_preserve_hidden_selection() {
         let mut s = ScopeForm::new(
-            "",
+            r#"["A","B"]"#,
             vec![
                 json!({"name":"A","label":"剧情"}),
                 json!({"name":"B","label":"技能"}),

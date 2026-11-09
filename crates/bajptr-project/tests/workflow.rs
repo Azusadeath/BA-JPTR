@@ -101,6 +101,186 @@ fn oracle() -> Value {
     serde_json::from_str(include_str!("fixtures/v1/oracle.json")).unwrap()
 }
 
+fn add_new_source(f: &mut Fixture, malformed: bool) {
+    let game = region::locate(f.game.to_str().unwrap()).unwrap();
+    let plain = f.root.join("new-source.db");
+    let encrypted = f.root.join("new-source.encrypted");
+    let key = bajptr_core::codec::key(region::KEY).unwrap();
+    bajptr_core::codec::decrypt(&game.bundle, &plain, &key, &control()).unwrap();
+    let con = rusqlite::Connection::open(&plain).unwrap();
+    con.execute_batch("CREATE TABLE LocalizeSkillDBSchema(Bytes BLOB); INSERT INTO LocalizeSkillDBSchema SELECT Bytes FROM LocalizeDBSchema WHERE rowid=1;").unwrap();
+    if malformed {
+        con.execute_batch("UPDATE LocalizeSkillDBSchema SET Bytes=X'010203'")
+            .unwrap();
+    }
+    drop(con);
+    let (_, inspection) =
+        bajptr_core::codec::encrypt_checked(&plain, &encrypted, &key, &[0; 16], &[], &control())
+            .unwrap();
+    fs::copy(
+        &encrypted,
+        game.bundle
+            .with_file_name(format!("123456_{}", inspection.crc)),
+    )
+    .unwrap();
+    region::publish_catalog(
+        &game,
+        fs::metadata(&encrypted).unwrap().len(),
+        inspection.crc,
+    )
+    .unwrap();
+    f.before = fs::read(&game.catalog).unwrap();
+}
+
+#[test]
+fn new_source_notices_freeze_legacy_cache_and_survive_restart_until_acknowledged() {
+    let mut f = Fixture::new();
+    let mut p = f.ready_project();
+    call(&mut p, "tables", json!({})); // Last recorded inventory contains only the original source.
+    add_new_source(&mut f, false);
+    let check = call(&mut p, "check", json!({}));
+    call(
+        &mut p,
+        "baseline_commit",
+        json!({"token":check["baseline_status"]["token"]}),
+    );
+    let sync = call(&mut p, "sources", json!({}));
+    assert_eq!(sync["migrated"], 2);
+    assert_eq!(sync["missing_history"], false);
+    assert!(p.rules.iter().all(|r| r.table == "LocalizeDBSchema"));
+    let notices = sync["state"]["source_notices"].as_array().unwrap();
+    assert_eq!(notices.len(), 2);
+    assert!(
+        notices
+            .iter()
+            .all(|n| n["table"] == "LocalizeSkillDBSchema" && n["fields"] == 1)
+    );
+    let preview = call(&mut p, "preview", json!({}));
+    assert_eq!(
+        preview["total_changes"], 1,
+        "new sources must not join replacement automatically"
+    );
+    assert!(
+        preview["stats"]["changes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|c| c["table"] == "LocalizeDBSchema")
+    );
+    let mut reopened = f.project();
+    let again = call(&mut reopened, "sources", json!({}));
+    assert_eq!(again["migrated"], 0);
+    assert_eq!(
+        again["state"]["source_notices"].as_array().unwrap().len(),
+        2
+    );
+    let revision = reopened.revision;
+    call(&mut reopened, "sources_ack", json!({"revision":revision}));
+    let mut reopened = f.project();
+    assert!(
+        call(&mut reopened, "sources", json!({}))["state"]["source_notices"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    let revision = reopened.revision;
+    call(
+        &mut reopened,
+        "save_rule",
+        json!({"revision":revision,"index":0,"rule":{"old":"阿罗娜","new":"阿洛娜同学","mode":"sub","table":"[\"LocalizeDBSchema\",\"LocalizeSkillDBSchema\"]"}}),
+    );
+    assert_eq!(
+        call(&mut reopened, "preview", json!({}))["total_changes"],
+        2
+    );
+    f.unchanged();
+}
+
+#[test]
+fn missing_or_foreign_source_history_never_guesses_a_legacy_scope() {
+    let f = Fixture::new();
+    let mut p = f.ready_project();
+    let before = fs::read(f.data.join(".gui/rules.tsv")).unwrap();
+    assert_eq!(call(&mut p, "sources", json!({}))["missing_history"], true);
+    assert_eq!(fs::read(f.data.join(".gui/rules.tsv")).unwrap(), before);
+    let other = Fixture::new();
+    let mut other_p = other.ready_project();
+    call(&mut other_p, "tables", json!({}));
+    fs::copy(
+        other.data.join(".gui/tables-cache.json"),
+        f.data.join(".gui/tables-cache.json"),
+    )
+    .unwrap();
+    assert_eq!(call(&mut p, "sources", json!({}))["missing_history"], true);
+    assert_eq!(fs::read(f.data.join(".gui/rules.tsv")).unwrap(), before);
+    f.unchanged();
+}
+
+#[test]
+fn corrupt_source_history_is_preserved_and_cannot_expand_rules() {
+    let f = Fixture::new();
+    fs::write(f.data.join(".gui/source-history.json"), b"{broken").unwrap();
+    let mut p = f.ready_project();
+    let before = fs::read(f.data.join(".gui/rules.tsv")).unwrap();
+    assert!(p.dispatch("sources", &json!({}), &control()).is_err());
+    assert_eq!(
+        fs::read(f.data.join(".gui/source-history.json")).unwrap(),
+        b"{broken"
+    );
+    assert_eq!(fs::read(f.data.join(".gui/rules.tsv")).unwrap(), before);
+    f.unchanged();
+}
+
+#[test]
+fn failed_new_source_scan_preserves_previous_inventory_and_legacy_rules() {
+    let mut f = Fixture::new();
+    let mut p = f.ready_project();
+    call(&mut p, "tables", json!({}));
+    let cache = fs::read(f.data.join(".gui/tables-cache.json")).unwrap();
+    let rules = fs::read(f.data.join(".gui/rules.tsv")).unwrap();
+    add_new_source(&mut f, true);
+    let check = call(&mut p, "check", json!({}));
+    call(
+        &mut p,
+        "baseline_commit",
+        json!({"token":check["baseline_status"]["token"]}),
+    );
+    assert!(p.dispatch("sources", &json!({}), &control()).is_err());
+    assert_eq!(
+        fs::read(f.data.join(".gui/tables-cache.json")).unwrap(),
+        cache
+    );
+    assert_eq!(fs::read(f.data.join(".gui/rules.tsv")).unwrap(), rules);
+    assert!(!f.data.join(".gui/source-history.json").exists());
+    f.unchanged();
+}
+
+#[test]
+fn unchanged_source_inventory_reuses_metadata_without_opening_the_database() {
+    let f = Fixture::new();
+    let mut p = f.ready_project();
+    call(&mut p, "tables", json!({}));
+    call(&mut p, "sources", json!({}));
+    let mut reopened = f.project();
+    let sync = reopened
+        .dispatch(
+            "sources",
+            &json!({}),
+            &Control {
+                callback: &|message| !message.is_some_and(|m| m.starts_with("正在读取初始底稿")),
+            },
+        )
+        .unwrap();
+    assert_eq!(sync["missing_history"], false);
+    assert!(
+        sync["state"]["source_notices"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    f.unchanged();
+}
+
 fn generate_fixture_patch(p: &mut Project) -> bajptr_project::Result<Value> {
     let config = bajptr_project::service::Config::new(p.rules.clone(), p.edits.clone(), p.skip);
     p.engine.generate(

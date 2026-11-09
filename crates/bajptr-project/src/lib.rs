@@ -4,6 +4,7 @@ pub mod desktop;
 pub mod model;
 pub mod region;
 pub mod service;
+pub mod sources;
 pub mod storage;
 pub mod templates;
 pub mod worker;
