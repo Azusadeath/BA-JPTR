@@ -905,6 +905,7 @@ if ui.button("取消").clicked(){close=true;}});
                     &widths,
                 );
                 egui::ScrollArea::vertical()
+                    .id_salt("preview-changes")
                     .max_height(ctx.content_rect().height() * 0.33)
                     .show_rows(ui, ROW_HEIGHT, changes.len(), |ui, range| {
                         for i in range {
@@ -945,6 +946,7 @@ if ui.button("取消").clicked(){close=true;}});
                 }
                 if let Some(row) = self.preview_row.and_then(|i| changes.get(i)) {
                     egui::ScrollArea::vertical()
+                        .id_salt("preview-text-detail")
                         .max_height(110.)
                         .show(ui, |ui| {
                             ui.label(format!(
@@ -961,6 +963,7 @@ if ui.button("取消").clicked(){close=true;}});
                         ui,
                         |ui| {
                             egui::ScrollArea::vertical()
+                                .id_salt("preview-missed-rules")
                                 .max_height(100.)
                                 .show(ui, |ui| {
                                     for miss in misses {
@@ -1010,6 +1013,7 @@ if ui.button("取消").clicked(){close=true;}});
                     ))
                     .show(ui, |ui| {
                         egui::ScrollArea::vertical()
+                            .id_salt("preview-diagnostics")
                             .max_height(110.)
                             .show(ui, |ui| {
                                 for diagnostic in &diagnostics {

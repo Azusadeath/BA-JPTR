@@ -898,6 +898,120 @@ mod view_tests {
     use super::*;
 
     #[test]
+    fn preview_wheel_scrolls_only_the_hovered_pane() {
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx);
+        let mut app = Desktop::initial();
+        let original = (0..80)
+            .map(|i| format!("detail-{i:03}\n"))
+            .collect::<String>();
+        let changes: Vec<_> = (0..80)
+            .map(|i| json!({"kind":"新增","table":"test","original":original,"before":format!("row-{i:03}"),"after":format!("result-{i:03}")}))
+            .collect();
+        app.preview = Some(Arc::new(
+            json!({"total_changes":80,"prepared":true,"stats":{"added":80,"changes":changes}}),
+        ));
+        app.preview_row = Some(0);
+        let mut frame = 0;
+        let mut draw = |events: Vec<egui::Event>| {
+            frame += 1;
+            let output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1080., 680.),
+                    )),
+                    time: Some(f64::from(frame) / 60.),
+                    events,
+                    ..Default::default()
+                },
+                |ui| app.dialogs(ui.ctx()),
+            );
+            output
+                .shapes
+                .into_iter()
+                .filter_map(|clipped| {
+                    if let egui::Shape::Text(text) = clipped.shape {
+                        Some((text.galley.text().to_string(), text.pos, clipped.clip_rect))
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+        };
+        let mut baseline = Vec::new();
+        for _ in 0..6 {
+            baseline = draw(vec![]);
+        }
+        let table = baseline.iter().find(|v| v.0 == "row-000").unwrap().2;
+        let detail = baseline
+            .iter()
+            .find(|v| v.0.starts_with("底稿原文：detail-"))
+            .unwrap()
+            .clone();
+        let wheel = |position| {
+            vec![
+                egui::Event::PointerMoved(position),
+                egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(0., -120.),
+                    phase: egui::TouchPhase::Move,
+                    source: egui::MouseWheelSource::Unknown,
+                    modifiers: egui::Modifiers::default(),
+                },
+            ]
+        };
+        draw(vec![egui::Event::PointerMoved(table.center())]);
+        let mut after_table = draw(wheel(table.center()));
+        for _ in 0..30 {
+            after_table = draw(vec![]);
+        }
+        let visible_rows = |shapes: &[(String, egui::Pos2, egui::Rect)]| {
+            shapes
+                .iter()
+                .filter(|v| v.0.starts_with("row-"))
+                .map(|v| v.0.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_ne!(
+            visible_rows(&baseline),
+            visible_rows(&after_table),
+            "wheel over the table must move the table"
+        );
+        let detail_after_table = after_table
+            .iter()
+            .find(|v| v.0.starts_with("底稿原文：detail-"))
+            .unwrap();
+        assert!(
+            (detail_after_table.1.y - detail.1.y).abs() < 1.,
+            "table scrolling moved the detail pane"
+        );
+        let rows_after_table = visible_rows(&after_table);
+        let detail_pointer = egui::pos2(
+            detail_after_table.1.x + 20.,
+            detail_after_table.2.center().y,
+        );
+        draw(vec![egui::Event::PointerMoved(detail_pointer)]);
+        let mut after_detail = draw(wheel(detail_pointer));
+        for _ in 0..30 {
+            after_detail = draw(vec![]);
+        }
+        assert_eq!(
+            rows_after_table,
+            visible_rows(&after_detail),
+            "detail scrolling moved the table"
+        );
+        let detail_after = after_detail
+            .iter()
+            .find(|v| v.0.starts_with("底稿原文：detail-"))
+            .unwrap();
+        assert!(
+            detail_after.1.y < detail_after_table.1.y - 20.,
+            "wheel over the detail must move the detail"
+        );
+    }
+
+    #[test]
     fn typing_new_search_clears_old_results_selection_and_late_requests() {
         let mut app = Desktop::initial();
         app.keyword = "技能".into();
