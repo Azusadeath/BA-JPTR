@@ -444,8 +444,10 @@ impl Desktop {
         let wide = ui.available_width() >= 960.;
         let mut run = false;
         ui.horizontal(|ui| {
-            ui.label("底稿原文");
-            let reserved = if wide { 500. } else { 155. };
+            let reserved = action_width(ui, "查找")
+                + action_width(ui, "导出文本")
+                + ui.spacing().item_spacing.x * 2.
+                + if wide { 170. } else { 0. };
             let id = egui::Id::unique("search-keyword");
             let focused = ui.memory(|m| m.has_focus(id));
             let enabled = self.connected
@@ -475,9 +477,7 @@ impl Desktop {
             if wide {
                 run |= self.search_source_control(ui);
             }
-            ui.menu_button("更多", |ui| {
-                self.export_text_button(ui);
-            });
+            self.export_text_button(ui);
         });
         if !wide {
             ui.horizontal(|ui| {
@@ -495,14 +495,11 @@ impl Desktop {
         }
         let search = self.search.clone();
         let rows = slice(&search, "rows");
-        if !rows.is_empty() {
+        if !rows.is_empty() && !self.selection.rows.is_empty() {
             egui::Frame::new()
             .inner_margin(egui::Margin::symmetric(0, 2))
             .show(ui, |ui| {
             ui.horizontal_wrapped(|ui|{let selected=self.selection.rows.len();
-                if selected == 0 {
-                    if !rows.is_empty() { ui.colored_label(MUTED, "选择结果进行操作").on_hover_text("单击选择，Ctrl 多选，Shift 连选；双击编辑完整文本。"); }
-                } else {
                     if selected == 1 && !self.write_busy() && ui.add(ToolButton::new("编辑文本")).clicked(){self.open_text(*self.selection.rows.first().unwrap());}
                     if !self.write_busy() && ui.add(ToolButton::new("替换选中文本")).clicked(){self.batch_form=Some(BatchForm{group_id:String::new(),indices:self.selection.rows.iter().copied().collect(),old:text(&self.search,"keyword"),new:String::new(),nonce:String::new(),changes:Vec::new(),error:String::new()});}
                     if selected == 1 && !self.write_busy() && ui.add(ToolButton::new("用此表添加词条")).clicked(){let row=&rows[*self.selection.rows.first().unwrap()];let keyword=text(&self.search,"keyword");let value=json!({"rule":{"old":keyword,"new":keyword,"mode":"sub","source":"-","table":row["table"]}});self.rule_form=Some(RuleForm::new(None,self.revision(),Some(&value)));}
@@ -511,7 +508,6 @@ impl Desktop {
                         self.table_detail=Some(self.tables.iter().find(|v|v["name"]==row["table"]).cloned().unwrap_or(json!({"name":row["table"],"label":row["table"]})));
                     }
                     ui.colored_label(MUTED,format!("已选 {selected} 条"));
-                }
             });
             });
         }
@@ -524,20 +520,16 @@ impl Desktop {
             .corner_radius(10)
             .stroke(egui::Stroke::new(1., LINE))
             .show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
                 ui.set_min_height(table_height);
                 if rows.is_empty() {
                     ui.allocate_ui_with_layout(
                         ui.available_size(),
                         egui::Layout::centered_and_justified(egui::Direction::TopDown),
                         |ui| {
-                            ui.colored_label(
-                                MUTED,
-                                if self.search.is_null() {
-                                    "输入文字后点击「查找」"
-                                } else {
-                                    "未找到匹配文本"
-                                },
-                            );
+                            if !self.search.is_null() {
+                                ui.colored_label(MUTED, "未找到匹配文本");
+                            }
                         },
                     );
                 } else {
@@ -592,6 +584,9 @@ impl Desktop {
                                         self.selection.rows.contains(&i),
                                         &values,
                                         &widths,
+                                    )
+                                    .on_hover_text(
+                                        "单击选择，Ctrl 多选，Shift 连选；双击编辑完整文本。",
                                     );
                                     if response.clicked() {
                                         let modifiers = ui.input(|i| i.modifiers);
@@ -607,7 +602,6 @@ impl Desktop {
             });
     }
     fn search_source_control(&mut self, ui: &mut egui::Ui) -> bool {
-        ui.label("来源表");
         let selected = if self.search_source.is_empty() {
             "全部来源表".into()
         } else {
@@ -636,11 +630,8 @@ impl Desktop {
                             )
                             .changed();
                     }
-                })
-                .response
-                .on_hover_text("切换来源表后自动查找");
+                });
         });
-        ui.colored_label(MUTED, "切换即查");
         changed && self.connected && !self.keyword.trim().is_empty()
     }
     fn export_text_button(&mut self, ui: &mut egui::Ui) {
@@ -660,7 +651,6 @@ impl Desktop {
                 "正在导出底稿文本…",
                 false,
             );
-            ui.close();
         }
     }
     pub fn restore_page(&mut self, ui: &mut egui::Ui) {

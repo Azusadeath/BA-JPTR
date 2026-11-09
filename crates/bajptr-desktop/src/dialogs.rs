@@ -393,11 +393,6 @@ impl Desktop {
                             .desired_width(f32::INFINITY),
                     );
                 } else {
-                    ui.label(if form.draft.is_null() {
-                        "选择模板并填写普通文字。"
-                    } else {
-                        "已填入模板。需要调整时点击「编辑模板」。"
-                    });
                     if !form.draft.is_null() {
                         for value in list(&form.draft, "values") {
                             ui.label(value.as_str().unwrap_or(""));
@@ -456,7 +451,6 @@ impl Desktop {
                 });
                 ui.separator();
                 ui.horizontal(|ui| {
-                    ui.label("来源表");
                     let label = if form.scope.is_empty() {
                         "全部来源表".into()
                     } else if form.scope.starts_with('[') {
@@ -526,11 +520,10 @@ impl Desktop {
                     form.toggle_unrestricted(unrestricted);
                 }
                 ui.horizontal(|ui| {
-                    ui.label("筛选");
                     ui.add(
                         egui::TextEdit::singleline(&mut form.filter)
                             .font(egui::TextStyle::Body)
-                            .hint_text("中文名称或表名")
+                            .hint_text("筛选中文名称或表名")
                             .desired_width(330.),
                     );
                     if ui
@@ -577,14 +570,9 @@ impl Desktop {
                             ui.close();
                         }
                     });
-                    ui.colored_label(
-                        MUTED,
-                        if form.unrestricted {
-                            "不限来源".into()
-                        } else {
-                            format!("已选 {} 张表", form.checked.len())
-                        },
-                    );
+                    if !form.unrestricted {
+                        ui.colored_label(MUTED, format!("已选 {} 张表", form.checked.len()));
+                    }
                 });
                 let mut available = form.available.clone();
                 for name in form.checked.clone() {
@@ -741,14 +729,7 @@ impl Desktop {
                     self.template_changed = Some(Instant::now());
                 }
                 ui.label("替换效果");
-                ui.add(
-                    egui::Label::new(if form.result.is_empty() {
-                        "填写文字后自动试写。"
-                    } else {
-                        &form.result
-                    })
-                    .wrap(),
-                );
+                ui.add(egui::Label::new(&form.result).wrap());
                 if !form.error.is_empty() {
                     ui.colored_label(RED, &form.error);
                 }
