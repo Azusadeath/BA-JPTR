@@ -39,6 +39,70 @@ pub fn mode_name(mode: &str) -> &'static str {
 }
 
 #[derive(Default)]
+pub struct SearchInput {
+    composing: bool,
+}
+impl SearchInput {
+    pub fn submit(&mut self, events: &[eframe::egui::Event], focused: bool, enabled: bool) -> bool {
+        use eframe::egui::{Event, ImeEvent, Key};
+        if !focused {
+            self.composing = false;
+            return false;
+        }
+        let mut ime_frame = false;
+        for event in events {
+            match event {
+                Event::Ime(ImeEvent::Preedit { text, .. }) => {
+                    self.composing = !text.is_empty();
+                    ime_frame = true;
+                }
+                Event::Ime(ImeEvent::Commit(_)) => {
+                    self.composing = false;
+                    ime_frame = true;
+                }
+                _ => {}
+            }
+        }
+        enabled && !self.composing && !ime_frame && events.iter().any(|event| matches!(event,
+            Event::Key { key: Key::Enter, pressed: true, repeat: false, modifiers, .. } if modifiers.is_none()))
+    }
+}
+
+#[derive(Default)]
+pub struct EditView {
+    pub filter: String,
+    pub selected: Option<usize>,
+}
+
+pub fn edit_location(entry: &Value) -> String {
+    let edit = &entry["edit"];
+    let row = edit["row_id"]
+        .as_str()
+        .map(str::to_string)
+        .unwrap_or_else(|| edit["row_id"].to_string());
+    format!("{} · {}", row, edit["slot"])
+}
+
+pub fn edit_matches(entry: &Value, filter: &str) -> bool {
+    if filter.trim().is_empty() {
+        return true;
+    }
+    let edit = &entry["edit"];
+    [
+        text(entry, "label"),
+        text(edit, "table"),
+        edit_location(entry),
+        text(edit, "original"),
+        text(&edit["batch_operation"], "before"),
+        text(edit, "replacement"),
+    ]
+    .join(" ")
+    .replace(['\r', '\n'], " ")
+    .to_lowercase()
+    .contains(&filter.trim().to_lowercase())
+}
+
+#[derive(Default)]
 pub struct Selection {
     pub rows: BTreeSet<usize>,
     pub anchor: Option<usize>,
@@ -211,6 +275,7 @@ pub struct TextForm {
     pub has_batch: bool,
     pub show_original: bool,
     pub error: String,
+    pub notice: String,
 }
 pub struct BatchForm {
     pub group_id: String,
@@ -233,33 +298,6 @@ impl BatchScopeForm {
         entry["edit"]["batch"] == true
             && entry["edit"]["batch_operation"]["id"].as_str() == Some(self.id.as_str())
     }
-    pub fn matches(&self, entry: &Value) -> bool {
-        if !self.contains(entry) {
-            return false;
-        }
-        let edit = &entry["edit"];
-        [
-            text(entry, "label"),
-            text(edit, "table"),
-            edit["row_id"].to_string(),
-            edit["slot"].to_string(),
-            text(edit, "original"),
-            text(&edit["batch_operation"], "before"),
-            text(edit, "replacement"),
-        ]
-        .join(" ")
-        .replace(['\r', '\n'], " ")
-        .to_lowercase()
-        .contains(&self.filter.trim().to_lowercase())
-    }
-    pub fn location(entry: &Value) -> String {
-        let edit = &entry["edit"];
-        let row = edit["row_id"]
-            .as_str()
-            .map(str::to_string)
-            .unwrap_or_else(|| edit["row_id"].to_string());
-        format!("{} · {}", row, edit["slot"])
-    }
 }
 impl BatchForm {
     pub fn matches(&self, draft: &Value) -> bool {
@@ -281,6 +319,51 @@ pub struct TemplateForm {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn search_enter_respects_focus_busy_and_ime_composition() {
+        use eframe::egui::{Event, ImeEvent, Key, Modifiers};
+        let enter = Event::Key {
+            key: Key::Enter,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        };
+        let mut input = SearchInput::default();
+        assert!(input.submit(std::slice::from_ref(&enter), true, true));
+        assert!(!input.submit(std::slice::from_ref(&enter), false, true));
+        assert!(!input.submit(std::slice::from_ref(&enter), true, false));
+        assert!(!input.submit(
+            &[Event::Ime(ImeEvent::Preedit {
+                text: "shen".into(),
+                active_range_chars: None
+            })],
+            true,
+            true
+        ));
+        assert!(!input.submit(std::slice::from_ref(&enter), true, true));
+        assert!(!input.submit(
+            &[Event::Ime(ImeEvent::Commit("神秘".into())), enter.clone()],
+            true,
+            true
+        ));
+        assert!(input.submit(&[enter], true, true));
+    }
+    #[test]
+    fn edit_filter_finds_original_replacement_source_and_exact_location() {
+        let entry = json!({"index":8,"label":"技能说明","edit":{"table":"Skill","row_id":9606,"slot":2,"original":"第一行\n第二行","replacement":"新内容"}});
+        for needle in [
+            "9606",
+            "9606 · 2",
+            "skill",
+            "技能",
+            "第一行 第二行",
+            "新内容",
+        ] {
+            assert!(edit_matches(&entry, needle));
+        }
+        assert!(!edit_matches(&entry, "不存在"));
+    }
     #[test]
     fn search_sources_use_all_before_search_and_complete_hits_after_search() {
         let all = vec![
@@ -306,7 +389,7 @@ mod tests {
         assert_eq!(
             entries
                 .iter()
-                .filter(|e| form.matches(e))
+                .filter(|e| form.contains(e) && edit_matches(e, &form.filter))
                 .map(|e| count(e, "index"))
                 .collect::<Vec<_>>(),
             vec![99]
@@ -318,12 +401,12 @@ mod tests {
             "批量之前的文字",
         ] {
             form.filter = filter.into();
-            assert!(form.matches(&entries[99]));
+            assert!(form.contains(&entries[99]) && edit_matches(&entries[99], &form.filter));
         }
-        assert_eq!(BatchScopeForm::location(&entries[99]), "1099 · 5");
+        assert_eq!(edit_location(&entries[99]), "1099 · 5");
         form.id = "another-group".into();
         form.filter.clear();
-        assert!(!form.matches(&entries[99]));
+        assert!(!form.contains(&entries[99]));
     }
     #[test]
     fn ctrl_shift_selection_preserves_anchor_and_visible_bounds() {

@@ -2,7 +2,7 @@ use eframe::egui::{self, Color32, FontId, Stroke, pos2, vec2};
 
 pub const BLUE: Color32 = Color32::from_rgb(31, 105, 181);
 pub const TEXT: Color32 = Color32::from_rgb(37, 54, 77);
-pub const MUTED: Color32 = Color32::from_rgb(100, 116, 137);
+pub const MUTED: Color32 = Color32::from_rgb(96, 111, 132);
 pub const RED: Color32 = Color32::from_rgb(174, 51, 64);
 pub const BG: Color32 = Color32::from_rgb(244, 247, 251);
 pub const LINE: Color32 = Color32::from_rgb(226, 233, 242);

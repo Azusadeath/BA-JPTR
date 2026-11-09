@@ -5,115 +5,166 @@ use std::{path::PathBuf, time::Instant};
 
 impl Desktop {
     pub fn header(&mut self, ui: &mut egui::Ui) {
-        egui::Frame::new()
-            .fill(Color32::WHITE)
-            .stroke(egui::Stroke::new(1., LINE))
-            .corner_radius(10)
-            .inner_margin(12)
-            .show(ui, |ui| {
-                ui.set_min_width(ui.available_width());
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("游戏目录").size(14.).color(MUTED));
-                    let reserve = action_width(ui, "选择文件夹")
-                        + action_width(ui, "检查底稿")
-                        + 60.
-                        + ui.spacing().item_spacing.x * 3.;
-                    let width = (ui.available_width() - reserve).max(180.);
-                    let response = ui
-                        .add_enabled_ui(!self.write_busy(), |ui| {
-                            ui.add_sized(
-                                [width, 36.],
-                                egui::TextEdit::singleline(&mut self.game)
-                                    .font(egui::TextStyle::Body)
-                                    .margin(egui::Margin::symmetric(10, 8))
-                                    .desired_width(width),
-                            )
-                        })
-                        .inner;
-                    if response.changed() {
-                        self.connected = false;
-                        self.path_changed = Some(Instant::now());
-                    }
-                    if secondary(ui, !self.write_busy(), "选择文件夹").clicked()
-                        && let Some(path) = rfd::FileDialog::new()
-                            .set_title("选择日服游戏安装目录")
-                            .pick_folder()
-                    {
-                        self.game = path.to_string_lossy().into();
-                        self.save_settings();
-                    }
-                    if secondary(
-                        ui,
-                        !self.write_busy() && !self.game.trim().is_empty(),
-                        "检查底稿",
-                    )
-                    .clicked()
-                    {
-                        self.connected = false;
-                        self.submit("check", json!({}), "正在检查游戏资源与底稿…", true);
-                    }
-                    pill(
-                        ui,
-                        if self.connected {
-                            "已连接"
-                        } else if self.confirm_baseline.is_some()
-                            || matches!(
-                                text(&self.baseline_check, "state").as_str(),
-                                "missing" | "update" | "changed"
-                            )
-                        {
-                            "待确认"
-                        } else {
-                            "未连接"
-                        },
-                        if self.connected {
-                            Color32::from_rgb(44, 115, 84)
-                        } else {
-                            MUTED
-                        },
-                        if self.connected {
-                            Color32::from_rgb(233, 246, 239)
-                        } else {
-                            BG
-                        },
-                    );
-                });
-            });
-        ui.add_space(2.);
-        ui.horizontal(|ui| {
-            for (index, title) in ["替换", "查找", "恢复"].iter().enumerate() {
-                if action(
-                    ui,
-                    true,
-                    title,
-                    if self.tab == index {
-                        ButtonKind::Soft
-                    } else {
-                        ButtonKind::Quiet
-                    },
-                )
-                .clicked()
-                {
-                    self.tab = index;
-                    if index == 2 && !self.game.trim().is_empty() {
-                        self.submit("check", json!({}), "正在检查初始底稿…", true);
-                    }
-                }
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        if self.connected && !self.show_game_directory && self.confirm_baseline.is_none() {
+            ui.horizontal(|ui| {
+                self.navigation(ui);
+                let reserve = action_width(ui, "更改目录") + action_width(ui, "检查底稿") + 240.;
+                let width = (ui.available_width() - reserve).max(80.);
                 ui.add_sized(
-                    [ui.available_width().min(420.), 24.],
+                    [width, 34.],
+                    egui::Label::new(format!("游戏：{}", self.game)).truncate(),
+                )
+                .on_hover_text(&self.game);
+                pill(
+                    ui,
+                    "已连接",
+                    Color32::from_rgb(44, 115, 84),
+                    Color32::from_rgb(233, 246, 239),
+                );
+                if secondary(ui, !self.write_busy(), "更改目录").clicked() {
+                    self.show_game_directory = true;
+                }
+                self.check_button(ui);
+                ui.add(
                     egui::Label::new(
                         egui::RichText::new(&self.application)
                             .size(13.)
                             .color(MUTED),
                     )
-                    .halign(egui::Align::RIGHT)
                     .truncate(),
                 )
                 .on_hover_text(&self.application);
             });
-        });
+        } else {
+            egui::Frame::new()
+                .fill(Color32::WHITE)
+                .stroke(egui::Stroke::new(1., LINE))
+                .corner_radius(10)
+                .inner_margin(12)
+                .show(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("游戏目录").size(14.).color(MUTED));
+                        let reserve = action_width(ui, "选择文件夹")
+                            + action_width(ui, "检查底稿")
+                            + 60.
+                            + ui.spacing().item_spacing.x * 3.;
+                        let width = (ui.available_width() - reserve).max(180.);
+                        let response = ui
+                            .add_enabled_ui(!self.write_busy(), |ui| {
+                                ui.add_sized(
+                                    [width, 36.],
+                                    egui::TextEdit::singleline(&mut self.game)
+                                        .font(egui::TextStyle::Body)
+                                        .margin(egui::Margin::symmetric(10, 8))
+                                        .desired_width(width),
+                                )
+                            })
+                            .inner;
+                        if response.changed() {
+                            self.connected = false;
+                            self.path_changed = Some(Instant::now());
+                        }
+                        if secondary(ui, !self.write_busy(), "选择文件夹").clicked()
+                            && let Some(path) = rfd::FileDialog::new()
+                                .set_title("选择日服游戏安装目录")
+                                .pick_folder()
+                        {
+                            self.game = path.to_string_lossy().into();
+                            self.save_settings();
+                        }
+                        if secondary(
+                            ui,
+                            !self.write_busy() && !self.game.trim().is_empty(),
+                            "检查底稿",
+                        )
+                        .clicked()
+                        {
+                            self.connected = false;
+                            self.submit("check", json!({}), "正在检查游戏资源与底稿…", true);
+                        }
+                        pill(
+                            ui,
+                            if self.connected {
+                                "已连接"
+                            } else if self.confirm_baseline.is_some()
+                                || matches!(
+                                    text(&self.baseline_check, "state").as_str(),
+                                    "missing" | "update" | "changed"
+                                )
+                            {
+                                "待确认"
+                            } else {
+                                "未连接"
+                            },
+                            if self.connected {
+                                Color32::from_rgb(44, 115, 84)
+                            } else {
+                                MUTED
+                            },
+                            if self.connected {
+                                Color32::from_rgb(233, 246, 239)
+                            } else {
+                                BG
+                            },
+                        );
+                    });
+                });
+
+            ui.horizontal(|ui| {
+                self.navigation(ui);
+                if self.connected && ui.button("收起目录").clicked() {
+                    self.show_game_directory = false;
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.add_sized(
+                        [ui.available_width().min(420.), 24.],
+                        egui::Label::new(
+                            egui::RichText::new(&self.application)
+                                .size(13.)
+                                .color(MUTED),
+                        )
+                        .halign(egui::Align::RIGHT)
+                        .truncate(),
+                    )
+                    .on_hover_text(&self.application);
+                });
+            });
+        }
+    }
+    fn check_button(&mut self, ui: &mut egui::Ui) {
+        if secondary(
+            ui,
+            !self.write_busy() && !self.game.trim().is_empty(),
+            "检查底稿",
+        )
+        .clicked()
+        {
+            self.connected = false;
+            self.show_game_directory = false;
+            self.submit("check", json!({}), "正在检查游戏资源与底稿…", true);
+        }
+    }
+    fn navigation(&mut self, ui: &mut egui::Ui) {
+        for (index, title) in ["替换", "查找", "恢复"].iter().enumerate() {
+            if action(
+                ui,
+                true,
+                title,
+                if self.tab == index {
+                    ButtonKind::Soft
+                } else {
+                    ButtonKind::Quiet
+                },
+            )
+            .clicked()
+            {
+                self.tab = index;
+                if index == 2 && !self.game.trim().is_empty() {
+                    self.submit("check", json!({}), "正在检查初始底稿…", true);
+                }
+            }
+        }
     }
     pub fn replacement(&mut self, ui: &mut egui::Ui) {
         let state = self.state.clone();
@@ -126,22 +177,31 @@ impl Desktop {
             .and_then(|i| batches.get(i));
         let can_edit = self.loaded && self.healthy() && !self.write_busy();
         ui.horizontal_wrapped(|ui| {
-            if let Some(entry) = selected_batch.filter(|entry| entry["id"].is_string())
-                && ui
-                    .add_enabled(
-                        can_edit,
-                        ToolButton::new(format!("查看文本范围（{}）", count(entry, "count"))),
-                    )
-                    .clicked()
-            {
-                self.open_batch_scope(&text(entry, "id"));
-            }
             if ui
                 .add_enabled(can_edit, ToolButton::new("添加词条"))
                 .clicked()
             {
                 self.rule_form = Some(RuleForm::new(None, self.revision(), None));
             }
+            if ui
+                .add_enabled(
+                    can_edit && self.state["can_undo"] == true,
+                    ToolButton::new("撤销"),
+                )
+                .clicked()
+            {
+                self.submit("history", json!({"undo":true}), "正在撤销…", false);
+            }
+            if ui
+                .add_enabled(
+                    can_edit && self.state["can_redo"] == true,
+                    ToolButton::new("重做"),
+                )
+                .clicked()
+            {
+                self.submit("history", json!({"undo":false}), "正在重做…", false);
+            }
+            ui.separator();
             if ui
                 .add_enabled(
                     can_edit
@@ -185,43 +245,42 @@ impl Desktop {
                 }
                 self.rule_selection = None;
             }
-            if ui
-                .add_enabled(
-                    can_edit && self.state["can_undo"] == true,
-                    ToolButton::new("撤销"),
-                )
-                .clicked()
-            {
-                self.submit("history", json!({"undo":true}), "正在撤销…", false);
+            let range = ui.add_enabled(
+                can_edit && selected_batch.is_some_and(|e| e["id"].is_string()),
+                ToolButton::new("文本范围"),
+            );
+            if let Some(entry) = selected_batch {
+                range
+                    .clone()
+                    .on_hover_text(format!("查看文本范围（{}）", count(entry, "count")));
             }
-            if ui
-                .add_enabled(
-                    can_edit && self.state["can_redo"] == true,
-                    ToolButton::new("重做"),
-                )
-                .clicked()
+            if range.clicked()
+                && let Some(entry) = selected_batch
             {
-                self.submit("history", json!({"undo":false}), "正在重做…", false);
+                self.open_batch_scope(&text(entry, "id"));
             }
-            if ui
-                .add_enabled(can_edit, ToolButton::new("导入词表"))
-                .clicked()
-                && let Some(path) = rfd::FileDialog::new()
-                    .add_filter("替换词表", &["tsv", "txt"])
-                    .pick_file()
-            {
-                self.submit("import_read", json!({"path":path}), "正在读取词表…", true);
-            }
-            if ui
-                .add_enabled(can_edit && !rules.is_empty(), ToolButton::new("导出词表"))
-                .clicked()
-                && let Some(path) = rfd::FileDialog::new()
-                    .add_filter("替换词表", &["tsv"])
-                    .set_file_name("我的译名.tsv")
-                    .save_file()
-            {
-                self.submit("export_rules", json!({"path":path}), "正在导出词表…", false);
-            }
+            ui.separator();
+            ui.menu_button("词表", |ui| {
+                if ui
+                    .add_enabled(can_edit, ToolButton::new("导入词表"))
+                    .clicked()
+                    && let Some(path) = rfd::FileDialog::new()
+                        .add_filter("替换词表", &["tsv", "txt"])
+                        .pick_file()
+                {
+                    self.submit("import_read", json!({"path":path}), "正在读取词表…", true);
+                }
+                if ui
+                    .add_enabled(can_edit && !rules.is_empty(), ToolButton::new("导出词表"))
+                    .clicked()
+                    && let Some(path) = rfd::FileDialog::new()
+                        .add_filter("替换词表", &["tsv"])
+                        .set_file_name("我的译名.tsv")
+                        .save_file()
+                {
+                    self.submit("export_rules", json!({"path":path}), "正在导出词表…", false);
+                }
+            });
             if ui
                 .add_enabled(
                     can_edit,
@@ -396,106 +455,67 @@ impl Desktop {
     }
     pub fn search_page(&mut self, ui: &mut egui::Ui) {
         ui.spacing_mut().item_spacing.y = 6.;
+        let wide = ui.available_width() >= 960.;
+        let mut run = false;
         ui.horizontal(|ui| {
             ui.label("底稿原文");
+            let reserved = if wide { 500. } else { 155. };
+            let id = egui::Id::unique("search-keyword");
+            let focused = ui.memory(|m| m.has_focus(id));
+            let enabled = self.connected
+                && self.busy.is_none()
+                && !self.modal()
+                && !self.keyword.trim().is_empty();
+            let enter = ui.input(|i| self.search_input.submit(&i.events, focused, enabled));
+            let previous_keyword = self.keyword.clone();
             let input = ui.add_sized(
-                [ui.available_width() - 255., 36.],
+                [(ui.available_width() - reserved).max(160.), 36.],
                 egui::TextEdit::singleline(&mut self.keyword)
+                    .id(id)
+                    .return_key(None)
                     .font(egui::TextStyle::Body)
                     .hint_text("输入要查找的文字"),
             );
-            if input.changed() {
+            if input.changed() && self.keyword != previous_keyword {
                 self.search_input_changed();
             }
-            if primary(
+            run |= primary(
                 ui,
                 self.connected && self.busy.is_none() && !self.keyword.trim().is_empty(),
                 "查找",
             )
             .clicked()
-            {
-                self.submit(
-                    "search",
-                    json!({"keyword":self.keyword,"source":self.search_source,"offset":0}),
-                    "正在查找，保留上次结果…",
-                    true,
-                );
+                || enter;
+            if wide {
+                run |= self.search_source_control(ui);
             }
-            if ui
-                .add_enabled(
-                    self.connected && self.busy.is_none(),
-                    ToolButton::new("导出文本"),
-                )
-                .clicked()
-                && let Some(path) = rfd::FileDialog::new()
-                    .set_title("选择导出文件夹")
-                    .pick_folder()
-            {
-                self.submit(
-                    "export_text",
-                    json!({"path":path}),
-                    "正在导出底稿文本…",
-                    false,
-                );
-            }
-        });
-        let mut source_changed = false;
-        ui.horizontal(|ui| {
-            ui.label("来源表");
-            let selected = if self.search_source.is_empty() {
-                "全部来源表".to_string()
-            } else {
-                self.tables
-                    .iter()
-                    .chain(slice(&self.search, "source_tables"))
-                    .find(|v| text(v, "name") == self.search_source)
-                    .map(|v| text(v, "label"))
-                    .unwrap_or_else(|| self.search_source.clone())
-            };
-            ui.add_enabled_ui(self.busy.is_none(), |ui| {
-                egui::ComboBox::from_id_salt("search-source")
-                    .selected_text(selected)
-                    .show_ui(ui, |ui| {
-                        if ui
-                            .selectable_value(&mut self.search_source, String::new(), "全部来源表")
-                            .changed()
-                        {
-                            source_changed = true;
-                        }
-                        for table in search_sources(&self.tables, &self.search, &self.keyword) {
-                            let name = text(table, "name");
-                            if ui
-                                .selectable_value(
-                                    &mut self.search_source,
-                                    name.clone(),
-                                    text(table, "label"),
-                                )
-                                .changed()
-                            {
-                                source_changed = true;
-                            }
-                        }
-                    });
+            ui.menu_button("更多", |ui| {
+                self.export_text_button(ui);
             });
-            ui.colored_label(MUTED, "切换后自动查找");
         });
-        if source_changed && self.busy.is_none() && !self.keyword.trim().is_empty() {
+        if !wide {
+            ui.horizontal(|ui| {
+                run |= self.search_source_control(ui);
+            });
+        }
+        if run && self.busy.is_none() {
             self.selection.clear();
             self.submit(
                 "search",
                 json!({"keyword":self.keyword,"source":self.search_source,"offset":0}),
-                "正在按来源表查找…",
+                "正在查找…",
                 true,
             );
         }
         let search = self.search.clone();
         let rows = slice(&search, "rows");
-        egui::Frame::new()
+        if !rows.is_empty() {
+            egui::Frame::new()
             .inner_margin(egui::Margin::symmetric(0, 2))
             .show(ui, |ui| {
             ui.horizontal_wrapped(|ui|{let selected=self.selection.rows.len();
                 if selected == 0 {
-                    ui.colored_label(MUTED, "选择结果后可编辑或批量替换");
+                    if !rows.is_empty() { ui.colored_label(MUTED, "选择结果进行操作").on_hover_text("单击选择，Ctrl 多选，Shift 连选；双击编辑完整文本。"); }
                 } else {
                     if selected == 1 && !self.write_busy() && ui.add(ToolButton::new("编辑文本")).clicked(){self.open_text(*self.selection.rows.first().unwrap());}
                     if !self.write_busy() && ui.add(ToolButton::new("替换选中文本")).clicked(){self.batch_form=Some(BatchForm{group_id:String::new(),indices:self.selection.rows.iter().copied().collect(),old:text(&self.search,"keyword"),new:String::new(),nonce:String::new(),changes:Vec::new(),error:String::new()});}
@@ -508,9 +528,10 @@ impl Desktop {
                 }
             });
             });
+        }
         let width = ui.available_width() - 12.;
         let widths = [width - 270., 180., 90.];
-        table_header(ui, &["本次文本", "来源表", "记录"], &widths);
+        table_header(ui, &["本次文本", "来源表", "记录 / 字段"], &widths);
         let table_height = ui.available_height();
         egui::Frame::new()
             .fill(Color32::WHITE)
@@ -576,7 +597,7 @@ impl Desktop {
                                     let values = [
                                         text(row, "text").replace(['\r', '\n'], " "),
                                         text(row, "label"),
-                                        format!("{}:{}", row["row_id"], row["slot"])
+                                        format!("{} · {}", row["row_id"], row["slot"])
                                             .replace('"', ""),
                                     ];
                                     let response = data_row(
@@ -598,6 +619,63 @@ impl Desktop {
                         );
                 }
             });
+    }
+    fn search_source_control(&mut self, ui: &mut egui::Ui) -> bool {
+        ui.label("来源表");
+        let selected = if self.search_source.is_empty() {
+            "全部来源表".into()
+        } else {
+            self.tables
+                .iter()
+                .chain(slice(&self.search, "source_tables"))
+                .find(|v| text(v, "name") == self.search_source)
+                .map(|v| text(v, "label"))
+                .unwrap_or_else(|| self.search_source.clone())
+        };
+        let mut changed = false;
+        ui.add_enabled_ui(self.busy.is_none(), |ui| {
+            egui::ComboBox::from_id_salt("search-source")
+                .width(155.)
+                .selected_text(selected)
+                .show_ui(ui, |ui| {
+                    changed |= ui
+                        .selectable_value(&mut self.search_source, String::new(), "全部来源表")
+                        .changed();
+                    for table in search_sources(&self.tables, &self.search, &self.keyword) {
+                        changed |= ui
+                            .selectable_value(
+                                &mut self.search_source,
+                                text(table, "name"),
+                                text(table, "label"),
+                            )
+                            .changed();
+                    }
+                })
+                .response
+                .on_hover_text("切换来源表后自动查找");
+        });
+        ui.colored_label(MUTED, "切换即查");
+        changed && self.connected && !self.keyword.trim().is_empty()
+    }
+    fn export_text_button(&mut self, ui: &mut egui::Ui) {
+        if ui
+            .add_enabled(
+                self.connected && self.busy.is_none(),
+                ToolButton::new("导出文本"),
+            )
+            .clicked()
+            && let Some(path) = rfd::FileDialog::new()
+                .set_title("选择导出文件夹")
+                .pick_folder()
+        {
+            self.submit(
+                "export_text",
+                json!({"path":path}),
+                "正在导出底稿文本…",
+                false,
+            );
+            ui.close();
+        }
     }
     pub fn restore_page(&mut self, ui: &mut egui::Ui) {
         egui::ScrollArea::vertical()

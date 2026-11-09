@@ -23,6 +23,7 @@ pub struct Desktop {
     pub game: String,
     pub skip: bool,
     pub path_changed: Option<Instant>,
+    pub show_game_directory: bool,
     pub tab: usize,
     pub status: String,
     pub application: String,
@@ -31,6 +32,7 @@ pub struct Desktop {
     pub rule_selection: Option<usize>,
     pub search: Arc<Value>,
     pub keyword: String,
+    pub search_input: SearchInput,
     pub search_source: String,
     pub selection: Selection,
     pub tables: Vec<Value>,
@@ -44,6 +46,7 @@ pub struct Desktop {
     pub preview: Option<Arc<Value>>,
     pub preview_row: Option<usize>,
     pub show_edits: bool,
+    pub edit_view: EditView,
     pub show_logs: bool,
     pub confirm_import: Option<Value>,
     pub confirm_restore: bool,
@@ -86,6 +89,7 @@ impl Desktop {
             game: String::new(),
             skip: true,
             path_changed: None,
+            show_game_directory: false,
             tab: 0,
             status: "正在读取修改记录…".into(),
             application: "应用状态待核对，先预览".into(),
@@ -94,6 +98,7 @@ impl Desktop {
             rule_selection: None,
             search: Value::Null.into(),
             keyword: String::new(),
+            search_input: SearchInput::default(),
             search_source: String::new(),
             selection: Selection::default(),
             tables: Vec::new(),
@@ -107,6 +112,7 @@ impl Desktop {
             preview: None,
             preview_row: None,
             show_edits: false,
+            edit_view: EditView::default(),
             show_logs: false,
             confirm_import: None,
             confirm_restore: false,
@@ -284,6 +290,7 @@ impl Desktop {
             .and_then(Value::as_bool)
             .unwrap_or(true);
         if changed {
+            self.edit_view.selected = None;
             self.hits.clear();
             self.preview = None;
             self.rule_selection = None;
@@ -293,6 +300,7 @@ impl Desktop {
             }
         }
         if game_changed {
+            self.edit_view = EditView::default();
             self.batch_scope = None;
             self.search_source.clear();
             self.rule_selection = None;
@@ -584,6 +592,7 @@ impl Desktop {
                         has_batch: data["has_batch"] == true,
                         show_original: false,
                         error: String::new(),
+                        notice: String::new(),
                     });
                 }
                 "batch_open" => {
