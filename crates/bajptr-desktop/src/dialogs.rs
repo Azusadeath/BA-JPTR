@@ -1,10 +1,7 @@
 use crate::{app::*, state::*};
 use eframe::egui::{self, RichText};
 use serde_json::{Value, json};
-use std::{
-    collections::BTreeSet,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 fn window<'a>(title: &'a str, ctx: &egui::Context, width: f32) -> egui::Window<'a> {
     egui::Window::new(title)
@@ -512,9 +509,6 @@ impl Desktop {
         window("选择来源表", ctx, 650.)
             .open(&mut open)
             .show(ctx, |ui| {
-                if self.table_detail.is_some() {
-                    ui.disable();
-                }
                 let mut unrestricted = form.unrestricted;
                 if ui.checkbox(&mut unrestricted, "不限来源").changed() {
                     form.toggle_unrestricted(unrestricted);
@@ -537,39 +531,15 @@ impl Desktop {
                         self.background_tables();
                     }
                 });
-                ui.horizontal(|ui| {
-                    for (label, operation) in [
-                        ("全选可见", "select"),
-                        ("清空可见", "clear"),
-                        ("反选可见", "invert"),
-                    ] {
+                ui.horizontal_wrapped(|ui| {
+                    for (label, operation) in
+                        [("全选", "select"), ("清空", "clear"), ("反选", "invert")]
+                    {
                         if ui.button(label).clicked() {
                             form.update_visible(operation);
                             form.error.clear();
                         }
                     }
-                    ui.menu_button("全部来源表…", |ui| {
-                        if ui.button("全选全部来源表").clicked() {
-                            form.checked = form.all_names();
-                            form.unrestricted = false;
-                            ui.close();
-                        }
-                        if ui.button("清空全部来源表").clicked() {
-                            form.checked.clear();
-                            form.unrestricted = false;
-                            ui.close();
-                        }
-                        if ui.button("反选全部来源表").clicked() {
-                            let all = form.all_names();
-                            form.checked = if form.unrestricted {
-                                BTreeSet::new()
-                            } else {
-                                all.difference(&form.checked).cloned().collect()
-                            };
-                            form.unrestricted = false;
-                            ui.close();
-                        }
-                    });
                     if !form.unrestricted {
                         ui.colored_label(MUTED, format!("已选 {} 张表", form.checked.len()));
                     }
@@ -596,24 +566,14 @@ impl Desktop {
                             }
                             let mut checked = form.unrestricted || form.checked.contains(&name);
                             let response = ui
-                                .horizontal(|ui| {
-                                    let width = (ui.available_width() - 86.).max(200.);
-                                    let response = ui
-                                        .allocate_ui_with_layout(
-                                            egui::vec2(width, 34.),
-                                            egui::Layout::left_to_right(egui::Align::Center),
-                                            |ui| {
-                                                ui.set_min_width(width);
-                                                ui.checkbox(&mut checked, label)
-                                                    .on_hover_text(text(&row, "purpose"))
-                                            },
-                                        )
-                                        .inner;
-                                    if ui.small_button("表详情").clicked() {
-                                        self.table_detail = Some(row.clone());
-                                    }
-                                    response
-                                })
+                                .allocate_ui_with_layout(
+                                    egui::vec2(ui.available_width(), 34.),
+                                    egui::Layout::left_to_right(egui::Align::Center),
+                                    |ui| {
+                                        ui.checkbox(&mut checked, label)
+                                            .on_hover_text(text(&row, "purpose"))
+                                    },
+                                )
                                 .inner;
                             if response.changed() {
                                 form.error.clear();
