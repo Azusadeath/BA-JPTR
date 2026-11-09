@@ -40,6 +40,7 @@ fn read_only(action: &str) -> bool {
             | "preview"
             | "prepare_patch"
             | "tables"
+            | "scope_sources"
             | "baseline"
             | "batch_open"
     )

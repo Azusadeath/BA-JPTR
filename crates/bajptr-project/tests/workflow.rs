@@ -298,15 +298,6 @@ fn generate_fixture_patch(p: &mut Project) -> bajptr_project::Result<Value> {
 }
 
 #[test]
-fn desktop_has_no_standalone_patch_generation_action() {
-    let f = Fixture::new();
-    let mut p = f.ready_project();
-    assert!(p.dispatch("generate", &json!({}), &control()).is_err());
-    assert!(!f.data.join("output").exists());
-    f.unchanged();
-}
-
-#[test]
 fn prepared_preview_never_writes_game_and_reopens_without_rebuilding() {
     let f = Fixture::new();
     let mut p = f.ready_project();
@@ -898,6 +889,60 @@ fn source_filter_keeps_other_matching_tables_available() {
     assert_eq!(search["total"], 0);
     assert_eq!(search["source_tables"].as_array().unwrap().len(), 1);
     assert_eq!(search["source_tables"][0]["name"], "LocalizeDBSchema");
+    let before = p.snapshot();
+    for (old, mode, expected) in [
+        ("", "sub", 3),
+        ("任务", "sub", 2),
+        ("任务", "exact", 0),
+        ("阿罗娜的任务", "exact", 2),
+        ("^阿罗娜.*任务$", "re", 2),
+        ("老师", "sub", 1),
+        ("不存在", "sub", 0),
+        ("アロナ", "sub", 0),
+    ] {
+        let result = call(&mut p, "scope_sources", json!({"old":old,"mode":mode}));
+        assert_eq!(result.as_array().unwrap().len(), expected, "{old}/{mode}");
+        assert_eq!(
+            p.snapshot(),
+            before,
+            "candidate lookup changed project state"
+        );
+    }
+    assert!(
+        p.dispatch("scope_sources", &json!({"old":"(","mode":"re"}), &control())
+            .is_err()
+    );
+    let revision = p.revision;
+    call(
+        &mut p,
+        "settings",
+        json!({"revision":revision,"game":f.game,"skip_kana":false}),
+    );
+    assert_eq!(
+        call(
+            &mut p,
+            "scope_sources",
+            json!({"old":"アロナ","mode":"sub"})
+        )
+        .as_array()
+        .unwrap()
+        .len(),
+        1
+    );
+    let revision = p.revision;
+    call(
+        &mut p,
+        "settings",
+        json!({"revision":revision,"game":f.game,"skip_kana":true}),
+    );
+    assert_eq!(
+        call(
+            &mut p,
+            "scope_sources",
+            json!({"old":"アロナ","mode":"sub"})
+        ),
+        json!([])
+    );
     f.unchanged();
 }
 

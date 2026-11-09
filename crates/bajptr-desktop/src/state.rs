@@ -173,6 +173,9 @@ impl RuleForm {
     }
 }
 pub struct ScopeForm {
+    pub old: String,
+    pub mode: String,
+    pub request: Option<u64>,
     pub available: Vec<Value>,
     pub checked: BTreeSet<String>,
     pub filter: String,
@@ -191,6 +194,9 @@ impl ScopeForm {
             BTreeSet::from([scope.into()])
         };
         Self {
+            old: String::new(),
+            mode: "sub".into(),
+            request: None,
             available,
             checked,
             filter: String::new(),
@@ -211,7 +217,8 @@ impl ScopeForm {
                 self.checked
                     .iter()
                     .filter(|name| {
-                        !self.available.iter().any(|v| text(v, "name") == **name)
+                        self.old.is_empty()
+                            && !self.available.iter().any(|v| text(v, "name") == **name)
                             && name.to_lowercase().contains(&needle)
                     })
                     .cloned(),
@@ -430,6 +437,13 @@ mod tests {
         assert_eq!(s.checked.len(), 2);
         s.update_visible("invert");
         assert_eq!(s.checked, BTreeSet::from(["B".into()]));
+        s.old = "任务".into();
+        s.available.retain(|v| text(v, "name") == "A");
+        s.filter.clear();
+        assert_eq!(s.visible_names(), BTreeSet::from(["A".into()]));
+        s.update_visible("select");
+        s.update_visible("clear");
+        assert_eq!(s.encode().unwrap(), "B");
     }
     #[test]
     fn late_batch_preview_cannot_reenable_save_for_changed_inputs() {

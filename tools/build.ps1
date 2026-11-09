@@ -6,6 +6,7 @@ param(
     [switch]$NoPublish,
     [string]$Package,
     [string]$TestTarget,
+    [string]$TestFilter,
     [switch]$Format,
     [switch]$FormatCheck,
     [switch]$Lint,
@@ -13,6 +14,7 @@ param(
     [string]$MetadataPath
 )
 $ErrorActionPreference = 'Stop'
+if (($TestTarget -or $TestFilter) -and -not $Test) { throw 'TestTarget and TestFilter require -Test.' }
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $localTools = Join-Path $projectRoot '.toolchain'
 $cargoExe = Join-Path $localTools 'cargo/bin/cargo.exe'
@@ -35,6 +37,7 @@ if ($Package) { $cargoArgs += @('-p', $Package) } else { $cargoArgs += '--worksp
 if ($TestTarget) { $cargoArgs += @('--test', $TestTarget) }
 if (-not $UpdateLock) { $cargoArgs += '--locked' }
 if (-not $DebugBuild) { $cargoArgs += '--release' }
+if ($TestFilter) { $cargoArgs += @('--', $TestFilter) }
 Push-Location $projectRoot
 try {
     if ($MetadataPath) {

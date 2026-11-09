@@ -245,6 +245,20 @@ impl Desktop {
         self.sources_ready = false;
         self.submit("sources", json!({}), "正在核对来源表与词条范围…", false);
     }
+    pub fn query_scope_sources(&mut self, form: &mut ScopeForm) {
+        if self.write_busy() {
+            return;
+        }
+        form.available.clear();
+        form.error.clear();
+        self.submit(
+            "scope_sources",
+            json!({"old":form.old,"mode":form.mode}),
+            "正在查找匹配的来源表…",
+            true,
+        );
+        form.request = self.busy.as_ref().map(|busy| busy.id);
+    }
     pub fn cancel(&mut self) {
         if let Some(busy) = &self.busy
             && busy.cancellable
@@ -257,6 +271,12 @@ impl Desktop {
             // actual result instead of discarding it and claiming cancellation.
             if !writes {
                 self.obsolete.insert(busy.id);
+                if let Some(form) = &mut self.scope_form
+                    && form.request == Some(busy.id)
+                {
+                    form.request = None;
+                    form.error = "已取消读取，可点击刷新重试。".into();
+                }
             }
             if let Some(backend) = &mut self.backend {
                 let _ = backend.send("cancel", json!({"target":busy.id}));
@@ -405,6 +425,12 @@ impl Desktop {
                 continue;
             }
             if kind == "cancelled" {
+                if let Some(form) = &mut self.scope_form
+                    && form.request == Some(id)
+                {
+                    form.request = None;
+                    form.error = "已取消读取，可点击刷新重试。".into();
+                }
                 self.status = "已取消，保留上次结果。".into();
                 continue;
             }
@@ -413,6 +439,14 @@ impl Desktop {
                 self.logs.push(text(&event, "detail"));
                 self.status = message.clone();
                 match action.as_str() {
+                    "scope_sources" => {
+                        if let Some(form) = &mut self.scope_form
+                            && form.request == Some(id)
+                        {
+                            form.request = None;
+                            form.error = message.clone();
+                        }
+                    }
                     "save_rule" => {
                         if let Some(f) = &mut self.rule_form {
                             f.error = message.clone();
@@ -545,17 +579,20 @@ impl Desktop {
                 }
                 "tables" => {
                     self.tables = data.as_array().cloned().unwrap_or_default();
-                    if let Some(f) = &mut self.scope_form {
-                        f.available = self.tables.clone();
+                }
+                "scope_sources" => {
+                    if let Some(form) = &mut self.scope_form
+                        && form.request == Some(id)
+                    {
+                        form.request = None;
+                        form.available = data.as_array().cloned().unwrap_or_default();
                     }
+                    self.restore_context_status();
                 }
                 "sources" => {
                     self.apply_state(data["state"].clone());
                     self.tables = list(&data, "tables");
                     self.sources_ready = data["missing_history"] != true;
-                    if let Some(form) = &mut self.scope_form {
-                        form.available = self.tables.clone();
-                    }
                     if !self.sources_ready {
                         self.error = Some("没有找到旧词条上次记录的来源表。请逐条选择来源范围后再预览；未自动把当前新表加入旧词条。".into());
                     } else if !slice(&self.state, "source_notices").is_empty() {
@@ -1042,6 +1079,28 @@ mod view_tests {
             detail_after.1.y < detail_after_table.1.y - 20.,
             "wheel over the detail must move the detail"
         );
+    }
+
+    #[test]
+    fn cancelling_source_lookup_releases_loading_state_and_keeps_scope() {
+        let mut app = Desktop::initial();
+        let mut form = ScopeForm::new("A", vec![]);
+        form.old = "任务".into();
+        form.request = Some(7);
+        app.scope_form = Some(form);
+        app.pending.insert(7, "scope_sources".into());
+        app.busy = Some(Busy {
+            id: 7,
+            cancellable: true,
+        });
+        app.cancel();
+        let form = app.scope_form.as_ref().unwrap();
+        assert!(
+            form.request.is_none(),
+            "refresh must be available after cancellation"
+        );
+        assert_eq!(form.encode().unwrap(), "A");
+        assert!(app.obsolete.contains(&7), "late results must be discarded");
     }
 
     #[test]

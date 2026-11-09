@@ -88,6 +88,7 @@ pub struct Engine {
     source_key: String,
     scans: VecDeque<(String, Value)>,
     search_tables: VecDeque<(String, Value)>,
+    scope_sources: VecDeque<(String, Value)>,
     previews: VecDeque<(String, Value)>,
     prepared: Option<PreparedPatch>,
 }
@@ -111,6 +112,7 @@ impl Engine {
         self.source_key.clear();
         self.scans.clear();
         self.search_tables.clear();
+        self.scope_sources.clear();
         self.previews.clear();
     }
     fn open(&mut self, original: &Baseline, control: &Control<'_>) -> Result<()> {
@@ -258,6 +260,56 @@ impl Engine {
             skip_kana,
             control,
         )
+    }
+    pub fn scope_sources(
+        &mut self,
+        game: &str,
+        root: &Path,
+        old: &str,
+        mode: &str,
+        skip_kana: bool,
+        control: &Control<'_>,
+    ) -> Result<Value> {
+        let original = self.baseline(game, root, control)?;
+        self.open(&original, control)?;
+        let key = serde_json::to_string(&(old, mode, skip_kana))?;
+        if let Some((_, value)) = self.scope_sources.iter().find(|(k, _)| k == &key) {
+            control.check()?;
+            return Ok(value.clone());
+        }
+        let names = database::tables(
+            &self.session.database.as_ref().unwrap().con,
+            &database::default_tables(),
+        )?;
+        let names = if old.is_empty() {
+            names
+        } else {
+            self.source_rule_matches(
+                game,
+                root,
+                &names,
+                &[Rule {
+                    old: old.into(),
+                    new: String::new(),
+                    mode: mode.into(),
+                    source: String::new(),
+                    table: String::new(),
+                }],
+                skip_kana,
+                control,
+            )?
+            .into_iter()
+            .map(|hit| hit.table)
+            .collect()
+        };
+        let value = json!(
+            names
+                .iter()
+                .map(|name| model::table_info(name))
+                .collect::<Vec<_>>()
+        );
+        remember(&mut self.scope_sources, key, value.clone(), 8);
+        Ok(value)
     }
     pub fn tables_cached(
         &mut self,

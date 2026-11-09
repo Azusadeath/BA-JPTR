@@ -838,7 +838,8 @@ pub struct SourceRuleMatch {
     pub example: String,
 }
 
-/// Inspect only newly introduced sources. Never apply replacements or write data.
+/// Inspect original fields in candidate sources, excluding rules already scoped there.
+/// Never apply replacements or write data.
 pub fn source_rule_matches(
     con: &Connection,
     names: &[String],
@@ -848,7 +849,7 @@ pub fn source_rule_matches(
 ) -> Result<Vec<SourceRuleMatch>> {
     let mut output = Vec::new();
     for table in names {
-        control.log(&format!("正在检查新增来源表：{table}"))?;
+        control.log(&format!("正在检查来源表：{table}"))?;
         let key = key_name(con, table)?;
         let mut statement = con.prepare(&format!(
             "SELECT {key},Bytes FROM {} ORDER BY 1",

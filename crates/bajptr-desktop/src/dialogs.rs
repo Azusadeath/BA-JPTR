@@ -291,7 +291,20 @@ impl Desktop {
         }
         if self.show_logs {
             let mut open = true;
-            window("运行详情", ctx, 780.)
+            let longest = self
+                .logs
+                .iter()
+                .max_by_key(|line| line.chars().count())
+                .map(String::as_str)
+                .unwrap_or("");
+            let font = egui::TextStyle::Body.resolve(&ctx.style_of(egui::Theme::Light));
+            let width = ctx
+                .fonts_mut(|fonts| fonts.layout_no_wrap(longest.into(), font, TEXT).size().x + 12.)
+                .clamp(320., (ctx.content_rect().width() - 80.).clamp(320., 720.));
+            window("运行详情", ctx, width)
+                .id(egui::Id::unique("run-details-content-width"))
+                .min_width(280.)
+                .max_width(width)
                 .open(&mut open)
                 .resizable(true)
                 .show(ctx, |ui| {
@@ -300,7 +313,7 @@ impl Desktop {
                         .stick_to_bottom(true)
                         .show(ui, |ui| {
                             for line in &self.logs {
-                                ui.label(line);
+                                ui.add(egui::Label::new(line).wrap().selectable(true));
                             }
                         });
                 });
@@ -467,10 +480,11 @@ impl Desktop {
                     };
                     ui.label(label);
                     if ui.button("选择来源表…").clicked() {
-                        self.scope_form = Some(ScopeForm::new(&form.scope, self.tables.clone()));
-                        if self.tables.is_empty() {
-                            self.background_tables();
-                        }
+                        let mut scope = ScopeForm::new(&form.scope, vec![]);
+                        scope.old = form.old.clone();
+                        scope.mode = form.mode.clone();
+                        self.query_scope_sources(&mut scope);
+                        self.scope_form = Some(scope);
                     }
                 });
                 if form.new.is_empty() && !form.old.is_empty() {
@@ -520,21 +534,20 @@ impl Desktop {
                             .desired_width(330.),
                     );
                     if ui
-                        .button(if form.available.is_empty() {
-                            "重试读取表名"
-                        } else {
-                            "刷新"
-                        })
+                        .add_enabled(form.request.is_none(), egui::Button::new("刷新"))
                         .clicked()
                     {
-                        self.background_tables();
+                        self.query_scope_sources(&mut form);
                     }
                 });
                 ui.horizontal_wrapped(|ui| {
                     for (label, operation) in
                         [("全选", "select"), ("清空", "clear"), ("反选", "invert")]
                     {
-                        if ui.button(label).clicked() {
+                        if ui
+                            .add_enabled(form.request.is_none(), egui::Button::new(label))
+                            .clicked()
+                        {
                             form.update_visible(operation);
                             form.error.clear();
                         }
@@ -542,9 +555,11 @@ impl Desktop {
                     ui.colored_label(MUTED, format!("已选 {} 张表", form.checked.len()));
                 });
                 let mut available = form.available.clone();
-                for name in form.checked.clone() {
-                    if !available.iter().any(|v| text(v, "name") == name) {
-                        available.push(json!({"name":name,"label":name}));
+                if form.old.is_empty() && form.request.is_none() {
+                    for name in form.checked.clone() {
+                        if !available.iter().any(|v| text(v, "name") == name) {
+                            available.push(json!({"name":name,"label":name}));
+                        }
                     }
                 }
                 let needle = form.filter.to_lowercase();
@@ -552,8 +567,18 @@ impl Desktop {
                     .auto_shrink([false, true])
                     .max_height((ctx.content_rect().height() - 350.).clamp(150., 320.))
                     .show(ui, |ui| {
-                        if available.is_empty() {
-                            ui.colored_label(MUTED, "未读取到来源表。");
+                        if form.request.is_some() {
+                            ui.spinner();
+                            ui.colored_label(MUTED, "正在读取来源表…");
+                        } else if available.is_empty() && form.error.is_empty() {
+                            ui.colored_label(
+                                MUTED,
+                                if form.old.is_empty() {
+                                    "未读取到来源表。"
+                                } else {
+                                    "没有匹配的来源表。"
+                                },
+                            );
                         }
                         for row in available {
                             let name = text(&row, "name");

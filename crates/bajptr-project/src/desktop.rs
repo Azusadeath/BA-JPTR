@@ -443,6 +443,7 @@ impl Project {
         if matches!(
             action,
             "tables"
+                | "scope_sources"
                 | "sources"
                 | "search"
                 | "text_open"
@@ -538,6 +539,14 @@ impl Project {
                 baseline::info(&original)
             }
             "sources" => self.synchronize_sources(control),
+            "scope_sources" => self.engine.scope_sources(
+                &self.game,
+                &self.data.join("backup"),
+                text(p, "old")?,
+                text(p, "mode")?,
+                self.skip,
+                control,
+            ),
             "sources_ack" => {
                 self.require(p.get("revision"))?;
                 let key = model::game_key(&self.game)?;
