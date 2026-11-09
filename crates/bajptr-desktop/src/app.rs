@@ -239,11 +239,21 @@ impl Desktop {
         }
     }
     pub fn background_tables(&mut self) {
-        if self.pending.values().any(|a| a == "sources") || !self.connected || self.busy.is_some() {
+        if self.sources_ready
+            || self.pending.values().any(|a| a == "sources")
+            || !self.connected
+            || self.busy.is_some()
+        {
             return;
         }
         self.sources_ready = false;
         self.submit("sources", json!({}), "正在核对来源表与词条范围…", false);
+    }
+    fn set_baseline(&mut self, baseline: Value) {
+        if self.baseline["version_id"] != baseline["version_id"] {
+            self.sources_ready = false;
+        }
+        self.baseline = baseline;
     }
     pub fn query_scope_sources(&mut self, form: &mut ScopeForm) {
         if self.write_busy() {
@@ -540,7 +550,7 @@ impl Desktop {
                         continue;
                     }
                     self.baseline_check = data["baseline_status"].clone();
-                    self.baseline = self.baseline_check["baseline"].clone();
+                    self.set_baseline(self.baseline_check["baseline"].clone());
                     self.connected = data["connected"] == true;
                     self.application = text(&data, "application");
                     match text(&self.baseline_check, "state").as_str() {
@@ -568,7 +578,8 @@ impl Desktop {
                     }
                 }
                 "baseline_commit" => {
-                    self.baseline = data;
+                    self.set_baseline(data);
+                    self.sources_ready = false;
                     self.confirm_baseline = None;
                     self.search = Value::Null.into();
                     self.selection.clear();
@@ -752,7 +763,7 @@ impl Desktop {
                     self.status = "补丁已准备，可在预览界面确认应用。".into();
                 }
                 "baseline" => {
-                    self.baseline = data;
+                    self.set_baseline(data);
                     self.status = "初始底稿已检查。".into();
                 }
                 "import_read" => {
@@ -966,6 +977,45 @@ pub fn data_row(
 #[cfg(test)]
 mod view_tests {
     use super::*;
+
+    #[test]
+    fn ready_source_inventory_does_not_queue_a_blocking_sync() {
+        let ctx = egui::Context::default();
+        let mut app = Desktop::initial();
+        let data = std::env::temp_dir().join(format!("bajptr-header-test-{}", std::process::id()));
+        app.backend = Some(Backend::start(&data, &data, ctx).unwrap());
+        app.connected = true;
+        app.game = "connected-game".into();
+        app.baseline = json!({"version_id":"current"});
+        app.sources_ready = true;
+        app.background_tables();
+        assert!(
+            app.pending.is_empty(),
+            "an unchanged baseline must not queue another source sync"
+        );
+        assert!(
+            !app.write_busy(),
+            "rechecking an unchanged baseline must not disable header buttons"
+        );
+        assert!(app.sources_ready);
+        app.set_baseline(json!({"version_id":"current","verified":true}));
+        app.background_tables();
+        assert!(
+            app.pending.is_empty(),
+            "refreshing the same baseline must reuse sources"
+        );
+        app.set_baseline(json!({"version_id":"updated"}));
+        app.background_tables();
+        assert!(
+            app.pending.values().any(|action| action == "sources"),
+            "a new baseline must still check for new source tables"
+        );
+        assert!(
+            app.write_busy(),
+            "source migration must retain its write protection"
+        );
+        assert!(!app.sources_ready);
+    }
 
     #[test]
     fn preview_wheel_scrolls_only_the_hovered_pane() {
