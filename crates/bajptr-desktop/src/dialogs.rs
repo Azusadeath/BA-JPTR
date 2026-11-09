@@ -1249,7 +1249,7 @@ if ui.button("取消").clicked(){close=true;}});
                         });
                         ui.colored_label(
                             MUTED,
-                            "仅管理单条修改；批量记录请从替换表的“文本范围”查看。",
+                            "仅管理单条修改；查看批量范围请双击替换表中的批量条目。",
                         );
                     });
                     if edits.is_empty() {

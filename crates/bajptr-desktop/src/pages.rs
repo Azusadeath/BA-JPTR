@@ -245,20 +245,6 @@ impl Desktop {
                 }
                 self.rule_selection = None;
             }
-            let range = ui.add_enabled(
-                can_edit && selected_batch.is_some_and(|e| e["id"].is_string()),
-                ToolButton::new("文本范围"),
-            );
-            if let Some(entry) = selected_batch {
-                range
-                    .clone()
-                    .on_hover_text(format!("查看文本范围（{}）", count(entry, "count")));
-            }
-            if range.clicked()
-                && let Some(entry) = selected_batch
-            {
-                self.open_batch_scope(&text(entry, "id"));
-            }
             ui.separator();
             ui.menu_button("词表", |ui| {
                 if ui
