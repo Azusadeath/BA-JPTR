@@ -572,12 +572,8 @@ impl Desktop {
                     egui::ComboBox::from_id_salt("rule-mode")
                         .selected_text(mode_name(&form.mode))
                         .show_ui(ui, |ui| {
-                            for (mode, label) in [
-                                ("sub", "包含文字"),
-                                ("exact", "整段相同"),
-                                ("re", "正则模板"),
-                            ] {
-                                ui.selectable_value(&mut form.mode, mode.into(), label);
+                            for mode in ["sub", "exact", "re"] {
+                                ui.selectable_value(&mut form.mode, mode.into(), mode_name(mode));
                             }
                         });
                 });

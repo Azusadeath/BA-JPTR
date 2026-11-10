@@ -33,7 +33,7 @@ pub fn search_sources<'a>(all: &'a [Value], search: &'a Value, keyword: &str) ->
 pub fn mode_name(mode: &str) -> &'static str {
     match mode {
         "exact" => "整段相同",
-        "re" => "正则表达式",
+        "re" => "正则模板",
         _ => "包含文字",
     }
 }

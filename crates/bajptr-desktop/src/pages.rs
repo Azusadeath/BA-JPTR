@@ -199,15 +199,6 @@ impl Desktop {
                         self.status = "跳过假名选项已更新，请重新查找".into();
                         self.save_settings();
                     }
-                    ui.label(
-                        egui::RichText::new(if batches.is_empty() {
-                            format!("{} 条词条", rules.len())
-                        } else {
-                            format!("{} 条词条 · {} 条批量修改", rules.len(), batches.len())
-                        })
-                        .size(13.)
-                        .color(MUTED),
-                    );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let ready = self.connected
                             && self.sources_ready
@@ -312,7 +303,7 @@ impl Desktop {
                                         new
                                     },
                                     if !row["draft"].is_null() {
-                                        "模板".into()
+                                        mode_name("re").into()
                                     } else {
                                         mode_name(&text(&row["rule"], "mode")).into()
                                     },
@@ -578,6 +569,15 @@ impl Desktop {
                                         "folder",
                                     )));
                                 }
+                                if secondary(
+                                    ui,
+                                    self.connected && self.busy.is_none(),
+                                    "恢复初始底稿",
+                                )
+                                .clicked()
+                                {
+                                    self.confirm_restore = true;
+                                }
                             });
                             egui::CollapsingHeader::new("底稿详情").show(ui, |ui| {
                                 for (label, key) in [
@@ -648,20 +648,6 @@ impl Desktop {
                                 }
                                 ui.end_row();
                             });
-                        ui.separator();
-                        ui.horizontal(|ui| {
-                            ui.label("恢复");
-                            ui.add_space(24.);
-                            if secondary(
-                                ui,
-                                self.connected && self.busy.is_none() && !self.baseline.is_null(),
-                                "恢复初始底稿",
-                            )
-                            .clicked()
-                            {
-                                self.confirm_restore = true;
-                            }
-                        });
                         ui.separator();
                         if action(ui, true, "关于 BA-JPTR", ButtonKind::Quiet).clicked() {
                             self.show_about = true;
