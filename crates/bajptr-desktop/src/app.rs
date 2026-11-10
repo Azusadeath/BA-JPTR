@@ -979,6 +979,70 @@ mod view_tests {
     use super::*;
 
     #[test]
+    fn single_edit_manager_shows_one_full_comparison_and_preserves_filtered_selection() {
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx);
+        let first = json!({"index":7,"active":true,"label":"技能说明","edit":{"table":"Skill","row_id":9606,"slot":2,"original":"独有原文\n保留换行","replacement":"独有修改"}});
+        let second = json!({"index":9,"active":false,"label":"剧情","edit":{"table":"Scenario","row_id":9607,"slot":1,"original":"另一条原文","replacement":"另一条修改"}});
+        let mut app = Desktop::initial();
+        app.show_edits = true;
+        app.state = json!({"edits":[first.clone()]}).into();
+        app.edit_view.filter = "以前的筛选".into();
+        let draw = |app: &mut Desktop| {
+            let mut output = None;
+            for _ in 0..3 {
+                output = Some(ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(900., 620.),
+                        )),
+                        ..Default::default()
+                    },
+                    |ui| app.dialogs(ui.ctx()),
+                ));
+            }
+            output
+                .unwrap()
+                .shapes
+                .into_iter()
+                .filter_map(|shape| match shape.shape {
+                    egui::Shape::Text(text) => Some(text.galley.text().to_string()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let text = draw(&mut app);
+        assert_eq!(
+            app.edit_view.selected,
+            Some(7),
+            "the only record should be ready for editing"
+        );
+        assert_eq!(
+            text.iter()
+                .filter(|v| v.as_str() == "独有原文\n保留换行")
+                .count(),
+            1
+        );
+        assert_eq!(text.iter().filter(|v| v.as_str() == "独有修改").count(), 1);
+        app.state = json!({"edits":[first,second.clone()]}).into();
+        app.edit_view.filter = "另一条修改".into();
+        draw(&mut app);
+        assert_eq!(
+            app.edit_view.selected,
+            Some(9),
+            "filtering must not leave actions pointing at a hidden record"
+        );
+        app.state = json!({"edits":[second]}).into();
+        draw(&mut app);
+        assert_eq!(
+            app.edit_view.selected,
+            Some(9),
+            "removing another record must preserve the real edit index"
+        );
+    }
+
+    #[test]
     fn ready_source_inventory_does_not_queue_a_blocking_sync() {
         let ctx = egui::Context::default();
         let mut app = Desktop::initial();

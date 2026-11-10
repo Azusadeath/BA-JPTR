@@ -516,8 +516,8 @@ impl Desktop {
             });
         }
         let width = ui.available_width() - 12.;
-        let widths = [width - 270., 180., 90.];
-        table_header(ui, &["本次文本", "来源表", "记录 / 字段"], &widths);
+        let widths = [width - 180., 180.];
+        table_header(ui, &["本次文本", "来源表"], &widths);
         let table_height = ui.available_height();
         egui::Frame::new()
             .fill(Color32::WHITE)
@@ -579,8 +579,6 @@ impl Desktop {
                                     let values = [
                                         text(row, "text").replace(['\r', '\n'], " "),
                                         text(row, "label"),
-                                        format!("{} · {}", row["row_id"], row["slot"])
-                                            .replace('"', ""),
                                     ];
                                     let response = data_row(
                                         ui,

@@ -74,15 +74,6 @@ pub struct EditView {
     pub selected: Option<usize>,
 }
 
-pub fn edit_location(entry: &Value) -> String {
-    let edit = &entry["edit"];
-    let row = edit["row_id"]
-        .as_str()
-        .map(str::to_string)
-        .unwrap_or_else(|| edit["row_id"].to_string());
-    format!("{} · {}", row, edit["slot"])
-}
-
 pub fn edit_matches(entry: &Value, filter: &str) -> bool {
     if filter.trim().is_empty() {
         return true;
@@ -91,7 +82,6 @@ pub fn edit_matches(entry: &Value, filter: &str) -> bool {
     [
         text(entry, "label"),
         text(edit, "table"),
-        edit_location(entry),
         text(edit, "original"),
         text(&edit["batch_operation"], "before"),
         text(edit, "replacement"),
@@ -337,19 +327,13 @@ mod tests {
         assert!(input.submit(&[enter], true, true));
     }
     #[test]
-    fn edit_filter_finds_original_replacement_source_and_exact_location() {
+    fn edit_filter_finds_text_and_source_without_internal_record_ids() {
         let entry = json!({"index":8,"label":"技能说明","edit":{"table":"Skill","row_id":9606,"slot":2,"original":"第一行\n第二行","replacement":"新内容"}});
-        for needle in [
-            "9606",
-            "9606 · 2",
-            "skill",
-            "技能",
-            "第一行 第二行",
-            "新内容",
-        ] {
+        for needle in ["skill", "技能", "第一行 第二行", "新内容"] {
             assert!(edit_matches(&entry, needle));
         }
         assert!(!edit_matches(&entry, "不存在"));
+        assert!(!edit_matches(&entry, "9606"));
     }
     #[test]
     fn search_sources_use_all_before_search_and_complete_hits_after_search() {
@@ -366,7 +350,7 @@ mod tests {
         assert!(search_sources(&all, &empty, "任务").is_empty());
     }
     #[test]
-    fn batch_scope_finds_one_of_a_hundred_by_text_and_exact_location() {
+    fn batch_scope_finds_one_of_a_hundred_by_text_and_source() {
         let entries: Vec<_>=(0..100).map(|i|json!({"index":i,"label":"技能说明","edit":{"batch":true,"table":"LocalizeSkillDBSchema","row_id":1000+i,"slot":5,"original":format!("原文第{i}段"),"replacement":if i==99{"独有锚点\n替换结果"}else{"其他结果"},"batch_operation":{"id":"group","before":"批量之前的文字"}}})).collect();
         let mut form = BatchScopeForm {
             id: "group".into(),
@@ -381,16 +365,11 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![99]
         );
-        for filter in [
-            "1099",
-            "LOCALIZESKILLDBSCHEMA",
-            "技能说明",
-            "批量之前的文字",
-        ] {
+        for filter in ["LOCALIZESKILLDBSCHEMA", "技能说明", "批量之前的文字"] {
             form.filter = filter.into();
             assert!(form.contains(&entries[99]) && edit_matches(&entries[99], &form.filter));
         }
-        assert_eq!(edit_location(&entries[99]), "1099 · 5");
+        assert!(!edit_matches(&entries[99], "1099"));
         form.id = "another-group".into();
         form.filter.clear();
         assert!(!form.contains(&entries[99]));
