@@ -262,16 +262,27 @@ fn unchanged_source_inventory_reuses_metadata_without_opening_the_database() {
     call(&mut p, "tables", json!({}));
     call(&mut p, "sources", json!({}));
     let mut reopened = f.project();
+    let ready_messages = std::cell::Cell::new(0);
     let sync = reopened
         .dispatch(
             "sources",
             &json!({}),
             &Control {
-                callback: &|message| !message.is_some_and(|m| m.starts_with("正在读取初始底稿")),
+                callback: &|message| {
+                    if message == Some("来源表已就绪。") {
+                        ready_messages.set(ready_messages.get() + 1);
+                    }
+                    !message.is_some_and(|m| m.starts_with("正在读取初始底稿"))
+                },
             },
         )
         .unwrap();
     assert_eq!(sync["missing_history"], false);
+    assert_eq!(
+        ready_messages.get(),
+        1,
+        "one source sync should report readiness once"
+    );
     assert!(
         sync["state"]["source_notices"]
             .as_array()

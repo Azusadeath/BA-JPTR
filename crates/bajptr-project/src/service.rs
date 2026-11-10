@@ -351,7 +351,6 @@ impl Engine {
                 .as_array()
                 .is_some_and(|a| a.iter().all(|s| s.as_str().is_some_and(|s| !s.is_empty())))
         {
-            control.log("来源表已就绪。")?;
             return Ok(value["tables"].clone());
         }
         self.open(&original, control)?;

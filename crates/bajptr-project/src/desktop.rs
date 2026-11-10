@@ -339,6 +339,7 @@ impl Project {
             Some(&metadata),
             control,
         );
+        control.log("来源表已就绪。")?;
         Ok(
             json!({"tables":names.iter().map(|n|model::table_info(n)).collect::<Vec<_>>(),"state":self.state()?,"migrated":migrated,"missing_history":false}),
         )
