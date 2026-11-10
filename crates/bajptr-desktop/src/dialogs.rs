@@ -246,15 +246,11 @@ fn single_edit_browser(
                             for i in range {
                                 let entry = entries[i];
                                 let index = count(entry, "index") as usize;
-                                let summary = format!(
-                                    "{} · {}",
-                                    text(entry, "label"),
-                                    text(&entry["edit"], "original")
-                                        .replace(['\r', '\n'], " ")
-                                        .chars()
-                                        .take(80)
-                                        .collect::<String>()
-                                );
+                                let summary = text(&entry["edit"], "original")
+                                    .replace(['\r', '\n'], " ")
+                                    .chars()
+                                    .take(80)
+                                    .collect::<String>();
                                 let width = ui.available_width();
                                 if data_row(
                                     ui,
@@ -1360,7 +1356,7 @@ if ui.button("取消").clicked(){close=true;}});
                             .add_sized(
                                 [width, 34.],
                                 egui::TextEdit::singleline(&mut self.edit_view.filter)
-                                    .hint_text("搜索原文、替换结果或来源表"),
+                                    .hint_text("搜索原文或替换结果"),
                             )
                             .changed()
                         {
@@ -1390,20 +1386,6 @@ if ui.button("取消").clicked(){close=true;}});
                                 false,
                             );
                         }
-                        ui.add_space(8.);
-                        ui.add(
-                            egui::Label::new(
-                                RichText::new(format!("来源表：{}", text(entry, "label")))
-                                    .size(13.)
-                                    .color(MUTED),
-                            )
-                            .truncate(),
-                        )
-                        .on_hover_text(format!(
-                            "{}（{}）",
-                            text(entry, "label"),
-                            text(&entry["edit"], "table")
-                        ));
                     });
                 }
                 if edits.is_empty() {
