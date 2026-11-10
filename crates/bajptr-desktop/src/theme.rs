@@ -380,16 +380,6 @@ impl egui::Widget for ToolButton {
     }
 }
 
-pub fn pill(ui: &mut egui::Ui, label: &str, color: Color32, fill: Color32) {
-    egui::Frame::new()
-        .fill(fill)
-        .corner_radius(6)
-        .inner_margin(egui::Margin::symmetric(9, 5))
-        .show(ui, |ui| {
-            ui.label(egui::RichText::new(label).size(12.5).color(color));
-        });
-}
-
 pub fn app_icon() -> egui::IconData {
     egui::IconData {
         rgba: bajptr_brand::rgba(64),

@@ -7,43 +7,6 @@ impl Desktop {
     pub fn header(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             self.navigation(ui);
-            let width = (ui.available_width() - 90.).max(80.);
-            ui.add_sized(
-                [width, 34.],
-                egui::Label::new(
-                    egui::RichText::new(&self.application)
-                        .size(13.)
-                        .color(MUTED),
-                )
-                .halign(egui::Align::RIGHT)
-                .truncate(),
-            )
-            .on_hover_text(&self.application);
-            let pending = self.confirm_baseline.is_some()
-                || matches!(
-                    text(&self.baseline_check, "state").as_str(),
-                    "missing" | "update" | "changed"
-                );
-            pill(
-                ui,
-                if self.connected {
-                    "已连接"
-                } else if pending {
-                    "待确认"
-                } else {
-                    "未连接"
-                },
-                if self.connected {
-                    Color32::from_rgb(44, 115, 84)
-                } else {
-                    MUTED
-                },
-                if self.connected {
-                    Color32::from_rgb(233, 246, 239)
-                } else {
-                    BG
-                },
-            );
         });
         if self.tab != 2 && (!self.connected || self.confirm_baseline.is_some()) {
             ui.add_space(8.);

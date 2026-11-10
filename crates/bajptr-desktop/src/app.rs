@@ -829,7 +829,29 @@ impl eframe::App for Desktop {
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             let cancellable = self.busy.as_ref().is_some_and(|b| b.cancellable);
-                            let reserve = 120. + if cancellable { 128. } else { 0. };
+                            let application = (self.connected
+                                && self.busy.is_none()
+                                && self.application != self.status)
+                                .then_some(self.application.as_str())
+                                .filter(|label| !label.is_empty());
+                            let application_width = application.map_or(0., |label| {
+                                ui.painter()
+                                    .layout_no_wrap(
+                                        label.into(),
+                                        egui::FontId::proportional(13.),
+                                        MUTED,
+                                    )
+                                    .size()
+                                    .x
+                                    .min(260.)
+                            });
+                            let reserve = 120.
+                                + if cancellable { 128. } else { 0. }
+                                + if application.is_some() {
+                                    application_width + ui.spacing().item_spacing.x
+                                } else {
+                                    0.
+                                };
                             if self.busy.is_some() {
                                 ui.spinner();
                             }
@@ -848,6 +870,15 @@ impl eframe::App for Desktop {
                                     .on_hover_text(&self.status);
                                 },
                             );
+                            if let Some(label) = application {
+                                ui.add_sized(
+                                    [application_width, 36.],
+                                    egui::Label::new(RichText::new(label).size(13.).color(MUTED))
+                                        .halign(egui::Align::RIGHT)
+                                        .truncate(),
+                                )
+                                .on_hover_text(label);
+                            }
                             if cancellable && secondary(ui, true, "取消任务").clicked() {
                                 self.cancel();
                             }
