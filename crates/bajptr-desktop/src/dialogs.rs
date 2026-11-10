@@ -23,6 +23,21 @@ fn window<'a>(title: &'a str, ctx: &egui::Context, width: f32) -> egui::Window<'
         .max_height((ctx.content_rect().height() - 40.).max(400.))
 }
 
+fn about_link(ui: &mut egui::Ui, label: &str, url: &str) {
+    let response = ui.add_sized(
+        [ui.available_width(), 42.],
+        egui::Button::new("")
+            .left_text(RichText::new(label).size(16.))
+            .right_text(RichText::new("›").size(22.).color(MUTED))
+            .frame_when_inactive(false),
+    );
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Link, ui.is_enabled(), label));
+    if response.clicked() {
+        ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+    }
+    response.on_hover_text(url);
+}
+
 // Share text filtering and full-text presentation without forcing both managers
 // to use the same list/detail layout.
 fn record_filter(ui: &mut egui::Ui, id: &str, filter: &mut String, selected: &mut Option<usize>) {
@@ -300,6 +315,100 @@ fn single_edit_browser(
 }
 
 impl Desktop {
+    fn about_dialog(&mut self, ctx: &egui::Context) {
+        if !self.show_about {
+            return;
+        }
+        let mut open = true;
+        window("关于", ctx, 700.)
+            .id(egui::Id::unique("about-product-information"))
+            .min_width(500.)
+            .default_height((ctx.content_rect().height() - 60.).min(600.))
+            .open(&mut open)
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical()
+                    .id_salt("about-content")
+                    .auto_shrink([false, true])
+                    .max_height((ctx.content_rect().height() - 140.).max(220.))
+                    .show(ui, |ui| {
+                        ui.spacing_mut().item_spacing.y = 6.;
+                        egui::Frame::new()
+                            .fill(egui::Color32::from_rgb(249, 251, 254))
+                            .stroke(egui::Stroke::new(1., LINE))
+                            .corner_radius(12)
+                            .inner_margin(18)
+                            .show(ui, |ui| {
+                                ui.set_min_width(ui.available_width());
+                                ui.label(RichText::new("BA-JPTR").size(24.).strong().color(TEXT));
+                                ui.colored_label(
+                                    MUTED,
+                                    format!(
+                                        "版本 {}（构建于 {}）",
+                                        env!("CARGO_PKG_VERSION"),
+                                        env!("BAJPTR_BUILD_TIME")
+                                    ),
+                                );
+                                ui.colored_label(
+                                    MUTED,
+                                    "在已有汉化基础上，自定义蔚蓝档案日服 PC 文本。",
+                                );
+                                ui.add_space(6.);
+                                ui.horizontal_wrapped(|ui| {
+                                    if primary(ui, true, "查看最新版本").clicked() {
+                                        ctx.open_url(egui::OpenUrl::new_tab(
+                                            "https://github.com/Azusadeath/BA-JPTR/releases/latest",
+                                        ));
+                                    }
+                                    if secondary(ui, true, "使用说明").clicked() {
+                                        ctx.open_url(egui::OpenUrl::new_tab(
+                                            "https://github.com/Azusadeath/BA-JPTR#readme",
+                                        ));
+                                    }
+                                });
+                            });
+                        ui.add_space(6.);
+                        ui.label(RichText::new("链接").strong().color(TEXT));
+                        about_link(ui, "GitHub 仓库", "https://github.com/Azusadeath/BA-JPTR");
+                        ui.separator();
+                        about_link(
+                            ui,
+                            "历史版本",
+                            "https://github.com/Azusadeath/BA-JPTR/releases",
+                        );
+                        ui.separator();
+                        about_link(
+                            ui,
+                            "开源许可",
+                            "https://github.com/Azusadeath/BA-JPTR/blob/main/LICENSE",
+                        );
+                        ui.add_space(12.);
+                        egui::CollapsingHeader::new("构建与运行信息").show(ui, |ui| {
+                            egui::Grid::new("about-build-metadata")
+                                .num_columns(2)
+                                .spacing(egui::vec2(18., 10.))
+                                .show(ui, |ui| {
+                                    for (label, value) in [
+                                        ("源码版本", env!("BAJPTR_BUILD_COMMIT")),
+                                        ("构建目标", env!("BAJPTR_BUILD_TARGET")),
+                                        ("构建模式", env!("BAJPTR_BUILD_PROFILE")),
+                                        ("Rust", env!("BAJPTR_BUILD_RUSTC")),
+                                        ("开源许可", env!("CARGO_PKG_LICENSE")),
+                                        ("运行平台", std::env::consts::OS),
+                                        ("运行架构", std::env::consts::ARCH),
+                                    ] {
+                                        if !value.is_empty() {
+                                            ui.colored_label(MUTED, label);
+                                            ui.add(egui::Label::new(value).wrap().selectable(true));
+                                            ui.end_row();
+                                        }
+                                    }
+                                });
+                        });
+                    });
+            });
+        self.show_about = open;
+    }
+
     pub fn dialogs(&mut self, ctx: &egui::Context) {
         let before = [
             self.rule_form.is_some(),
@@ -351,27 +460,7 @@ impl Desktop {
         self.source_notices_dialog(ctx);
         self.edit_manager(ctx);
         self.confirmations(ctx);
-        if self.show_about {
-            let mut open = true;
-            window("关于 BA-JPTR", ctx, 460.)
-                .open(&mut open)
-                .resizable(false)
-                .show(ctx, |ui| {
-                    ui.heading("BA-JPTR");
-                    ui.label("蔚蓝档案日服译名替换");
-                    ui.label(format!("版本 {}", env!("CARGO_PKG_VERSION")));
-                    ui.add_space(8.);
-                    ui.hyperlink("https://github.com/Azusadeath/BA-JPTR");
-                    ui.horizontal(|ui| {
-                        ui.colored_label(MUTED, "开源许可");
-                        ui.hyperlink_to(
-                            env!("CARGO_PKG_LICENSE"),
-                            "https://github.com/Azusadeath/BA-JPTR/blob/main/LICENSE",
-                        );
-                    });
-                });
-            self.show_about = open;
-        }
+        self.about_dialog(ctx);
         if let Some(detail) = self.table_detail.clone() {
             let mut open = true;
             window("来源表详情", ctx, 580.)

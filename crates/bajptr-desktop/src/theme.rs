@@ -129,9 +129,9 @@ impl Icon {
                 Self::Apply
             }
             "选择文件夹" | "打开输出目录" | "打开底稿位置" => Self::Folder,
-            "检查底稿" | "刷新" => Self::Refresh,
+            "检查底稿" | "刷新" | "查看最新版本" => Self::Refresh,
             "查找" => Self::Search,
-            "运行详情" | "来源表详情" | "关于 BA-JPTR" => Self::Info,
+            "运行详情" | "来源表详情" | "关于 BA-JPTR" | "使用说明" => Self::Info,
             "取消任务" => Self::Close,
             "替换选中文本" | "替换" => Self::Replace,
             "恢复底稿" | "恢复初始底稿" | "恢复" => Self::Restore,

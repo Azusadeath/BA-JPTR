@@ -525,6 +525,7 @@ dependencies = [
  "bajptr-brand",
  "bajptr-core",
  "bajptr-project",
+ "chrono",
  "eframe",
  "egui_extras",
  "rfd",

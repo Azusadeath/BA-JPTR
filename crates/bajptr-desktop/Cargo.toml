@@ -16,4 +16,5 @@ bajptr-brand = { path = "../bajptr-brand" }
 
 [build-dependencies]
 bajptr-brand = { path = "../bajptr-brand", features = ["resource"] }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
