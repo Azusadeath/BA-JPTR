@@ -80,7 +80,6 @@ impl Desktop {
                         )
                         .clicked()
                         {
-                            self.connected = false;
                             self.submit("check", json!({}), "正在检查游戏资源与底稿…", true);
                         }
                         pill(
@@ -140,8 +139,6 @@ impl Desktop {
         )
         .clicked()
         {
-            self.connected = false;
-            self.show_game_directory = false;
             self.submit("check", json!({}), "正在检查游戏资源与底稿…", true);
         }
     }

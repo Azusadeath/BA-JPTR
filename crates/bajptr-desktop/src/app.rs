@@ -1043,6 +1043,98 @@ mod view_tests {
     }
 
     #[test]
+    fn checking_baseline_keeps_directory_layout_until_the_result() {
+        for expanded in [false, true] {
+            let ctx = egui::Context::default();
+            crate::theme::install(&ctx);
+            let mut app = Desktop::initial();
+            let data = std::env::temp_dir().join(format!(
+                "bajptr-header-check-test-{}-{expanded}",
+                std::process::id()
+            ));
+            app.backend = Some(Backend::start(&data, &data, ctx.clone()).unwrap());
+            app.connected = true;
+            app.game = "connected-game".into();
+            app.show_game_directory = expanded;
+            let mut frame = 0;
+            let mut draw = |app: &mut Desktop, events| {
+                frame += 1;
+                ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(1080., 680.),
+                        )),
+                        time: Some(f64::from(frame) / 60.),
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| app.header(ui),
+                )
+                .shapes
+                .into_iter()
+                .filter_map(|shape| match shape.shape {
+                    egui::Shape::Text(text) => Some((
+                        text.galley.text().to_string(),
+                        egui::Rect::from_min_size(text.pos, text.galley.size()),
+                    )),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+            };
+            let mut header = Vec::new();
+            for _ in 0..3 {
+                header = draw(&mut app, vec![]);
+            }
+            let position = header
+                .iter()
+                .find(|(label, _)| label == "检查底稿")
+                .unwrap()
+                .1
+                .center();
+            for pressed in [true, false] {
+                draw(
+                    &mut app,
+                    vec![
+                        egui::Event::PointerMoved(position),
+                        egui::Event::PointerButton {
+                            pos: position,
+                            button: egui::PointerButton::Primary,
+                            pressed,
+                            modifiers: egui::Modifiers::default(),
+                        },
+                    ],
+                );
+            }
+            assert!(app.pending.values().any(|action| action == "check"));
+            assert!(
+                app.connected,
+                "starting a check must not report a lost connection"
+            );
+            let header = draw(&mut app, vec![]);
+            assert_eq!(
+                header.iter().any(|(label, _)| label == "游戏目录"),
+                expanded,
+                "checking must preserve the chosen directory layout"
+            );
+            // The worker has no loaded game, so this check must fail. Consume
+            // the real error to verify that failure still exposes the editor.
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while app.busy.is_some() && Instant::now() < deadline {
+                app.events();
+                std::thread::yield_now();
+            }
+            assert!(app.busy.is_none(), "the check must have completed");
+            assert!(
+                !app.connected,
+                "a failed check must invalidate the connection"
+            );
+            let header = draw(&mut app, vec![]);
+            assert!(header.iter().any(|(label, _)| label == "游戏目录"));
+        }
+    }
+
+    #[test]
     fn ready_source_inventory_does_not_queue_a_blocking_sync() {
         let ctx = egui::Context::default();
         let mut app = Desktop::initial();
