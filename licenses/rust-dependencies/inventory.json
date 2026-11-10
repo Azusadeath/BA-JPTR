@@ -616,6 +616,20 @@
                           ]
     },
     {
+        "name":  "displaydoc",
+        "version":  "0.2.7",
+        "license":  "MIT OR Apache-2.0",
+        "distributed_license":  "MIT OR Apache-2.0",
+        "authors":  [
+                        "Jane Lusby \u003cjlusby@yaah.dev\u003e"
+                    ],
+        "repository":  "https://github.com/yaahc/displaydoc",
+        "license_texts":  [
+                              "LICENSE-APACHE",
+                              "LICENSE-MIT"
+                          ]
+    },
+    {
         "name":  "document-features",
         "version":  "0.2.12",
         "license":  "MIT OR Apache-2.0",
@@ -1044,6 +1058,20 @@
                           ]
     },
     {
+        "name":  "form_urlencoded",
+        "version":  "1.2.2",
+        "license":  "MIT OR Apache-2.0",
+        "distributed_license":  "MIT OR Apache-2.0",
+        "authors":  [
+                        "The rust-url developers"
+                    ],
+        "repository":  "https://github.com/servo/rust-url",
+        "license_texts":  [
+                              "LICENSE-APACHE",
+                              "LICENSE-MIT"
+                          ]
+    },
+    {
         "name":  "fs2",
         "version":  "0.4.3",
         "license":  "MIT/Apache-2.0",
@@ -1294,6 +1322,125 @@
                           ]
     },
     {
+        "name":  "icu_collections",
+        "version":  "2.4.0",
+        "license":  "Unicode-3.0",
+        "distributed_license":  "Unicode-3.0",
+        "authors":  [
+                        "The ICU4X Project Developers"
+                    ],
+        "repository":  "https://github.com/unicode-org/icu4x",
+        "license_texts":  [
+                              "LICENSE"
+                          ]
+    },
+    {
+        "name":  "icu_locale_core",
+        "version":  "2.4.0",
+        "license":  "Unicode-3.0",
+        "distributed_license":  "Unicode-3.0",
+        "authors":  [
+                        "The ICU4X Project Developers"
+                    ],
+        "repository":  "https://github.com/unicode-org/icu4x",
+        "license_texts":  [
+                              "LICENSE"
+                          ]
+    },
+    {
+        "name":  "icu_normalizer",
+        "version":  "2.4.0",
+        "license":  "Unicode-3.0",
+        "distributed_license":  "Unicode-3.0",
+        "authors":  [
+                        "The ICU4X Project Developers"
+                    ],
+        "repository":  "https://github.com/unicode-org/icu4x",
+        "license_texts":  [
+                              "LICENSE"
+                          ]
+    },
+    {
+        "name":  "icu_normalizer_data",
+        "version":  "2.4.0",
+        "license":  "Unicode-3.0",
+        "distributed_license":  "Unicode-3.0",
+        "authors":  [
+                        "The ICU4X Project Developers"
+                    ],
+        "repository":  "https://github.com/unicode-org/icu4x",
+        "license_texts":  [
+                              "LICENSE"
+                          ]
+    },
+    {
+        "name":  "icu_properties",
+        "version":  "2.4.0",
+        "license":  "Unicode-3.0",
+        "distributed_license":  "Unicode-3.0",
+        "authors":  [
+                        "The ICU4X Project Developers"
+                    ],
+        "repository":  "https://github.com/unicode-org/icu4x",
+        "license_texts":  [
+                              "LICENSE"
+                          ]
+    },
+    {
+        "name":  "icu_properties_data",
+        "version":  "2.4.0",
+        "license":  "Unicode-3.0",
+        "distributed_license":  "Unicode-3.0",
+        "authors":  [
+                        "The ICU4X Project Developers"
+                    ],
+        "repository":  "https://github.com/unicode-org/icu4x",
+        "license_texts":  [
+                              "LICENSE"
+                          ]
+    },
+    {
+        "name":  "icu_provider",
+        "version":  "2.4.0",
+        "license":  "Unicode-3.0",
+        "distributed_license":  "Unicode-3.0",
+        "authors":  [
+                        "The ICU4X Project Developers"
+                    ],
+        "repository":  "https://github.com/unicode-org/icu4x",
+        "license_texts":  [
+                              "LICENSE"
+                          ]
+    },
+    {
+        "name":  "idna",
+        "version":  "1.1.0",
+        "license":  "MIT OR Apache-2.0",
+        "distributed_license":  "MIT OR Apache-2.0",
+        "authors":  [
+                        "The rust-url developers"
+                    ],
+        "repository":  "https://github.com/servo/rust-url/",
+        "license_texts":  [
+                              "LICENSE-APACHE",
+                              "LICENSE-MIT"
+                          ]
+    },
+    {
+        "name":  "idna_adapter",
+        "version":  "1.2.2",
+        "license":  "Apache-2.0 OR MIT",
+        "distributed_license":  "Apache-2.0 OR MIT",
+        "authors":  [
+                        "The rust-url developers"
+                    ],
+        "repository":  "https://github.com/hsivonen/idna_adapter",
+        "license_texts":  [
+                              "LICENSE-APACHE",
+                              "LICENSE-MIT"
+                          ]
+    },
+    {
         "name":  "image",
         "version":  "0.25.10",
         "license":  "MIT OR Apache-2.0",
@@ -1460,6 +1607,19 @@
                               "AUTHORS",
                               "LICENSE-APACHE",
                               "LICENSE-MIT"
+                          ]
+    },
+    {
+        "name":  "litemap",
+        "version":  "0.8.3",
+        "license":  "Unicode-3.0",
+        "distributed_license":  "Unicode-3.0",
+        "authors":  [
+                        "The ICU4X Project Developers"
+                    ],
+        "repository":  "https://github.com/unicode-org/icu4x",
+        "license_texts":  [
+                              "LICENSE"
                           ]
     },
     {
@@ -1710,6 +1870,20 @@
                           ]
     },
     {
+        "name":  "percent-encoding",
+        "version":  "2.3.2",
+        "license":  "MIT OR Apache-2.0",
+        "distributed_license":  "MIT OR Apache-2.0",
+        "authors":  [
+                        "The rust-url developers"
+                    ],
+        "repository":  "https://github.com/servo/rust-url/",
+        "license_texts":  [
+                              "LICENSE-APACHE",
+                              "LICENSE-MIT"
+                          ]
+    },
+    {
         "name":  "phf",
         "version":  "0.11.3",
         "license":  "MIT",
@@ -1815,6 +1989,19 @@
         "license_texts":  [
                               "LICENSE-APACHE",
                               "LICENSE-MIT"
+                          ]
+    },
+    {
+        "name":  "potential_utf",
+        "version":  "0.1.6",
+        "license":  "Unicode-3.0",
+        "distributed_license":  "Unicode-3.0",
+        "authors":  [
+                        "The ICU4X Project Developers"
+                    ],
+        "repository":  "https://github.com/unicode-org/icu4x",
+        "license_texts":  [
+                              "LICENSE"
                           ]
     },
     {
@@ -2254,6 +2441,20 @@
                           ]
     },
     {
+        "name":  "stable_deref_trait",
+        "version":  "1.2.1",
+        "license":  "MIT OR Apache-2.0",
+        "distributed_license":  "MIT OR Apache-2.0",
+        "authors":  [
+                        "Robert Grosse \u003cn210241048576@gmail.com\u003e"
+                    ],
+        "repository":  "https://github.com/storyyeller/stable_deref_trait",
+        "license_texts":  [
+                              "LICENSE-APACHE",
+                              "LICENSE-MIT"
+                          ]
+    },
+    {
         "name":  "static_assertions",
         "version":  "1.1.0",
         "license":  "MIT OR Apache-2.0",
@@ -2324,6 +2525,19 @@
                           ]
     },
     {
+        "name":  "synstructure",
+        "version":  "0.14.0",
+        "license":  "MIT",
+        "distributed_license":  "MIT",
+        "authors":  [
+                        "Nika Layzell \u003cnika@thelayzells.com\u003e"
+                    ],
+        "repository":  "https://github.com/mystor/synstructure",
+        "license_texts":  [
+                              "LICENSE"
+                          ]
+    },
+    {
         "name":  "tempfile",
         "version":  "3.27.0",
         "license":  "MIT OR Apache-2.0",
@@ -2380,6 +2594,19 @@
         "license_texts":  [
                               "LICENSE",
                               "tests/COPYRIGHT"
+                          ]
+    },
+    {
+        "name":  "tinystr",
+        "version":  "0.8.5",
+        "license":  "Unicode-3.0",
+        "distributed_license":  "Unicode-3.0",
+        "authors":  [
+                        "The ICU4X Project Developers"
+                    ],
+        "repository":  "https://github.com/unicode-org/icu4x",
+        "license_texts":  [
+                              "LICENSE"
                           ]
     },
     {
@@ -2572,6 +2799,50 @@
                           ]
     },
     {
+        "name":  "url",
+        "version":  "2.5.8",
+        "license":  "MIT OR Apache-2.0",
+        "distributed_license":  "MIT OR Apache-2.0",
+        "authors":  [
+                        "The rust-url developers"
+                    ],
+        "repository":  "https://github.com/servo/rust-url",
+        "license_texts":  [
+                              "LICENSE-APACHE",
+                              "LICENSE-MIT"
+                          ]
+    },
+    {
+        "name":  "utf_types",
+        "version":  "1.0.0",
+        "license":  "Apache-2.0 OR MIT",
+        "distributed_license":  "Apache-2.0 OR MIT",
+        "authors":  [
+                        "Henri Sivonen \u003chsivonen@hsivonen.fi\u003e"
+                    ],
+        "repository":  "https://github.com/hsivonen/utf_types",
+        "license_texts":  [
+                              "COPYRIGHT",
+                              "LICENSE-APACHE",
+                              "LICENSE-MIT"
+                          ]
+    },
+    {
+        "name":  "utf8_iter",
+        "version":  "1.1.0",
+        "license":  "Apache-2.0 OR MIT",
+        "distributed_license":  "Apache-2.0 OR MIT",
+        "authors":  [
+                        "Henri Sivonen \u003chsivonen@hsivonen.fi\u003e"
+                    ],
+        "repository":  "https://github.com/hsivonen/utf8_iter",
+        "license_texts":  [
+                              "COPYRIGHT",
+                              "LICENSE-APACHE",
+                              "LICENSE-MIT"
+                          ]
+    },
+    {
         "name":  "utf8parse",
         "version":  "0.2.2",
         "license":  "Apache-2.0 OR MIT",
@@ -2653,6 +2924,20 @@
                         "Sergio Benitez \u003csb@sergio.bz\u003e"
                     ],
         "repository":  "https://github.com/SergioBenitez/version_check",
+        "license_texts":  [
+                              "LICENSE-APACHE",
+                              "LICENSE-MIT"
+                          ]
+    },
+    {
+        "name":  "webbrowser",
+        "version":  "1.2.6",
+        "license":  "MIT OR Apache-2.0",
+        "distributed_license":  "MIT OR Apache-2.0",
+        "authors":  [
+                        "Amod Malviya @amodm"
+                    ],
+        "repository":  "https://github.com/amodm/webbrowser-rs",
         "license_texts":  [
                               "LICENSE-APACHE",
                               "LICENSE-MIT"
@@ -2993,6 +3278,19 @@
                           ]
     },
     {
+        "name":  "writeable",
+        "version":  "0.6.4",
+        "license":  "Unicode-3.0",
+        "distributed_license":  "Unicode-3.0",
+        "authors":  [
+                        "The ICU4X Project Developers"
+                    ],
+        "repository":  "https://github.com/unicode-org/icu4x",
+        "license_texts":  [
+                              "LICENSE"
+                          ]
+    },
+    {
         "name":  "xml-rs",
         "version":  "0.8.29",
         "license":  "MIT",
@@ -3001,6 +3299,32 @@
                         "Vladimir Matveev \u003cvmatveev@citrine.cc\u003e"
                     ],
         "repository":  "https://github.com/kornelski/xml-rs",
+        "license_texts":  [
+                              "LICENSE"
+                          ]
+    },
+    {
+        "name":  "yoke",
+        "version":  "0.8.4",
+        "license":  "Unicode-3.0",
+        "distributed_license":  "Unicode-3.0",
+        "authors":  [
+                        "Manish Goregaokar \u003cmanishsmail@gmail.com\u003e"
+                    ],
+        "repository":  "https://github.com/unicode-org/icu4x",
+        "license_texts":  [
+                              "LICENSE"
+                          ]
+    },
+    {
+        "name":  "yoke-derive",
+        "version":  "0.8.4",
+        "license":  "Unicode-3.0",
+        "distributed_license":  "Unicode-3.0",
+        "authors":  [
+                        "Manish Goregaokar \u003cmanishsmail@gmail.com\u003e"
+                    ],
+        "repository":  "https://github.com/unicode-org/icu4x",
         "license_texts":  [
                               "LICENSE"
                           ]
@@ -3033,6 +3357,71 @@
                               "LICENSE-APACHE",
                               "LICENSE-BSD",
                               "LICENSE-MIT"
+                          ]
+    },
+    {
+        "name":  "zerofrom",
+        "version":  "0.1.8",
+        "license":  "Unicode-3.0",
+        "distributed_license":  "Unicode-3.0",
+        "authors":  [
+                        "The ICU4X Project Developers"
+                    ],
+        "repository":  "https://github.com/unicode-org/icu4x",
+        "license_texts":  [
+                              "LICENSE"
+                          ]
+    },
+    {
+        "name":  "zerofrom-derive",
+        "version":  "0.1.8",
+        "license":  "Unicode-3.0",
+        "distributed_license":  "Unicode-3.0",
+        "authors":  [
+                        "Manish Goregaokar \u003cmanishsmail@gmail.com\u003e"
+                    ],
+        "repository":  "https://github.com/unicode-org/icu4x",
+        "license_texts":  [
+                              "LICENSE"
+                          ]
+    },
+    {
+        "name":  "zerotrie",
+        "version":  "0.2.5",
+        "license":  "Unicode-3.0",
+        "distributed_license":  "Unicode-3.0",
+        "authors":  [
+                        "The ICU4X Project Developers"
+                    ],
+        "repository":  "https://github.com/unicode-org/icu4x",
+        "license_texts":  [
+                              "LICENSE"
+                          ]
+    },
+    {
+        "name":  "zerovec",
+        "version":  "0.11.9",
+        "license":  "Unicode-3.0",
+        "distributed_license":  "Unicode-3.0",
+        "authors":  [
+                        "The ICU4X Project Developers"
+                    ],
+        "repository":  "https://github.com/unicode-org/icu4x",
+        "license_texts":  [
+                              "LICENSE"
+                          ]
+    },
+    {
+        "name":  "zerovec-derive",
+        "version":  "0.11.7",
+        "license":  "Unicode-3.0",
+        "distributed_license":  "Unicode-3.0",
+        "authors":  [
+                        "Manish Goregaokar \u003cmanishsmail@gmail.com\u003e"
+                    ],
+        "repository":  "https://github.com/unicode-org/icu4x",
+        "license_texts":  [
+                              "LICENSE"
                           ]
     },
     {

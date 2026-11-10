@@ -23,7 +23,6 @@ pub struct Desktop {
     pub game: String,
     pub skip: bool,
     pub path_changed: Option<Instant>,
-    pub show_game_directory: bool,
     pub tab: usize,
     pub status: String,
     pub application: String,
@@ -50,6 +49,7 @@ pub struct Desktop {
     pub show_edits: bool,
     pub edit_view: EditView,
     pub show_logs: bool,
+    pub show_about: bool,
     pub confirm_import: Option<Value>,
     pub confirm_restore: bool,
     pub confirm_baseline: Option<Value>,
@@ -91,7 +91,6 @@ impl Desktop {
             game: String::new(),
             skip: true,
             path_changed: None,
-            show_game_directory: false,
             tab: 0,
             status: "正在读取修改记录…".into(),
             application: "应用状态待核对，先预览".into(),
@@ -118,6 +117,7 @@ impl Desktop {
             show_edits: false,
             edit_view: EditView::default(),
             show_logs: false,
+            show_about: false,
             confirm_import: None,
             confirm_restore: false,
             confirm_baseline: None,
@@ -201,6 +201,7 @@ impl Desktop {
             || self.error.is_some()
             || self.table_detail.is_some()
             || self.show_source_notices
+            || self.show_about
     }
     pub fn submit(&mut self, action: &str, payload: Value, title: &str, cancellable: bool) {
         if self.write_busy() {
@@ -828,9 +829,7 @@ impl eframe::App for Desktop {
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             let cancellable = self.busy.as_ref().is_some_and(|b| b.cancellable);
-                            let reserve = 120.
-                                + if self.output.is_some() { 160. } else { 0. }
-                                + if cancellable { 128. } else { 0. };
+                            let reserve = 120. + if cancellable { 128. } else { 0. };
                             if self.busy.is_some() {
                                 ui.spinner();
                             }
@@ -849,11 +848,6 @@ impl eframe::App for Desktop {
                                     .on_hover_text(&self.status);
                                 },
                             );
-                            if let Some(path) = &self.output
-                                && action(ui, true, "打开输出目录", ButtonKind::Quiet).clicked()
-                            {
-                                Self::open_folder(path);
-                            }
                             if cancellable && secondary(ui, true, "取消任务").clicked() {
                                 self.cancel();
                             }
@@ -872,7 +866,7 @@ impl eframe::App for Desktop {
                     match self.tab {
                         0 => self.replacement(ui),
                         1 => self.search_page(ui),
-                        _ => self.restore_page(ui),
+                        _ => self.tools_page(ui),
                     }
                 });
             });
@@ -1044,18 +1038,17 @@ mod view_tests {
 
     #[test]
     fn checking_baseline_keeps_directory_layout_until_the_result() {
-        for expanded in [false, true] {
+        for connected in [false, true] {
             let ctx = egui::Context::default();
             crate::theme::install(&ctx);
             let mut app = Desktop::initial();
             let data = std::env::temp_dir().join(format!(
-                "bajptr-header-check-test-{}-{expanded}",
+                "bajptr-header-check-test-{}-{connected}",
                 std::process::id()
             ));
             app.backend = Some(Backend::start(&data, &data, ctx.clone()).unwrap());
-            app.connected = true;
+            app.connected = connected;
             app.game = "connected-game".into();
-            app.show_game_directory = expanded;
             let mut frame = 0;
             let mut draw = |app: &mut Desktop, events| {
                 frame += 1;
@@ -1069,7 +1062,12 @@ mod view_tests {
                         events,
                         ..Default::default()
                     },
-                    |ui| app.header(ui),
+                    |ui| {
+                        app.header(ui);
+                        if app.tab == 2 {
+                            app.tools_page(ui);
+                        }
+                    },
                 )
                 .shapes
                 .into_iter()
@@ -1086,35 +1084,55 @@ mod view_tests {
             for _ in 0..3 {
                 header = draw(&mut app, vec![]);
             }
-            let position = header
-                .iter()
-                .find(|(label, _)| label == "检查底稿")
-                .unwrap()
-                .1
-                .center();
-            for pressed in [true, false] {
-                draw(
-                    &mut app,
-                    vec![
-                        egui::Event::PointerMoved(position),
-                        egui::Event::PointerButton {
-                            pos: position,
-                            button: egui::PointerButton::Primary,
-                            pressed,
-                            modifiers: egui::Modifiers::default(),
-                        },
-                    ],
-                );
+            assert_eq!(
+                header.iter().any(|(label, _)| label == "游戏目录"),
+                !connected,
+                "the main page must expose directory controls only when needed"
+            );
+            for label in ["工具", "检查底稿"] {
+                for _ in 0..3 {
+                    header = draw(&mut app, vec![]);
+                }
+                let position = header
+                    .iter()
+                    .find(|(text, _)| text == label)
+                    .unwrap()
+                    .1
+                    .center();
+                for pressed in [true, false] {
+                    draw(
+                        &mut app,
+                        vec![
+                            egui::Event::PointerMoved(position),
+                            egui::Event::PointerButton {
+                                pos: position,
+                                button: egui::PointerButton::Primary,
+                                pressed,
+                                modifiers: egui::Modifiers::default(),
+                            },
+                        ],
+                    );
+                }
+                if label == "工具" {
+                    assert_eq!(app.tab, 2);
+                    assert!(
+                        app.pending.is_empty(),
+                        "opening tools must not start a check"
+                    );
+                }
             }
             assert!(app.pending.values().any(|action| action == "check"));
-            assert!(
-                app.connected,
+            assert_eq!(
+                app.connected, connected,
                 "starting a check must not report a lost connection"
             );
             let header = draw(&mut app, vec![]);
             assert_eq!(
-                header.iter().any(|(label, _)| label == "游戏目录"),
-                expanded,
+                header
+                    .iter()
+                    .filter(|(label, _)| label == "游戏目录")
+                    .count(),
+                1,
                 "checking must preserve the chosen directory layout"
             );
             // The worker has no loaded game, so this check must fail. Consume
@@ -1129,6 +1147,7 @@ mod view_tests {
                 !app.connected,
                 "a failed check must invalidate the connection"
             );
+            app.tab = 0;
             let header = draw(&mut app, vec![]);
             assert!(header.iter().any(|(label, _)| label == "游戏目录"));
         }

@@ -112,6 +112,7 @@ pub enum Icon {
     Close,
     Replace,
     Restore,
+    Tools,
 }
 impl Icon {
     fn for_label(label: &str) -> Option<Self> {
@@ -130,10 +131,11 @@ impl Icon {
             "选择文件夹" | "打开输出目录" | "打开底稿位置" => Self::Folder,
             "检查底稿" | "刷新" => Self::Refresh,
             "查找" => Self::Search,
-            "运行详情" | "来源表详情" => Self::Info,
+            "运行详情" | "来源表详情" | "关于 BA-JPTR" => Self::Info,
             "取消任务" => Self::Close,
             "替换选中文本" | "替换" => Self::Replace,
-            "恢复底稿" | "恢复" => Self::Restore,
+            "恢复底稿" | "恢复初始底稿" | "恢复" => Self::Restore,
+            "工具" => Self::Tools,
             _ if label.starts_with("单条修改") => Self::Text,
             _ => return None,
         })
@@ -153,6 +155,12 @@ pub fn paint_icon(painter: &egui::Painter, origin: egui::Pos2, icon: Icon, color
         ));
     };
     match icon {
+        Icon::Tools => {
+            line((2., 4.), (14., 4.));
+            line((2., 12.), (14., 12.));
+            painter.circle_filled(p(6., 4.), 2.5, color);
+            painter.circle_filled(p(10., 12.), 2.5, color);
+        }
         Icon::Add => {
             line((8., 2.), (8., 14.));
             line((2., 8.), (14., 8.));

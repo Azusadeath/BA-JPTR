@@ -312,6 +312,8 @@ impl Desktop {
                 self.table_detail = None;
             } else if self.error.is_some() {
                 self.error = None;
+            } else if self.show_about {
+                self.show_about = false;
             } else if self.template_form.is_some() {
                 self.template_form = None;
             } else if self.scope_form.is_some() {
@@ -349,6 +351,27 @@ impl Desktop {
         self.source_notices_dialog(ctx);
         self.edit_manager(ctx);
         self.confirmations(ctx);
+        if self.show_about {
+            let mut open = true;
+            window("关于 BA-JPTR", ctx, 460.)
+                .open(&mut open)
+                .resizable(false)
+                .show(ctx, |ui| {
+                    ui.heading("BA-JPTR");
+                    ui.label("蔚蓝档案日服译名替换");
+                    ui.label(format!("版本 {}", env!("CARGO_PKG_VERSION")));
+                    ui.add_space(8.);
+                    ui.hyperlink("https://github.com/Azusadeath/BA-JPTR");
+                    ui.horizontal(|ui| {
+                        ui.colored_label(MUTED, "开源许可");
+                        ui.hyperlink_to(
+                            env!("CARGO_PKG_LICENSE"),
+                            "https://github.com/Azusadeath/BA-JPTR/blob/main/LICENSE",
+                        );
+                    });
+                });
+            self.show_about = open;
+        }
         if let Some(detail) = self.table_detail.clone() {
             let mut open = true;
             window("来源表详情", ctx, 580.)
