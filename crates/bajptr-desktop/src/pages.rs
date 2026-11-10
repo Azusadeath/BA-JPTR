@@ -635,10 +635,16 @@ impl Desktop {
                                 });
                                 ui.end_row();
                                 ui.label("输出");
-                                if secondary(ui, self.output.is_some(), "打开输出目录").clicked()
-                                    && let Some(path) = &self.output
-                                {
-                                    Self::open_folder(path);
+                                if secondary(ui, true, "打开输出目录").clicked() {
+                                    match std::fs::create_dir_all(&self.output_dir) {
+                                        Ok(()) => Self::open_folder(&self.output_dir),
+                                        Err(error) => {
+                                            self.error = Some(format!(
+                                                "无法创建输出目录 {}：{error}",
+                                                self.output_dir.display()
+                                            ))
+                                        }
+                                    }
                                 }
                                 ui.end_row();
                             });
@@ -656,7 +662,6 @@ impl Desktop {
                                 self.confirm_restore = true;
                             }
                         });
-                        ui.colored_label(MUTED, "恢复游戏文字，保留词表、单条及批量修改记录。");
                         ui.separator();
                         if action(ui, true, "关于 BA-JPTR", ButtonKind::Quiet).clicked() {
                             self.show_about = true;

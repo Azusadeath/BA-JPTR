@@ -55,7 +55,7 @@ pub struct Desktop {
     pub confirm_baseline: Option<Value>,
     pub baseline_check: Value,
     pub baseline: Value,
-    pub output: Option<PathBuf>,
+    pub output_dir: PathBuf,
     pub hits: Vec<u64>,
     pub table_detail: Option<Value>,
     pub startup_probe: Option<crate::startup::Probe>,
@@ -67,6 +67,13 @@ impl Desktop {
         crate::theme::install(ctx);
         let backend = Backend::start(&project, &data, ctx.clone());
         let mut app = Self::initial();
+        app.output_dir = data.join("output");
+        if let Err(error) = std::fs::create_dir_all(&app.output_dir) {
+            app.error = Some(format!(
+                "无法创建输出目录 {}：{error}",
+                app.output_dir.display()
+            ));
+        }
         match backend {
             Ok(backend) => {
                 app.backend = Some(backend);
@@ -123,7 +130,7 @@ impl Desktop {
             confirm_baseline: None,
             baseline_check: Value::Null,
             baseline: Value::Null,
-            output: None,
+            output_dir: PathBuf::from("output"),
             hits: Vec::new(),
             table_detail: None,
             startup_probe: crate::startup::Probe::from_environment(),
@@ -782,15 +789,6 @@ impl Desktop {
                     }
                     if let Some(v) = data.get("application").and_then(Value::as_str) {
                         self.application = v.into();
-                    }
-                    let output = text(&data, "output");
-                    if !output.is_empty() {
-                        let path = PathBuf::from(output);
-                        self.output = if action == "export_text" {
-                            Some(path)
-                        } else {
-                            path.parent().map(PathBuf::from)
-                        };
                     }
                 }
                 _ => {}
