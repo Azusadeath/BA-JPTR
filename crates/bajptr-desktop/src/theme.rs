@@ -118,7 +118,7 @@ impl Icon {
         Some(match label {
             "添加词条" | "用此表添加词条" => Self::Add,
             "编辑" | "编辑文本" => Self::Edit,
-            "移除" => Self::Remove,
+            "移除" | "移除单条修改" => Self::Remove,
             "撤销" => Self::Undo,
             "重做" => Self::Redo,
             "导入词表" => Self::Import,

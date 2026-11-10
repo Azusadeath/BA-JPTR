@@ -203,6 +203,29 @@ fn full_text(ui: &mut egui::Ui, id: &str, label: &str, value: &str, height: f32)
         });
 }
 
+fn single_edit_text(ui: &mut egui::Ui, id: &str, label: &str, value: &str, height: f32) {
+    let frame = egui::Frame::new()
+        .fill(egui::Color32::WHITE)
+        .stroke(egui::Stroke::new(1., LINE))
+        .corner_radius(8)
+        .inner_margin(14);
+    let margin = frame.total_margin().sum();
+    let size = egui::vec2(ui.available_width() - margin.x, height - margin.y).max(egui::Vec2::ZERO);
+    frame.show(ui, |ui| {
+        ui.set_min_size(size);
+        let heading = ui.label(RichText::new(label).size(13.).color(MUTED));
+        let remaining = (size.y - heading.rect.height() - ui.spacing().item_spacing.y).max(0.);
+        egui::ScrollArea::vertical()
+            .id_salt(id)
+            .auto_shrink([false, false])
+            .min_scrolled_height(0.)
+            .max_height(remaining)
+            .show(ui, |ui| {
+                ui.add(egui::Label::new(value).wrap().selectable(true));
+            });
+    });
+}
+
 fn single_edit_browser(
     ui: &mut egui::Ui,
     entries: &[&Value],
@@ -252,8 +275,6 @@ fn single_edit_browser(
             .iter()
             .find(|entry| Some(count(entry, "index") as usize) == *selected)
         {
-            ui.add(egui::Label::new(format!("来源表：{}", text(entry, "label"))).truncate())
-                .on_hover_text(text(&entry["edit"], "table"));
             if entry["active"] == false {
                 ui.colored_label(RED, "版本失效：可查看或移除，不能继续编辑。");
             }
@@ -262,8 +283,8 @@ fn single_edit_browser(
             let replacement = text(&entry["edit"], "replacement");
             if ui.available_width() >= 560. {
                 ui.columns(2, |columns| {
-                    full_text(&mut columns[0], "original", "底稿原文", &original, height);
-                    full_text(
+                    single_edit_text(&mut columns[0], "original", "底稿原文", &original, height);
+                    single_edit_text(
                         &mut columns[1],
                         "replacement",
                         "单条修改后",
@@ -273,8 +294,8 @@ fn single_edit_browser(
                 });
             } else {
                 let half = (height - ui.spacing().item_spacing.y) * 0.5;
-                full_text(ui, "original", "底稿原文", &original, half);
-                full_text(ui, "replacement", "单条修改后", &replacement, half);
+                single_edit_text(ui, "original", "底稿原文", &original, half);
+                single_edit_text(ui, "replacement", "单条修改后", &replacement, half);
             }
         } else {
             ui.colored_label(MUTED, "没有匹配文本。");
@@ -1256,7 +1277,6 @@ if ui.button("取消").clicked(){close=true;}});
             .filter(|e| e["edit"]["batch"] != true)
             .collect();
         let mut open = true;
-        let mut close = false;
         if edits.len() <= 1 {
             self.edit_view.filter.clear();
         }
@@ -1282,11 +1302,22 @@ if ui.button("取消").clicked(){close=true;}});
                 780.
             },
         )
-        .id(egui::Id::unique("single-edit-manager-compact"))
+        .id(egui::Id::unique("single-edit-manager-toolbar"))
+        .frame(
+            egui::Frame::window(&ctx.style_of(egui::Theme::Light))
+                .fill(BG)
+                .corner_radius(12)
+                .inner_margin(18),
+        )
         .min_width(500.)
         .open(&mut open)
         .show(ctx, |ui| {
-            let text_width = ((ui.available_width() - 20.) * 0.5).max(200.);
+            let side_by_side = ui.available_width() >= 560.;
+            let text_width = if side_by_side {
+                (ui.available_width() - 68.) * 0.5
+            } else {
+                ui.available_width() - 30.
+            };
             let text_height = edits
                 .first()
                 .map(|entry| {
@@ -1303,13 +1334,19 @@ if ui.button("取消").clicked(){close=true;}});
                                 .size()
                                 .y
                         })
-                        .fold(0., f32::max)
+                        .fold(0_f32, |height, next| {
+                            if side_by_side {
+                                height.max(next)
+                            } else {
+                                height + next
+                            }
+                        })
                 })
                 .unwrap_or(0.);
             let content_height = if edits.is_empty() {
-                90.
+                50.
             } else if edits.len() == 1 {
-                (text_height + 120.).max(180.)
+                (text_height + if side_by_side { 100. } else { 160. }).max(160.)
             } else {
                 430.
             };
@@ -1332,46 +1369,43 @@ if ui.button("取消").clicked(){close=true;}});
                         ui.colored_label(MUTED, format!("{} / {} 条", visible.len(), edits.len()));
                     });
                 }
-                egui::Panel::bottom("single-edit-actions").show(ui, |ui| {
-                    let selected = edits
-                        .iter()
-                        .find(|e| Some(count(e, "index") as usize) == self.edit_view.selected);
+                if let Some(entry) = visible
+                    .iter()
+                    .find(|e| Some(count(e, "index") as usize) == self.edit_view.selected)
+                {
                     ui.horizontal(|ui| {
-                        if selected.is_some() {
-                            if primary(
-                                ui,
-                                selected.is_some_and(|e| e["active"] == true),
-                                "编辑文本",
-                            )
-                            .clicked()
-                                && let Some(entry) = selected
-                            {
-                                self.submit(
-                                    "text_open",
-                                    json!({"edit_index":entry["index"]}),
-                                    "正在读取单条修改…",
-                                    true,
-                                );
-                            }
-                            ui.add_space(12.);
-                            if secondary(ui, selected.is_some(), "移除单条修改").clicked()
-                                && let Some(entry) = selected
-                            {
-                                self.submit(
-                                    "remove_edit",
-                                    json!({"index":entry["index"],"revision":self.revision()}),
-                                    "正在移除单条修改…",
-                                    false,
-                                );
-                            }
+                        if primary(ui, entry["active"] == true, "编辑文本").clicked() {
+                            self.submit(
+                                "text_open",
+                                json!({"edit_index":entry["index"]}),
+                                "正在读取单条修改…",
+                                true,
+                            );
                         }
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if secondary(ui, true, "关闭").clicked() {
-                                close = true;
-                            }
-                        });
+                        if secondary(ui, true, "移除单条修改").clicked() {
+                            self.submit(
+                                "remove_edit",
+                                json!({"index":entry["index"],"revision":self.revision()}),
+                                "正在移除单条修改…",
+                                false,
+                            );
+                        }
+                        ui.add_space(8.);
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(format!("来源表：{}", text(entry, "label")))
+                                    .size(13.)
+                                    .color(MUTED),
+                            )
+                            .truncate(),
+                        )
+                        .on_hover_text(format!(
+                            "{}（{}）",
+                            text(entry, "label"),
+                            text(&entry["edit"], "table")
+                        ));
                     });
-                });
+                }
                 if edits.is_empty() {
                     ui.label("尚未保存单条修改。可在「查找」双击文本开始编辑。");
                 }
@@ -1385,7 +1419,7 @@ if ui.button("取消").clicked(){close=true;}});
                 }
             });
         });
-        self.show_edits = open && !close;
+        self.show_edits = open;
     }
     fn confirmations(&mut self, ctx: &egui::Context) {
         if let Some(candidate) = self.confirm_baseline.clone() {
