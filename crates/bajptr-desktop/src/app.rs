@@ -850,7 +850,7 @@ impl eframe::App for Desktop {
                                 },
                             );
                             if let Some(path) = &self.output
-                                && action(ui, true, "打开结果位置", ButtonKind::Quiet).clicked()
+                                && action(ui, true, "打开输出目录", ButtonKind::Quiet).clicked()
                             {
                                 Self::open_folder(path);
                             }
