@@ -252,7 +252,7 @@ fn single_edit_browser(
             .iter()
             .find(|entry| Some(count(entry, "index") as usize) == *selected)
         {
-            ui.add(egui::Label::new(text(entry, "label")).truncate())
+            ui.add(egui::Label::new(format!("来源表：{}", text(entry, "label"))).truncate())
                 .on_hover_text(text(&entry["edit"], "table"));
             if entry["active"] == false {
                 ui.colored_label(RED, "版本失效：可查看或移除，不能继续编辑。");
