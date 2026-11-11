@@ -441,13 +441,25 @@ impl Engine {
     ) -> Result<u64> {
         let original = self.baseline(game, root, control)?;
         self.open(&original, control)?;
-        Ok(execute(
+        fs::create_dir_all(target)?;
+        let stage = tempfile::Builder::new()
+            .prefix(".bajptr-export-")
+            .tempdir_in(target)?;
+        let result = execute(
             &mut self.session,
-            json!({"op":"export","destination":target}),
+            json!({"op":"export","destination":stage.path()}),
             control,
-        )?["count"]
-            .as_u64()
-            .unwrap_or(0))
+        )?;
+        control.log("正在保存导出文件…")?;
+        for entry in fs::read_dir(stage.path())? {
+            let entry = entry?;
+            storage::atomic_write(
+                &target.join(entry.file_name()),
+                &fs::read(entry.path())?,
+                None,
+            )?;
+        }
+        Ok(result["count"].as_u64().unwrap_or(0))
     }
     pub fn preview(
         &mut self,
@@ -1082,6 +1094,17 @@ pub fn record(
     let path = data.join(".gui/application-state.json");
     let _lock = Lock::acquire(&path)?;
     let mut values = read_receipts(&path);
+    values.as_object_mut().unwrap().retain(|stored_game, receipt| {
+        // Applied receipts protect against adopting our own patch as a new baseline.
+        // Only discard restored entries whose directory is missing on an online volume.
+        if stored_game == &key || receipt["kind"] != "restored" {
+            return true;
+        }
+        let folder = Path::new(stored_game);
+        !folder.is_absolute()
+            || !matches!(fs::metadata(folder), Err(error) if error.kind() == std::io::ErrorKind::NotFound)
+            || !folder.ancestors().last().is_some_and(|root| root.is_dir())
+    });
     values[&key] = json!({"identity":identity,"fingerprint":model::fingerprint(&config.rules,config.skip_kana,&edits)?,"kind":kind});
     storage::write_locked(
         &path,

@@ -28,10 +28,21 @@ pub struct Worker {
     tokens: Arc<Mutex<HashMap<u64, Arc<AtomicBool>>>>,
     thread: Option<JoinHandle<()>>,
 }
-fn cancellable(action: &str) -> bool {
-    read_only(action) || action == "apply"
+pub fn cancellable(action: &str) -> bool {
+    read_only(action)
+        || matches!(
+            action,
+            "load"
+                | "sources"
+                | "import_commit"
+                | "export_rules"
+                | "export_text"
+                | "baseline_commit"
+                | "restore"
+                | "apply"
+        )
 }
-fn read_only(action: &str) -> bool {
+pub fn read_only(action: &str) -> bool {
     matches!(
         action,
         "check"
@@ -43,6 +54,10 @@ fn read_only(action: &str) -> bool {
             | "scope_sources"
             | "baseline"
             | "batch_open"
+            | "text_open"
+            | "batch_preview"
+            | "import_read"
+            | "template"
     )
 }
 impl Worker {
@@ -75,7 +90,8 @@ impl Worker {
                 }
                 let read=read_only(&request.action);let can_cancel=cancellable(&request.action);let before=project.snapshot();let revision=project.revision;
                 let callback=|message:Option<&str>|{if let Some(message)=message{send(json!({"id":request.id,"event":"progress","message":message}));} !can_cancel || !request.token.load(Ordering::Relaxed)};
-                let result=project.dispatch(&request.action,&request.payload,&Control{callback:&callback});
+                let control=Control{callback:&callback};
+                let result=control.check().and_then(|_|project.dispatch(&request.action,&request.payload,&control));
                 match result{
                     Ok(data)=>{if read{completed.push_back(Completed{id:request.id,revision,before,after:project.snapshot()});if completed.len()>32{completed.pop_front();}}send(json!({"id":request.id,"event":"result","data":data}));},
                     Err(Error::Cancelled)=>{project.restore_snapshot(&before);send(json!({"id":request.id,"event":"cancelled"}));},
@@ -150,6 +166,59 @@ impl Drop for Worker {
 mod tests {
     use super::*;
     use std::{sync::atomic::AtomicUsize, time::Duration};
+
+    #[test]
+    fn queued_loading_import_and_export_requests_can_cancel_before_any_work() {
+        let data = tempfile::tempdir().unwrap();
+        let (ready, started) = mpsc::channel();
+        let (release, resume) = mpsc::channel();
+        let resume = Mutex::new(resume);
+        let notifications = AtomicUsize::new(0);
+        let worker = Worker::start(
+            data.path().to_path_buf(),
+            Arc::new(move || {
+                if notifications.fetch_add(1, Ordering::SeqCst) == 0 {
+                    ready.send(()).unwrap();
+                    resume
+                        .lock()
+                        .unwrap()
+                        .recv_timeout(Duration::from_secs(5))
+                        .unwrap();
+                }
+            }),
+        )
+        .unwrap();
+        worker.send(1, "unknown", json!({})).unwrap();
+        started.recv_timeout(Duration::from_secs(3)).unwrap();
+        worker.events.recv_timeout(Duration::from_secs(3)).unwrap();
+        let actions = [
+            "load",
+            "sources",
+            "import_read",
+            "import_commit",
+            "export_rules",
+            "export_text",
+            "baseline_commit",
+            "restore",
+        ];
+        for (i, action) in actions.iter().enumerate() {
+            let id = 2 + i as u64;
+            worker.send(id, action, json!({})).unwrap();
+            worker.send(0, "cancel", json!({"target":id})).unwrap();
+        }
+        release.send(()).unwrap();
+        for i in 0..actions.len() {
+            let event = worker.events.recv_timeout(Duration::from_secs(3)).unwrap();
+            assert_eq!(event["id"], 2 + i as u64);
+            assert_eq!(event["event"], "cancelled", "{event}");
+        }
+        assert!(!data.path().join(".gui").exists());
+        worker.send(20, "load", json!({})).unwrap();
+        assert_eq!(
+            worker.events.recv_timeout(Duration::from_secs(3)).unwrap()["event"],
+            "result"
+        );
+    }
 
     #[test]
     fn panic_after_a_save_reports_shutdown_and_reloads_only_saved_data() {

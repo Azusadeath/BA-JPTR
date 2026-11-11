@@ -1,7 +1,7 @@
 use crate::{app::*, state::*};
 use eframe::egui::{self, Color32};
 use serde_json::{Value, json};
-use std::{path::PathBuf, time::Instant};
+use std::path::PathBuf;
 
 impl Desktop {
     pub fn header(&mut self, ui: &mut egui::Ui) {
@@ -25,11 +25,11 @@ impl Desktop {
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new("游戏目录").size(14.).color(MUTED));
             let reserve = action_width(ui, "选择文件夹")
-                + action_width(ui, "检查底稿")
+                + action_width(ui, "保存")
                 + ui.spacing().item_spacing.x * 2.;
             let width = (ui.available_width() - reserve).max(180.);
             let response = ui
-                .add_enabled_ui(!self.write_busy(), |ui| {
+                .add_enabled_ui(self.loaded && !self.write_busy(), |ui| {
                     ui.add_sized(
                         [width, 36.],
                         egui::TextEdit::singleline(&mut self.game)
@@ -40,29 +40,39 @@ impl Desktop {
                 })
                 .inner;
             if response.changed() {
-                self.connected = false;
-                self.path_changed = Some(Instant::now());
+                self.game_path_changed();
             }
-            if secondary(ui, !self.write_busy(), "选择文件夹").clicked()
+            if secondary(ui, self.loaded && !self.write_busy(), "选择文件夹").clicked()
                 && let Some(path) = rfd::FileDialog::new()
                     .set_title("选择日服游戏安装目录")
                     .pick_folder()
             {
                 self.game = path.to_string_lossy().into();
+                self.game_path_changed();
+            }
+            if secondary(
+                ui,
+                self.loaded
+                    && self.path_dirty
+                    && !self.write_busy()
+                    && !self.game.trim().is_empty(),
+                "保存",
+            )
+            .clicked()
+            {
                 self.save_settings();
             }
-            self.check_button(ui);
         });
     }
     fn check_button(&mut self, ui: &mut egui::Ui) {
         if secondary(
             ui,
-            !self.write_busy() && !self.game.trim().is_empty(),
+            self.loaded && !self.path_dirty && !self.write_busy() && !self.game.trim().is_empty(),
             "检查底稿",
         )
         .clicked()
         {
-            self.submit("check", json!({}), "正在检查游戏资源与底稿…", true);
+            self.submit("check", json!({}), "正在检查游戏资源与底稿…");
         }
     }
     fn navigation(&mut self, ui: &mut egui::Ui) {
@@ -107,7 +117,7 @@ impl Desktop {
                 )
                 .clicked()
             {
-                self.submit("history", json!({"undo":true}), "正在撤销…", false);
+                self.submit("history", json!({"undo":true}), "正在撤销…");
             }
             if ui
                 .add_enabled(
@@ -116,7 +126,7 @@ impl Desktop {
                 )
                 .clicked()
             {
-                self.submit("history", json!({"undo":false}), "正在重做…", false);
+                self.submit("history", json!({"undo":false}), "正在重做…");
             }
             ui.separator();
             if ui
@@ -146,7 +156,6 @@ impl Desktop {
                         "remove_rule",
                         json!({"index":i,"revision":self.revision()}),
                         "正在移除词条…",
-                        false,
                     );
                 } else if let Some(entry) = selected_batch {
                     self.submit(
@@ -157,7 +166,6 @@ impl Desktop {
                         },
                         json!({"id":entry["id"],"index":entry["index"],"revision":self.revision()}),
                         "正在移除批量修改…",
-                        false,
                     );
                 }
                 self.rule_selection = None;
@@ -193,7 +201,7 @@ impl Desktop {
                             && self.healthy()
                             && self.busy.is_none();
                         if primary(ui, ready, "预览并应用").clicked() {
-                            self.submit("preview", json!({}), "正在比较本次最终变化…", true);
+                            self.submit("preview", json!({}), "正在比较本次最终变化…");
                         }
                     });
                 });
@@ -368,7 +376,6 @@ impl Desktop {
                 "search",
                 json!({"keyword":self.keyword,"source":self.search_source,"offset":0}),
                 "正在查找…",
-                true,
             );
         }
         let search = self.search.clone();
@@ -442,7 +449,6 @@ impl Desktop {
                                                             "offset":rows.len()
                                                         }),
                                                         "正在加载更多搜索结果…",
-                                                        true,
                                                     );
                                                 }
                                             },
@@ -521,12 +527,7 @@ impl Desktop {
                 .set_title("选择导出文件夹")
                 .pick_folder()
         {
-            self.submit(
-                "export_text",
-                json!({"path":path}),
-                "正在导出底稿文本…",
-                false,
-            );
+            self.submit("export_text", json!({"path":path}), "正在导出底稿文本…");
         }
     }
     pub fn tools_page(&mut self, ui: &mut egui::Ui) {
@@ -543,9 +544,10 @@ impl Desktop {
                         ui.set_min_width(ui.available_width());
                         ui.label(egui::RichText::new("游戏与底稿").strong().color(TEXT));
                         self.directory_controls(ui);
-                        if !self.baseline.is_null() {
-                            ui.horizontal(|ui| {
-                                ui.colored_label(MUTED, "初始底稿");
+                        ui.horizontal(|ui| {
+                            ui.colored_label(MUTED, "初始底稿");
+                            self.check_button(ui);
+                            if !self.baseline.is_null() {
                                 ui.colored_label(Color32::from_rgb(37, 107, 78), "已验证");
                                 let version = text(&self.baseline, "version");
                                 if !version.is_empty() {
@@ -566,7 +568,9 @@ impl Desktop {
                                 {
                                     self.confirm_restore = true;
                                 }
-                            });
+                            }
+                        });
+                        if !self.baseline.is_null() {
                             egui::CollapsingHeader::new("底稿详情").show(ui, |ui| {
                                 for (label, key) in [
                                     ("建立时间", "created"),
@@ -587,7 +591,7 @@ impl Desktop {
                         ui.label(egui::RichText::new("处理选项").strong().color(TEXT));
                         if ui
                             .add_enabled(
-                                can_edit,
+                                can_edit && !self.path_dirty,
                                 egui::Checkbox::new(&mut self.skip, "跳过含日文假名的文本"),
                             )
                             .changed()
@@ -613,7 +617,6 @@ impl Desktop {
                                             "import_read",
                                             json!({"path":path}),
                                             "正在读取词表…",
-                                            true,
                                         );
                                     }
                                     if secondary(
@@ -631,7 +634,6 @@ impl Desktop {
                                             "export_rules",
                                             json!({"path":path}),
                                             "正在导出词表…",
-                                            false,
                                         );
                                     }
                                 });

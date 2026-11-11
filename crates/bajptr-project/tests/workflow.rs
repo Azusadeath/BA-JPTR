@@ -101,6 +101,132 @@ fn oracle() -> Value {
     serde_json::from_str(include_str!("fixtures/v1/oracle.json")).unwrap()
 }
 
+#[test]
+fn cancellation_preserves_import_and_export_files_and_allows_retry() {
+    let f = Fixture::new();
+    let mut project = f.ready_project();
+    let before = fs::read(f.data.join(".gui/rules.tsv")).unwrap();
+    let revision = project.revision;
+    let cancel = Control {
+        callback: &|_| false,
+    };
+    assert!(matches!(
+        project.dispatch(
+            "import_commit",
+            &json!({"revision":revision,"rules":[]}),
+            &cancel
+        ),
+        Err(bajptr_project::Error::Cancelled)
+    ));
+    assert_eq!(fs::read(f.data.join(".gui/rules.tsv")).unwrap(), before);
+    assert_eq!(project.revision, revision);
+    let export = f.root.join("export");
+    fs::create_dir_all(&export).unwrap();
+    let existing = export.join("LocalizeDBSchema.tsv");
+    fs::write(&existing, b"previous export").unwrap();
+    let cancel_export = Control {
+        callback: &|message| !message.is_some_and(|m| m.starts_with("导出来源表：")),
+    };
+    assert!(matches!(
+        project.dispatch("export_text", &json!({"path":export}), &cancel_export),
+        Err(bajptr_project::Error::Cancelled)
+    ));
+    assert_eq!(fs::read(&existing).unwrap(), b"previous export");
+    assert_eq!(fs::read_dir(&export).unwrap().count(), 1);
+    assert!(
+        call(&mut project, "export_text", json!({"path":export}))["count"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
+    assert_ne!(fs::read(existing).unwrap(), b"previous export");
+    f.unchanged();
+}
+
+#[test]
+fn source_and_baseline_commits_report_success_after_a_late_cancel() {
+    let f = Fixture::new();
+    let mut project = f.project();
+    let candidate = call(&mut project, "check", json!({}));
+    let payload = json!({"token":candidate["baseline_status"]["token"]});
+    let cancel = Control {
+        callback: &|message| message != Some("正在验证底稿数据库完整性…"),
+    };
+    assert!(matches!(
+        project.dispatch("baseline_commit", &payload, &cancel),
+        Err(bajptr_project::Error::Cancelled)
+    ));
+    assert_eq!(
+        call(&mut project, "check", json!({}))["baseline_status"]["state"],
+        "missing"
+    );
+    let late = Control {
+        callback: &|message| message != Some("初始底稿已保存，之后从这份底稿重建。"),
+    };
+    project
+        .dispatch("baseline_commit", &payload, &late)
+        .unwrap();
+    let early_sources = Control {
+        callback: &|message| !message.is_some_and(|m| m.starts_with("正在读取初始底稿")),
+    };
+    assert!(matches!(
+        project.dispatch("sources", &json!({}), &early_sources),
+        Err(bajptr_project::Error::Cancelled)
+    ));
+    assert!(!f.data.join(".gui/source-history.json").exists());
+    // Legacy unrestricted rules need a recorded inventory before migration.
+    call(&mut project, "tables", json!({}));
+    let late_source_cancel = std::cell::Cell::new(false);
+    let late_sources = Control {
+        callback: &|message| {
+            if message == Some("来源表已就绪。") {
+                late_source_cancel.set(true);
+                false
+            } else {
+                true
+            }
+        },
+    };
+    let result = project
+        .dispatch("sources", &json!({}), &late_sources)
+        .unwrap();
+    assert_eq!(result["missing_history"], false);
+    assert!(late_source_cancel.get());
+    assert!(f.data.join(".gui/source-history.json").is_file());
+    f.unchanged();
+}
+
+#[test]
+fn receipt_maintenance_keeps_missing_applied_games_and_live_restored_games() {
+    let f = Fixture::new();
+    let project = f.ready_project();
+    let missing_restored = storage::identity(&f.root.join("removed-restored-game")).unwrap();
+    let missing_applied = storage::identity(&f.root.join("removed-applied-game")).unwrap();
+    let other = f.root.join("other-game");
+    fs::create_dir(&other).unwrap();
+    let live_restored = storage::identity(&other).unwrap();
+    let mut games = json!({});
+    games[&missing_restored] = json!({"kind":"restored"});
+    games[&missing_applied] = json!({"kind":"applied","fingerprint":"must-preserve"});
+    games[&live_restored] = json!({"kind":"restored"});
+    let path = f.data.join(".gui/application-state.json");
+    fs::write(
+        &path,
+        serde_json::to_vec(&json!({"format":2,"games":games})).unwrap(),
+    )
+    .unwrap();
+    let config = bajptr_project::service::Config::new(project.rules.clone(), vec![], true);
+    bajptr_project::service::record(f.game.to_str().unwrap(), &f.data, &config, "restored", None)
+        .unwrap();
+    let saved: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    assert!(saved["games"].get(&missing_restored).is_none());
+    assert_eq!(saved["games"][&missing_applied], games[&missing_applied]);
+    assert_eq!(saved["games"][&live_restored], games[&live_restored]);
+    let current = storage::identity(&f.game).unwrap();
+    assert_eq!(saved["games"][&current]["kind"], "restored");
+    f.unchanged();
+}
+
 fn add_new_source(f: &mut Fixture, malformed: bool) {
     let game = region::locate(f.game.to_str().unwrap()).unwrap();
     let plain = f.root.join("new-source.db");

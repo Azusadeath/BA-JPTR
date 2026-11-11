@@ -96,7 +96,8 @@ impl Project {
         c.edits_path = Some(self.store.root.join("text-edits.json"));
         c
     }
-    fn load(&mut self) -> Result<Value> {
+    fn load(&mut self, control: &Control<'_>) -> Result<Value> {
+        control.check()?;
         let settings = self.store.root.join("settings.json");
         if settings.exists() {
             match fs::read(&settings)
@@ -120,10 +121,12 @@ impl Project {
                 )),
             }
         }
+        control.check()?;
         match self.store.load("rules.tsv", model::parse_rules, vec![]) {
             Ok(v) => self.rules = v,
             Err(e) => self.errors["rules.tsv"] = json!(e.to_string()),
         }
+        control.check()?;
         match self
             .store
             .load("text-edits.json", model::parse_edits, vec![])
@@ -131,6 +134,7 @@ impl Project {
             Ok(v) => self.edits = v,
             Err(e) => self.errors["text-edits.json"] = json!(e.to_string()),
         }
+        control.check()?;
         match self
             .store
             .load("source-history.json", Sources::parse, Sources::default())
@@ -138,6 +142,7 @@ impl Project {
             Ok(value) => self.source_history = value,
             Err(e) => self.errors["source-history.json"] = json!(e.to_string()),
         }
+        control.check()?;
         self.state()
     }
     fn require(&self, revision: Option<&Value>) -> Result<()> {
@@ -162,6 +167,20 @@ impl Project {
         self.application = "词表已保存，尚未应用".into();
     }
     fn commit(&mut self, document: Document, record: bool) -> Result<()> {
+        self.commit_controlled(
+            document,
+            record,
+            &Control {
+                callback: &|_| true,
+            },
+        )
+    }
+    fn commit_controlled(
+        &mut self,
+        document: Document,
+        record: bool,
+        control: &Control<'_>,
+    ) -> Result<()> {
         self.require(None)?;
         let previous = match document {
             Document::Rules(values) => {
@@ -170,16 +189,18 @@ impl Project {
                 } else {
                     model::normalize(values)?
                 };
-                self.store
-                    .save("rules.tsv", &model::rules_bytes(&values)?)?;
+                let bytes = model::rules_bytes(&values)?;
+                control.check()?;
+                self.store.save("rules.tsv", &bytes)?;
                 if values == self.rules {
                     return Ok(());
                 }
                 Document::Rules(std::mem::replace(&mut self.rules, values))
             }
             Document::Edits(values) => {
-                self.store
-                    .save("text-edits.json", &model::edits_bytes(&values)?)?;
+                let bytes = model::edits_bytes(&values)?;
+                control.check()?;
+                self.store.save("text-edits.json", &bytes)?;
                 if values == self.edits {
                     return Ok(());
                 }
@@ -309,6 +330,15 @@ impl Project {
         if self.current_version(control)? != version {
             return Err(invalid("来源表核对期间资源版本发生变化，请重新检查底稿。"));
         }
+        control.check()?;
+        let commit_control = Control {
+            callback: &|message| {
+                if let Some(message) = message {
+                    let _ = control.log(message);
+                }
+                true
+            },
+        };
         if values != self.rules {
             self.store.check("rules.tsv")?;
             let bytes = fs::read(self.store.root.join("rules.tsv"))?;
@@ -337,9 +367,9 @@ impl Project {
             &self.game,
             &self.data.join("backup"),
             Some(&metadata),
-            control,
+            &commit_control,
         );
-        control.log("来源表已就绪。")?;
+        let _ = control.log("来源表已就绪。");
         Ok(
             json!({"tables":names.iter().map(|n|model::table_info(n)).collect::<Vec<_>>(),"state":self.state()?,"migrated":migrated,"missing_history":false}),
         )
@@ -472,7 +502,13 @@ impl Project {
             }
         }
         match action {
-            "load" => self.load(),
+            "load" => {
+                let mut loaded = Self::new(self.data.clone());
+                let state = loaded.load(control)?;
+                control.check()?;
+                *self = loaded;
+                Ok(state)
+            }
             "settings" => {
                 if p["revision"].as_u64() != Some(self.revision) {
                     return Err(invalid("设置已变化，请重试。"));
@@ -634,7 +670,9 @@ impl Project {
                 self.state()
             }
             "import_read" => {
+                control.check()?;
                 let rules = model::parse_rules(&fs::read(text(p, "path")?)?)?;
+                control.check()?;
                 if rules.is_empty() {
                     return Err(invalid("词表中没有可用词条。"));
                 }
@@ -642,19 +680,16 @@ impl Project {
             }
             "import_commit" => {
                 self.require(p.get("revision"))?;
-                self.commit(
-                    Document::Rules(serde_json::from_value(p["rules"].clone())?),
-                    true,
-                )?;
+                let values = serde_json::from_value(p["rules"].clone())?;
+                control.check()?;
+                self.commit_controlled(Document::Rules(values), true, control)?;
                 self.state()
             }
             "export_rules" => {
                 self.require(None)?;
-                storage::atomic_write(
-                    Path::new(text(p, "path")?),
-                    &model::rules_bytes(&self.rules)?,
-                    None,
-                )?;
+                let bytes = model::rules_bytes(&self.rules)?;
+                control.check()?;
+                storage::atomic_write(Path::new(text(p, "path")?), &bytes, None)?;
                 Ok(json!({"message":"词表已导出。"}))
             }
             "template" => {

@@ -14,6 +14,61 @@ param(
     [string]$MetadataPath
 )
 $ErrorActionPreference = 'Stop'
+function Retire-OldNativeVersions($NativeDir, $Manifests) {
+    $versions = (Resolve-Path -LiteralPath (Join-Path $NativeDir 'versions')).Path
+    $keep = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($manifest in $Manifests) {
+        foreach ($kind in @('cli','desktop')) {
+            if ($manifest.$kind -notmatch '^versions/([0-9a-f]{20})/bajptr-(rs|desktop)\.exe$') {
+                Write-Warning 'Skipped native cleanup: an active manifest is invalid.'
+                return
+            }
+            $null = $keep.Add($Matches[1])
+        }
+    }
+    try {
+        $processes = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object { $_.Name -in @('bajptr-desktop.exe','bajptr-rs.exe') })
+        foreach ($process in $processes) {
+            if (-not $process.ExecutablePath) { throw 'A running engine path is unavailable.' }
+            $folder = Split-Path ([IO.Path]::GetFullPath($process.ExecutablePath)) -Parent
+            if ((Split-Path $folder -Parent) -eq $versions) { $null = $keep.Add((Split-Path $folder -Leaf)) }
+        }
+    } catch {
+        Write-Warning "Skipped native cleanup: $_"
+        return
+    }
+    foreach ($directory in Get-ChildItem -LiteralPath $versions -Directory) {
+        if ($keep.Contains($directory.Name) -or $directory.Name -notmatch '^[0-9a-f]{20}$' -or
+            ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint)) { continue }
+        $source = [IO.Path]::GetFullPath($directory.FullName)
+        if ((Split-Path $source -Parent) -ne $versions) { continue }
+        $files = @(Get-ChildItem -LiteralPath $source -Force)
+        if ($files.Count -ne 1 -or $files[0].PSIsContainer -or
+            $files[0].Name -notin @('bajptr-desktop.exe','bajptr-rs.exe') -or
+            ($files[0].Attributes -band [IO.FileAttributes]::ReparsePoint)) { continue }
+        if ((Get-FileHash -LiteralPath $files[0].FullName -Algorithm SHA256).Hash.ToLower().Substring(0,20) -ne $directory.Name) { continue }
+        try {
+            $moved = $false
+            if ($env:BAJPTR_TRASH_DIR) {
+                try {
+                    $trash = [IO.Path]::GetFullPath($env:BAJPTR_TRASH_DIR)
+                    if ($trash -eq $versions -or $trash.StartsWith($versions + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Trash folder is inside native versions.' }
+                    $target = Join-Path $trash ('native-' + $directory.Name + '-' + [Guid]::NewGuid().ToString('N'))
+                    New-Item -ItemType Directory -Path $trash -Force | Out-Null
+                    Move-Item -LiteralPath $source -Destination $target
+                    $moved = -not (Test-Path -LiteralPath $source) -and
+                        (Test-Path -LiteralPath $target) -and
+                        (Split-Path (Resolve-Path -LiteralPath $target).Path -Parent) -eq (Resolve-Path -LiteralPath $trash).Path
+                } catch { Write-Warning "Native archive move failed; trying Recycle Bin: $_" }
+            }
+            if (-not $moved -and (Test-Path -LiteralPath $source)) {
+                Add-Type -AssemblyName Microsoft.VisualBasic
+                [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($source, 'OnlyErrorDialogs', 'SendToRecycleBin')
+            }
+            if (Test-Path -LiteralPath $source) { throw 'Old native directory remains.' }
+        } catch { Write-Warning "Kept old native version $($directory.Name): $_" }
+    }
+}
 if (($TestTarget -or $TestFilter) -and -not $Test) { throw 'TestTarget and TestFilter require -Test.' }
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $localTools = Join-Path $projectRoot '.toolchain'
@@ -70,6 +125,9 @@ try {
     if ($DebugBuild) { $profile = 'debug' }
     $nativeDir = Join-Path $projectRoot 'native'
     New-Item -ItemType Directory -Path $nativeDir -Force | Out-Null
+    $manifestPath = Join-Path $nativeDir 'engine.json'
+    $previousPath = Join-Path $nativeDir 'previous-engine.json'
+    $previous = if (Test-Path -LiteralPath $manifestPath) { Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json }
     $manifest = @{ protocol = 1 }
     $names = @{ desktop = 'bajptr-desktop.exe'; cli = 'bajptr-rs.exe' }
     foreach ($kind in $names.Keys) {
@@ -82,11 +140,19 @@ try {
         }
         $manifest[$kind] = "versions/$digest/$($names[$kind])"
     }
-    $manifestPath = Join-Path $nativeDir 'engine.json'
+    if ($previous -and ($previous.cli -ne $manifest.cli -or $previous.desktop -ne $manifest.desktop)) {
+        $previousPending = "$previousPath.pending-$([Guid]::NewGuid().ToString('N'))"
+        [IO.File]::WriteAllText($previousPending, ($previous | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
+        Move-Item -LiteralPath $previousPending -Destination $previousPath -Force
+    }
     $pending = "$manifestPath.pending-$([Guid]::NewGuid().ToString('N'))"
     [IO.File]::WriteAllText($pending, ($manifest | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
     Move-Item -LiteralPath $pending -Destination $manifestPath -Force
     $launcherSource = Join-Path $projectRoot "target/$profile/bajptr-launcher.exe"
     Copy-Item -LiteralPath $launcherSource -Destination (Join-Path $projectRoot 'bajptr.exe') -Force
     Write-Host "Published: $manifestPath"
+    $manifests = @($manifest)
+    if (Test-Path -LiteralPath $previousPath) { $manifests += (Get-Content -LiteralPath $previousPath -Raw -Encoding UTF8 | ConvertFrom-Json) }
+    try { Retire-OldNativeVersions $nativeDir $manifests }
+    catch { Write-Warning "Native cleanup incomplete; published binaries are available: $_" }
 } finally { Pop-Location }

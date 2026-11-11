@@ -23,7 +23,7 @@ pub struct Desktop {
     pub connected: bool,
     pub game: String,
     pub skip: bool,
-    pub path_changed: Option<Instant>,
+    pub path_dirty: bool,
     pub tab: usize,
     pub status: String,
     pub application: String,
@@ -79,7 +79,7 @@ impl Desktop {
         match backend {
             Ok(backend) => {
                 app.backend = Some(backend);
-                app.submit("load", json!({}), "正在读取修改记录…", false);
+                app.submit("load", json!({}), "正在读取修改记录…");
             }
             Err(error) => {
                 app.status = error.clone();
@@ -100,7 +100,7 @@ impl Desktop {
             connected: false,
             game: String::new(),
             skip: true,
-            path_changed: None,
+            path_dirty: false,
             tab: 0,
             status: "正在读取修改记录…".into(),
             application: "应用状态待核对，先预览".into(),
@@ -143,7 +143,9 @@ impl Desktop {
         if self.busy.is_some() {
             return;
         }
-        self.status = if !self.search.is_null() {
+        self.status = if self.path_dirty {
+            "路径已更改，等待重新检查…".into()
+        } else if !self.search.is_null() {
             format!(
                 "共找到 {} 处，已加载 {} 处",
                 count(&self.search, "total"),
@@ -154,6 +156,30 @@ impl Desktop {
         } else {
             "请选择游戏目录并检查底稿。".into()
         };
+    }
+    pub fn game_path_changed(&mut self) {
+        self.path_dirty = true;
+        self.connected = false;
+        self.sources_ready = false;
+        self.confirm_baseline = None;
+        self.confirm_restore = false;
+        self.baseline_check = Value::Null;
+        self.baseline = Value::Null;
+        self.preview = None;
+        self.hits.clear();
+        self.search_input_changed();
+        if self.busy.as_ref().is_some_and(|busy| {
+            self.pending
+                .get(&busy.id)
+                .is_some_and(|action| action == "check")
+        }) {
+            let busy = self.busy.take().unwrap();
+            self.obsolete.insert(busy.id);
+            if let Some(backend) = &mut self.backend {
+                let _ = backend.send("cancel", json!({"target":busy.id}));
+            }
+        }
+        self.status = "路径已更改，等待重新检查…".into();
     }
     pub fn search_input_changed(&mut self) {
         self.search = Value::Null.into();
@@ -187,7 +213,7 @@ impl Desktop {
                 || self
                     .pending
                     .get(&b.id)
-                    .is_some_and(|action| action == "apply")
+                    .is_some_and(|action| !bajptr_project::worker::read_only(action))
         })
     }
     pub fn healthy(&self) -> bool {
@@ -213,7 +239,8 @@ impl Desktop {
             || self.show_source_notices
             || self.show_about
     }
-    pub fn submit(&mut self, action: &str, payload: Value, title: &str, cancellable: bool) {
+    pub fn submit(&mut self, action: &str, payload: Value, title: &str) {
+        let cancellable = bajptr_project::worker::cancellable(action);
         if self.write_busy() {
             return;
         }
@@ -256,7 +283,7 @@ impl Desktop {
         self.loaded = false;
         self.connected = false;
         self.sources_ready = false;
-        self.path_changed = None;
+        self.path_dirty = false;
         self.template_changed = None;
         self.search = Value::Null.into();
         self.selection.clear();
@@ -299,7 +326,7 @@ impl Desktop {
                 self.show_edits = false;
                 self.table_detail = None;
                 self.error = None;
-                self.submit("load", json!({}), "正在重新读取已保存记录…", false);
+                self.submit("load", json!({}), "正在重新读取已保存记录…");
             }
             Err(message) => self.backend_failed(message),
         }
@@ -313,7 +340,7 @@ impl Desktop {
             return;
         }
         self.sources_ready = false;
-        self.submit("sources", json!({}), "正在核对来源表与词条范围…", false);
+        self.submit("sources", json!({}), "正在核对来源表与词条范围…");
     }
     fn set_baseline(&mut self, baseline: Value) {
         if self.baseline["version_id"] != baseline["version_id"] {
@@ -331,7 +358,6 @@ impl Desktop {
             "scope_sources",
             json!({"old":form.old,"mode":form.mode}),
             "正在查找匹配的来源表…",
-            true,
         );
         form.request = self.busy.as_ref().map(|busy| busy.id);
     }
@@ -342,7 +368,7 @@ impl Desktop {
             let writes = self
                 .pending
                 .get(&busy.id)
-                .is_some_and(|action| action == "apply");
+                .is_some_and(|action| !bajptr_project::worker::read_only(action));
             // A write may already have passed its commit point. Wait for the
             // actual result instead of discarding it and claiming cancellation.
             if !writes {
@@ -366,7 +392,7 @@ impl Desktop {
         }
     }
     pub fn save_settings(&mut self) {
-        self.path_changed = None;
+        self.path_dirty = false;
         self.connected = false;
         self.sources_ready = false;
         self.show_source_notices = false;
@@ -376,13 +402,12 @@ impl Desktop {
             "settings",
             json!({"game":self.game,"skip_kana":self.skip,"revision":self.revision()}),
             "正在保存设置…",
-            false,
         );
     }
     pub fn apply_state(&mut self, value: Value) {
         let changed = count(&value, "revision") != self.revision();
         let game_changed = text(&value, "game") != text(&self.state, "game");
-        if self.path_changed.is_none() {
+        if !self.path_dirty {
             self.game = text(&value, "game");
         }
         self.skip = value
@@ -429,7 +454,6 @@ impl Desktop {
             "text_open",
             json!({"index":index,"search_nonce":text(&self.search,"nonce")}),
             "正在读取这段文本…",
-            true,
         );
     }
     pub fn open_batch(&mut self, entry: &Value) {
@@ -441,7 +465,6 @@ impl Desktop {
             },
             json!({"id":entry["id"],"edit_index":entry["index"]}),
             "正在读取批量修改…",
-            true,
         );
     }
     pub fn open_batch_scope(&mut self, id: &str) {
@@ -502,6 +525,10 @@ impl Desktop {
                 }
                 continue;
             }
+            if action == "check" && (self.path_dirty || text(&self.state, "game") != self.game) {
+                self.status = "路径已更改，等待重新检查…".into();
+                continue;
+            }
             if kind == "cancelled" {
                 if let Some(form) = &mut self.scope_form
                     && form.request == Some(id)
@@ -517,6 +544,10 @@ impl Desktop {
                 self.logs.push(text(&event, "detail"));
                 self.status = message.clone();
                 match action.as_str() {
+                    "settings" => {
+                        self.path_dirty = self.game != text(&self.state, "game");
+                        self.error = Some(message);
+                    }
                     "scope_sources" => {
                         if let Some(form) = &mut self.scope_form
                             && form.request == Some(id)
@@ -602,19 +633,20 @@ impl Desktop {
                         );
                     }
                     if !self.game.is_empty() {
-                        self.submit("check", json!({}), "正在检查游戏目录…", true);
+                        self.submit("check", json!({}), "正在检查游戏目录…");
                     } else {
                         self.status = "先选择游戏目录，再添加或导入词条。".into();
                     }
                 }
                 "settings" => {
                     self.apply_state(data);
-                    if self.path_changed.is_none() {
-                        self.submit("check", json!({}), "正在检查游戏目录…", true);
+                    if !self.path_dirty {
+                        self.submit("check", json!({}), "正在检查游戏目录…");
                     }
                 }
                 "check" => {
-                    if self.path_changed.is_some() || text(&self.state, "game") != self.game {
+                    if self.path_dirty || text(&self.state, "game") != self.game {
+                        self.status = "路径已更改，等待重新检查…".into();
                         continue;
                     }
                     self.baseline_check = data["baseline_status"].clone();
@@ -654,7 +686,7 @@ impl Desktop {
                     self.preview = None;
                     self.hits.clear();
                     self.tables.clear();
-                    self.submit("check", json!({}), "底稿已保存，正在核对…", true);
+                    self.submit("check", json!({}), "底稿已保存，正在核对…");
                 }
                 "tables" => {
                     self.tables = data.as_array().cloned().unwrap_or_default();
@@ -815,7 +847,6 @@ impl Desktop {
                             "prepare_patch",
                             json!({"nonce":nonce}),
                             "预览已就绪，正在后台准备补丁…",
-                            true,
                         );
                     }
                 }
@@ -836,7 +867,7 @@ impl Desktop {
                 }
                 "import_read" => {
                     if list(&self.state, "rules").is_empty() {
-                        self.submit("import_commit", data, "正在导入词表…", false);
+                        self.submit("import_commit", data, "正在导入词表…");
                     } else {
                         self.confirm_import = Some(data);
                     }
@@ -862,16 +893,6 @@ impl eframe::App for Desktop {
         self.events();
         let ctx = ui.ctx().clone();
         if self.busy.is_some() || !self.pending.is_empty() {
-            ctx.request_repaint_after(Duration::from_millis(100));
-        }
-        if self
-            .path_changed
-            .is_some_and(|t| t.elapsed() > Duration::from_millis(300))
-            && !self.write_busy()
-        {
-            self.save_settings();
-        }
-        if self.path_changed.is_some() {
             ctx.request_repaint_after(Duration::from_millis(100));
         }
         if ctx.input(|i| i.viewport().close_requested()) && self.write_busy() {
@@ -906,7 +927,9 @@ impl eframe::App for Desktop {
                                     .x
                                     .min(260.)
                             });
-                            let reconnect = self.backend.is_none() && self.data_path.is_some();
+                            let reconnect = self.data_path.is_some()
+                                && (self.backend.is_none()
+                                    || (!self.loaded && self.busy.is_none()));
                             let reserve = 120.
                                 + if reconnect { 128. } else { 0. }
                                 + if cancellable { 128. } else { 0. }
@@ -1070,6 +1093,114 @@ mod view_tests {
     use super::*;
 
     #[test]
+    fn edited_path_waits_for_save_and_late_checks_cannot_replace_its_status() {
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx);
+        let data = std::env::temp_dir().join(format!(
+            "bajptr-path-save-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut app = Desktop::initial();
+        app.backend = Some(Backend::start(&data, &data, ctx.clone()).unwrap());
+        app.loaded = true;
+        app.game = "old-game".into();
+        app.state = Arc::new(json!({"game":"old-game","revision":0}));
+        app.submit("check", json!({}), "正在检查…");
+        app.game = "new-game".into();
+        app.game_path_changed();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while !app.pending.is_empty() {
+            assert!(Instant::now() < deadline);
+            app.events();
+            std::thread::yield_now();
+        }
+        assert!(app.path_dirty && !app.connected);
+        assert!(app.error.is_none());
+        assert_eq!(app.status, "路径已更改，等待重新检查…");
+        assert!(!data.join(".gui/settings.json").exists());
+        let mut frame = 0;
+        let mut draw = |app: &mut Desktop, events| {
+            frame += 1;
+            ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1080., 680.),
+                    )),
+                    time: Some(f64::from(frame) / 60.),
+                    events,
+                    ..Default::default()
+                },
+                |ui| app.tools_page(ui),
+            )
+            .shapes
+            .into_iter()
+            .filter_map(|shape| match shape.shape {
+                egui::Shape::Text(text) => Some((
+                    text.galley.text().to_string(),
+                    egui::Rect::from_min_size(text.pos, text.galley.size()),
+                )),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+        };
+        let mut labels = Vec::new();
+        for _ in 0..3 {
+            labels = draw(&mut app, vec![]);
+        }
+        let save = labels.iter().find(|(label, _)| label == "保存").unwrap().1;
+        let path = labels
+            .iter()
+            .find(|(label, _)| label == "游戏目录")
+            .unwrap()
+            .1;
+        let check = labels
+            .iter()
+            .find(|(label, _)| label == "检查底稿")
+            .unwrap()
+            .1;
+        let baseline = labels
+            .iter()
+            .find(|(label, _)| label == "初始底稿")
+            .unwrap()
+            .1;
+        assert!((save.center().y - path.center().y).abs() < 8.);
+        assert!((check.center().y - baseline.center().y).abs() < 8.);
+        assert!(check.top() > save.bottom());
+        assert!(!data.exists());
+        for pressed in [true, false] {
+            draw(
+                &mut app,
+                vec![
+                    egui::Event::PointerMoved(save.center()),
+                    egui::Event::PointerButton {
+                        pos: save.center(),
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: Default::default(),
+                    },
+                ],
+            );
+        }
+        assert!(!app.path_dirty);
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while app.busy.is_some() {
+            assert!(Instant::now() < deadline);
+            app.events();
+            std::thread::yield_now();
+        }
+        let settings: Value =
+            serde_json::from_slice(&std::fs::read(data.join(".gui/settings.json")).unwrap())
+                .unwrap();
+        assert_eq!(settings["game"], "new-game");
+        app.backend = None;
+        bajptr_project::storage::retire(&data).unwrap();
+    }
+
+    #[test]
     fn stopped_backend_releases_pending_work_and_reconnects_without_replaying_writes() {
         for send_after_disconnect in [false, true] {
             let ctx = egui::Context::default();
@@ -1106,7 +1237,7 @@ mod view_tests {
                     std::thread::yield_now();
                 }
                 app.busy = None;
-                app.submit("load", json!({}), "load", false);
+                app.submit("load", json!({}), "load");
             } else {
                 while app.backend.is_some() {
                     assert!(Instant::now() < deadline);
@@ -1214,7 +1345,9 @@ mod view_tests {
             ));
             app.backend = Some(Backend::start(&data, &data, ctx.clone()).unwrap());
             app.connected = connected;
+            app.loaded = true;
             app.game = "connected-game".into();
+            app.state = Arc::new(json!({"game":"connected-game","revision":0}));
             let mut frame = 0;
             let mut draw = |app: &mut Desktop, events| {
                 frame += 1;

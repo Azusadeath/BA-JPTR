@@ -78,18 +78,7 @@ impl Baselines {
         control: &Control<'_>,
     ) -> Result<Baseline> {
         control.check()?;
-        let callback = |message: Option<&str>| {
-            if let Some(m) = message {
-                let _ = (control.callback)(Some(m));
-            }
-            true
-        };
-        let uninterrupted = Control {
-            callback: &callback,
-        };
-        let result = self.resolve_locked(game, root, &uninterrupted, true, replace)?;
-        control.check()?;
-        Ok(result)
+        self.resolve_locked(game, root, control, true, replace)
     }
     fn resolve_locked(
         &mut self,
@@ -201,6 +190,7 @@ impl Baselines {
             "{version}.superseded-{}",
             uuid::Uuid::new_v4().simple()
         ));
+        control.check()?;
         if replace {
             fs::rename(&destination, &previous)?;
         }
@@ -216,7 +206,7 @@ impl Baselines {
                 previous.display()
             ));
         }
-        control.log("初始底稿已保存，之后从这份底稿重建。")?;
+        let _ = control.log("初始底稿已保存，之后从这份底稿重建。");
         retire_old(&destination, control);
         Ok(Baseline {
             bundle: destination.join(name),

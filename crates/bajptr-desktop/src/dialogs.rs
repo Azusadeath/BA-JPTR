@@ -703,7 +703,7 @@ impl Desktop {
                     )
                     .clicked()
                     {
-                        self.submit("save_rule", form.payload(), "正在保存词条…", false);
+                        self.submit("save_rule", form.payload(), "正在保存词条…");
                     }
                     if ui.button("取消").clicked() {
                         close = true;
@@ -899,7 +899,6 @@ impl Desktop {
                         "template",
                         json!({"key":form.key,"values":form.values,"sample":form.sample}),
                         "正在试写…",
-                        true,
                     );
                 }
                 ui.horizontal(|ui| {
@@ -1001,7 +1000,6 @@ impl Desktop {
                                 "text_save",
                                 json!({"nonce":form.nonce,"text":form.value}),
                                 "正在保存单条修改…",
-                                false,
                             );
                         }
                         if ui.button("取消").clicked() {
@@ -1024,10 +1022,10 @@ impl Desktop {
         window(if form.group_id.is_empty(){"替换选中文本"}else{"编辑批量修改"},ctx,820.).open(&mut open).show(ctx,|ui|{ui.label(format!("仅修改选中的 {} 条文本",form.indices.len()));if !form.group_id.is_empty() && ui.button("查看文本范围，移除误选段落…").clicked(){self.open_batch_scope(&form.group_id);close=true;}ui.add_enabled_ui(!self.write_busy(),|ui|{
             ui.label("查找文字");let old=ui.add(egui::TextEdit::singleline(&mut form.old).font(egui::TextStyle::Body).desired_width(f32::INFINITY));ui.label("替换为");let new=ui.add(egui::TextEdit::singleline(&mut form.new).font(egui::TextStyle::Body).desired_width(f32::INFINITY));
             if old.changed()||new.changed(){form.nonce.clear();form.changes.clear();form.error.clear();}
-            if ui.button("预览选中").clicked(){self.submit("batch_preview",json!({"group_id":form.group_id,"indices":form.indices,"search_nonce":text(&self.search,"nonce"),"old":form.old,"new":form.new}),"正在预览选中文本…",true);}
+            if ui.button("预览选中").clicked(){self.submit("batch_preview",json!({"group_id":form.group_id,"indices":form.indices,"search_nonce":text(&self.search,"nonce"),"old":form.old,"new":form.new}),"正在预览选中文本…");}
             egui::ScrollArea::vertical().max_height(ctx.content_rect().height()*0.35).show(ui,|ui|{for change in &form.changes{ui.label(RichText::new(text(change,"label")).color(MUTED));ui.label(format!("当前：{}\n替换后：{}",text(change,"before"),text(change,"after")));ui.separator();}});
             if form.new.is_empty() && !form.old.is_empty(){ui.colored_label(MUTED,"留空将删除选中文本中的匹配文字。");}
-            ui.colored_label(RED,&form.error);ui.horizontal(|ui|{if primary(ui,!form.nonce.is_empty()&&!form.changes.is_empty(),"保存修改").clicked(){self.submit("batch_save",json!({"nonce":form.nonce}),"正在保存选中文本修改…",false);}
+            ui.colored_label(RED,&form.error);ui.horizontal(|ui|{if primary(ui,!form.nonce.is_empty()&&!form.changes.is_empty(),"保存修改").clicked(){self.submit("batch_save",json!({"nonce":form.nonce}),"正在保存选中文本修改…");}
 if ui.button("取消").clicked(){close=true;}});
         });});
         if open && !close {
@@ -1057,7 +1055,7 @@ if ui.button("取消").clicked(){close=true;}});
                 ui.horizontal(|ui| {
                     if secondary(ui, selected.is_some()&&!self.write_busy(),"从本批移除此段").clicked()
                         && let Some(entry)=selected {
-                        self.submit("remove_batch_member",json!({"id":form.id,"index":entry["index"],"revision":self.revision()}),"正在从本批移除这段文本…",false);
+                        self.submit("remove_batch_member",json!({"id":form.id,"index":entry["index"],"revision":self.revision()}),"正在从本批移除这段文本…");
                     }
                     if ui.button("关闭").clicked(){close=true;}
                 });
@@ -1128,7 +1126,6 @@ if ui.button("取消").clicked(){close=true;}});
                         "sources_ack",
                         json!({"revision":self.revision()}),
                         "正在保存提醒状态…",
-                        false,
                     );
                 }
             });
@@ -1337,7 +1334,6 @@ if ui.button("取消").clicked(){close=true;}});
                                 "prepare_patch",
                                 json!({"nonce":text(&preview,"nonce")}),
                                 "正在后台准备补丁…",
-                                true,
                             );
                         }
                     }
@@ -1357,7 +1353,6 @@ if ui.button("取消").clicked(){close=true;}});
                             "apply",
                             json!({"nonce":text(&preview,"nonce"),"prepared":true}),
                             "正在校验并应用准备好的补丁…",
-                            true,
                         );
                         close = true;
                     }
@@ -1490,7 +1485,6 @@ if ui.button("取消").clicked(){close=true;}});
                                 "text_open",
                                 json!({"edit_index":entry["index"]}),
                                 "正在读取单条修改…",
-                                true,
                             );
                         }
                         if secondary(ui, true, "移除单条修改").clicked() {
@@ -1498,7 +1492,6 @@ if ui.button("取消").clicked(){close=true;}});
                                 "remove_edit",
                                 json!({"index":entry["index"],"revision":self.revision()}),
                                 "正在移除单条修改…",
-                                false,
                             );
                         }
                     });
@@ -1542,7 +1535,7 @@ if ui.button("取消").clicked(){close=true;}});
                     ui.add_space(14.);
                     ui.horizontal(|ui| {
                         if primary(ui,!self.write_busy(),if first {"设为初始底稿"} else {"更新底稿"}).clicked() {
-                            self.submit("baseline_commit",json!({"token":candidate["token"]}),"正在保存并校验初始底稿…",false);
+                            self.submit("baseline_commit",json!({"token":candidate["token"]}),"正在保存并校验初始底稿…");
                             close = true;
                         }
                         if ui.button(if first {"暂不设置"} else {"暂不更新"}).clicked() { close = true; }
@@ -1567,7 +1560,7 @@ if ui.button("取消").clicked(){close=true;}});
                     ));
                     ui.horizontal(|ui| {
                         if primary(ui, !self.write_busy(), "导入替换").clicked() {
-                            self.submit("import_commit", import.clone(), "正在导入词表…", false);
+                            self.submit("import_commit", import.clone(), "正在导入词表…");
                             close = true;
                         }
                         if ui.button("取消").clicked() {
@@ -1590,7 +1583,7 @@ if ui.button("取消").clicked(){close=true;}});
                     );
                     ui.horizontal(|ui| {
                         if primary(ui, !self.write_busy(), "恢复底稿").clicked() {
-                            self.submit("restore", json!({}), "正在恢复初始底稿…", false);
+                            self.submit("restore", json!({}), "正在恢复初始底稿…");
                             close = true;
                         }
                         if ui.button("取消").clicked() {
