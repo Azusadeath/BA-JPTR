@@ -55,7 +55,7 @@ pub fn install(ctx: &egui::Context) {
     style.visuals.widgets.inactive.bg_fill = Color32::WHITE;
     style.visuals.widgets.inactive.weak_bg_fill = Color32::WHITE;
     style.visuals.widgets.inactive.bg_stroke = Stroke::new(1., LINE);
-    style.visuals.widgets.inactive.fg_stroke = Stroke::new(1.5, MUTED);
+    style.visuals.widgets.inactive.fg_stroke = Stroke::new(1.5, TEXT);
     style.visuals.widgets.hovered.bg_fill = SOFT_BLUE;
     style.visuals.widgets.hovered.weak_bg_fill = SOFT_BLUE;
     style.visuals.widgets.hovered.bg_stroke = Stroke::new(1., Color32::from_rgb(165, 197, 231));
@@ -79,10 +79,9 @@ pub fn install(ctx: &egui::Context) {
     style.spacing.combo_height = 240.;
     style.spacing.window_margin = egui::Margin::same(18);
     style.spacing.menu_margin = egui::Margin::same(8);
-    style.spacing.scroll = egui::style::ScrollStyle::solid();
+    style.spacing.scroll = egui::style::ScrollStyle::floating();
     style.spacing.scroll.foreground_color = true;
-    style.spacing.scroll.bar_width = 10.;
-    style.spacing.scroll.handle_min_length = 36.;
+    style.spacing.scroll.bar_width = 12.;
     style
         .text_styles
         .insert(egui::TextStyle::Body, FontId::proportional(16.));
