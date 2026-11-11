@@ -187,18 +187,6 @@ impl Desktop {
             }))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    if ui
-                        .add_enabled(
-                            can_edit,
-                            egui::Checkbox::new(&mut self.skip, "跳过含日文假名的文本"),
-                        )
-                        .changed()
-                    {
-                        self.search = Value::Null.into();
-                        self.selection.clear();
-                        self.status = "跳过假名选项已更新，请重新查找".into();
-                        self.save_settings();
-                    }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let ready = self.connected
                             && self.sources_ready
@@ -596,6 +584,20 @@ impl Desktop {
                         }
                         ui.separator();
                         let can_edit = self.loaded && self.healthy() && !self.write_busy();
+                        ui.label(egui::RichText::new("处理选项").strong().color(TEXT));
+                        if ui
+                            .add_enabled(
+                                can_edit,
+                                egui::Checkbox::new(&mut self.skip, "跳过含日文假名的文本"),
+                            )
+                            .changed()
+                        {
+                            self.search = Value::Null.into();
+                            self.selection.clear();
+                            self.status = "跳过假名选项已更新，请重新查找".into();
+                            self.save_settings();
+                        }
+                        ui.separator();
                         egui::Grid::new("tool-operations")
                             .num_columns(2)
                             .spacing(egui::vec2(24., 12.))
