@@ -625,26 +625,12 @@ impl Desktop {
                 ui.add_space(4.);
                 tool_section(ui, "工作区", |ui| {
                     let can_edit = self.loaded && self.healthy() && !self.write_busy();
-                    let checked = self.skip;
                     let response = egui::Frame::new()
-                        .fill(if checked { SOFT_BLUE } else { BG })
-                        .stroke(egui::Stroke::new(
-                            1.,
-                            if checked {
-                                Color32::from_rgb(165, 197, 231)
-                            } else {
-                                LINE
-                            },
-                        ))
+                        .fill(Color32::WHITE)
+                        .stroke(egui::Stroke::new(1., LINE))
                         .corner_radius(7)
                         .inner_margin(egui::Margin::symmetric(10, 0))
                         .show(ui, |ui| {
-                            if checked {
-                                let widgets = &mut ui.style_mut().visuals.widgets;
-                                widgets.inactive.bg_fill = SOFT_BLUE;
-                                widgets.inactive.bg_stroke = egui::Stroke::new(1., BLUE);
-                                widgets.inactive.fg_stroke = egui::Stroke::new(2., BLUE);
-                            }
                             ui.add_enabled(
                                 can_edit && !self.path_dirty,
                                 egui::Checkbox::new(
