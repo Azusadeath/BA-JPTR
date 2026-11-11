@@ -419,7 +419,7 @@ mod tests {
                 let mut rect = egui::Rect::NOTHING;
                 let mut enabled = true;
                 let mut clicked = false;
-                let output = ctx.run_ui(
+                let mut output = ctx.run_ui(
                     egui::RawInput {
                         events,
                         ..Default::default()
@@ -433,6 +433,7 @@ mod tests {
                         clicked = response.clicked();
                     },
                 );
+                output.textures_delta.clear();
                 (output, rect, enabled, clicked)
             };
             let (output, rect, _, _) = draw(vec![]);

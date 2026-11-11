@@ -1608,7 +1608,7 @@ mod layout_tests {
         let entry = json!({"index":0,"active":true,"label":"技能说明","edit":{"table":"Skill","row_id":1,"slot":0,"original":"原文".repeat(300),"replacement":"结果\n".repeat(100),"batch_operation":{"before":"本批之前\n".repeat(100)}}});
         let mut selected = Some(0);
         for frame in 0..3 {
-            let _ = ctx.run_ui(
+            let mut output = ctx.run_ui(
                 egui::RawInput {
                     screen_rect: Some(egui::Rect::from_min_size(
                         egui::Pos2::ZERO,
@@ -1637,6 +1637,7 @@ mod layout_tests {
                     );
                 },
             );
+            output.textures_delta.clear();
         }
     }
 }

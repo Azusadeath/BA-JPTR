@@ -107,10 +107,11 @@ GUI 在收到有效 preview 后立即显示结果，并向同一后台 Worker �
 
 ```powershell
 powershell -NoProfile -File tools/build.ps1 -Test -Package bajptr-project -TestTarget workflow -TestFilter source_filter
-powershell -NoProfile -File tools/build.ps1 -Test -Package bajptr-desktop -TestFilter scope
+powershell -NoProfile -File tools/build.ps1 -Test -Package bajptr-desktop -DebugBuild
 ```
 
 `-Package` 选择包，`-TestTarget` 选择集成测试文件，`-TestFilter` 按名称筛选测试（后两项要求 `-Test`）。来源筛选等同一场景优先复用既有夹具；不为窗口宽度、文案或私有实现常量增加镜像测试。写入、撤销、取消、损坏资源与恢复等行为回归保留。
+无渲染器桌面 UI 测试使用 Debug 配置检查 egui 的资源生命周期断言；每帧 `run_ui` 的纹理更新在丢弃输出前显式 `clear`，图形与交互断言照常执行。Release 配置不会触发这类 debug 断言。
 
 需要 Rust 1.95+，以及所选 Windows 目标对应的 C 工具链和资源编译器（GNU：MinGW/GCC、windres；MSVC：C++ Build Tools、Windows SDK）。
 本轮使用 x86_64-pc-windows-gnu 构建。存在 `.toolchain/` 时自动使用项目工具链，否则使用系统 Cargo；首次构建需下载锁定依赖。SQLite 随项目编译。

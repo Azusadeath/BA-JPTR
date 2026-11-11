@@ -44,7 +44,7 @@ mod tests {
         assert!(fallback);
         let ctx = egui::Context::default();
         ctx.set_fonts(fonts);
-        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
             ui.fonts_mut(|fonts| {
                 let font = egui::FontId::proportional(16.);
                 for ch in "替换查找恢复词表预览应用游戏目录请输入中文".chars()
@@ -53,5 +53,7 @@ mod tests {
                 }
             });
         });
+        // Headless tests inspect UI output without uploading textures to a renderer.
+        output.textures_delta.clear();
     }
 }

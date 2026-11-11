@@ -1124,7 +1124,7 @@ mod view_tests {
         let mut frame = 0;
         let mut draw = |app: &mut Desktop, events| {
             frame += 1;
-            ctx.run_ui(
+            let mut output = ctx.run_ui(
                 egui::RawInput {
                     screen_rect: Some(egui::Rect::from_min_size(
                         egui::Pos2::ZERO,
@@ -1135,17 +1135,19 @@ mod view_tests {
                     ..Default::default()
                 },
                 |ui| app.tools_page(ui),
-            )
-            .shapes
-            .into_iter()
-            .filter_map(|shape| match shape.shape {
-                egui::Shape::Text(text) => Some((
-                    text.galley.text().to_string(),
-                    egui::Rect::from_min_size(text.pos, text.galley.size()),
-                )),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
+            );
+            output.textures_delta.clear();
+            output
+                .shapes
+                .into_iter()
+                .filter_map(|shape| match shape.shape {
+                    egui::Shape::Text(text) => Some((
+                        text.galley.text().to_string(),
+                        egui::Rect::from_min_size(text.pos, text.galley.size()),
+                    )),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
         };
         let mut labels = Vec::new();
         for _ in 0..3 {
@@ -1282,7 +1284,7 @@ mod view_tests {
         let draw = |app: &mut Desktop| {
             let mut output = None;
             for _ in 0..3 {
-                output = Some(ctx.run_ui(
+                let mut frame_output = ctx.run_ui(
                     egui::RawInput {
                         screen_rect: Some(egui::Rect::from_min_size(
                             egui::Pos2::ZERO,
@@ -1291,7 +1293,9 @@ mod view_tests {
                         ..Default::default()
                     },
                     |ui| app.dialogs(ui.ctx()),
-                ));
+                );
+                frame_output.textures_delta.clear();
+                output = Some(frame_output);
             }
             output
                 .unwrap()
@@ -1351,7 +1355,7 @@ mod view_tests {
             let mut frame = 0;
             let mut draw = |app: &mut Desktop, events| {
                 frame += 1;
-                ctx.run_ui(
+                let mut output = ctx.run_ui(
                     egui::RawInput {
                         screen_rect: Some(egui::Rect::from_min_size(
                             egui::Pos2::ZERO,
@@ -1367,17 +1371,19 @@ mod view_tests {
                             app.tools_page(ui);
                         }
                     },
-                )
-                .shapes
-                .into_iter()
-                .filter_map(|shape| match shape.shape {
-                    egui::Shape::Text(text) => Some((
-                        text.galley.text().to_string(),
-                        egui::Rect::from_min_size(text.pos, text.galley.size()),
-                    )),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
+                );
+                output.textures_delta.clear();
+                output
+                    .shapes
+                    .into_iter()
+                    .filter_map(|shape| match shape.shape {
+                        egui::Shape::Text(text) => Some((
+                            text.galley.text().to_string(),
+                            egui::Rect::from_min_size(text.pos, text.galley.size()),
+                        )),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
             };
             let mut header = Vec::new();
             for _ in 0..3 {
@@ -1509,7 +1515,7 @@ mod view_tests {
         let mut frame = 0;
         let mut draw = |events: Vec<egui::Event>| {
             frame += 1;
-            let output = ctx.run_ui(
+            let mut output = ctx.run_ui(
                 egui::RawInput {
                     screen_rect: Some(egui::Rect::from_min_size(
                         egui::Pos2::ZERO,
@@ -1521,6 +1527,7 @@ mod view_tests {
                 },
                 |ui| app.dialogs(ui.ctx()),
             );
+            output.textures_delta.clear();
             output
                 .shapes
                 .into_iter()
@@ -1660,7 +1667,7 @@ mod view_tests {
         let mut draw = |mut events: Vec<egui::Event>, modifiers: egui::Modifiers, time: f64| {
             events.insert(0, egui::Event::ModifiersChanged(modifiers));
             let mut double = false;
-            let _ = ctx.run_ui(
+            let mut output = ctx.run_ui(
                 egui::RawInput {
                     screen_rect: Some(egui::Rect::from_min_size(
                         egui::Pos2::ZERO,
@@ -1688,6 +1695,7 @@ mod view_tests {
                     }
                 },
             );
+            output.textures_delta.clear();
             (rects, selection.rows.clone(), double)
         };
         let positions = draw(vec![], egui::Modifiers::NONE, 0.).0;
