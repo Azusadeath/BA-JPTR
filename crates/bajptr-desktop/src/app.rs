@@ -27,7 +27,7 @@ pub struct Desktop {
     pub tab: usize,
     pub status: String,
     pub application: String,
-    pub logs: Vec<String>,
+    pub logs: Vec<crate::logging::Entry>,
     pub error: Option<String>,
     pub rule_selection: Option<usize>,
     pub search: Arc<Value>,
@@ -145,17 +145,41 @@ impl Desktop {
         }
         self.status = if self.path_dirty {
             "路径已更改，等待重新检查…".into()
-        } else if !self.search.is_null() {
+        } else if self.tab == 1 && !self.search.is_null() {
             format!(
                 "共找到 {} 处，已加载 {} 处",
                 count(&self.search, "total"),
                 slice(&self.search, "rows").len()
             )
         } else if self.connected {
-            "底稿已就绪。修改自动保存，预览后应用。".into()
+            if self.tab == 0 && !self.application.is_empty() {
+                self.application.clone()
+            } else {
+                "底稿已就绪。".into()
+            }
         } else {
             "请选择游戏目录并检查底稿。".into()
         };
+    }
+    pub fn log(&mut self, message: String, level: Option<crate::logging::Level>) {
+        if message.trim().is_empty() {
+            return;
+        }
+        self.logs.push(crate::logging::Entry::new(message, level));
+        if self.logs.len() > 2000 {
+            self.logs.drain(..500);
+        }
+    }
+    pub fn log_text(&self) -> String {
+        self.logs
+            .iter()
+            .map(crate::logging::Entry::formatted)
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+    pub fn export_logs(&self, path: &std::path::Path) -> bajptr_project::Result<()> {
+        bajptr_project::storage::atomic_write(path, self.log_text().as_bytes(), None)?;
+        Ok(())
     }
     pub fn game_path_changed(&mut self) {
         self.path_dirty = true;
@@ -302,7 +326,7 @@ impl Desktop {
             form.error = "项目服务已停止，请重新连接。".into();
         }
         self.application = "应用状态待核对，先预览".into();
-        self.logs.push(message.clone());
+        self.log(message.clone(), Some(crate::logging::Level::Error));
         self.status = message;
         self.error = Some(format!(
             "{}\n重新连接将读取已保存记录，未保存的编辑需重新填写。若当时正在应用或恢复，请先核对游戏状态；原操作不会自动重试。",
@@ -491,7 +515,7 @@ impl Desktop {
         {
             let detail = text(event, "detail");
             if !detail.is_empty() {
-                self.logs.push(detail);
+                self.log(detail, Some(crate::logging::Level::Error));
             }
             self.backend_failed(text(event, "message"));
             return;
@@ -508,10 +532,7 @@ impl Desktop {
                 if self.busy.as_ref().is_some_and(|b| b.id == id) {
                     self.status = message.clone();
                 }
-                self.logs.push(message);
-                if self.logs.len() > 2000 {
-                    self.logs.drain(..500);
-                }
+                self.log(message, None);
                 continue;
             }
             let action = self.pending.remove(&id).unwrap_or_default();
@@ -541,7 +562,15 @@ impl Desktop {
             }
             if kind == "error" {
                 let message = text(&event, "message");
-                self.logs.push(text(&event, "detail"));
+                let detail = text(&event, "detail");
+                self.log(
+                    if detail.is_empty() {
+                        message.clone()
+                    } else {
+                        detail
+                    },
+                    Some(crate::logging::Level::Error),
+                );
                 self.status = message.clone();
                 match action.as_str() {
                     "settings" => {
@@ -620,16 +649,15 @@ impl Desktop {
                 "load" => {
                     self.apply_state(data);
                     self.loaded = true;
-                    self.logs.extend(
-                        list(&self.state, "messages")
-                            .iter()
-                            .filter_map(Value::as_str)
-                            .map(str::to_string),
-                    );
+                    for message in list(&self.state, "messages")
+                        .iter()
+                        .filter_map(Value::as_str)
+                    {
+                        self.log(message.into(), None);
+                    }
                     if !self.healthy() {
                         self.error = Some(
-                            "修改记录读取失败，原文件已保留。请检查运行详情并修复文件后重启。"
-                                .into(),
+                            "修改记录读取失败，原文件已保留。请查看日志并修复文件后重启。".into(),
                         );
                     }
                     if !self.game.is_empty() {
@@ -710,10 +738,13 @@ impl Desktop {
                         self.show_source_notices = true;
                     }
                     if count(&data, "migrated") > 0 {
-                        self.logs.push(format!(
-                            "已将 {} 条旧词条固定到上次记录的来源范围。",
-                            count(&data, "migrated")
-                        ));
+                        self.log(
+                            format!(
+                                "已将 {} 条旧词条固定到上次记录的来源范围。",
+                                count(&data, "migrated")
+                            ),
+                            None,
+                        );
                     }
                     self.restore_context_status();
                 }
@@ -749,19 +780,11 @@ impl Desktop {
                     self.search = data.into();
                     self.selection.clear();
                     self.search_source = text(&self.search, "source");
-                    self.status = format!(
-                        "共找到 {} 处，已加载 {} 处",
-                        count(&self.search, "total"),
-                        slice(&self.search, "rows").len()
-                    );
+                    self.restore_context_status();
                 }
                 "search_more" => {
                     self.search = data.into();
-                    self.status = format!(
-                        "共找到 {} 处，已加载 {} 处",
-                        count(&self.search, "total"),
-                        slice(&self.search, "rows").len()
-                    );
+                    self.restore_context_status();
                 }
                 "text_open" => {
                     self.status = "编辑完整文本，保存后预览并应用。".into();
@@ -876,6 +899,7 @@ impl Desktop {
                     self.status = text(&data, "message");
                     let warning = text(&data, "warning");
                     if !warning.is_empty() {
+                        self.log(warning.clone(), Some(crate::logging::Level::Warning));
                         self.error = Some(warning);
                     }
                     if let Some(v) = data.get("application").and_then(Value::as_str) {
@@ -971,7 +995,7 @@ impl eframe::App for Desktop {
                             if reconnect && secondary(ui, true, "重新连接").clicked() {
                                 self.reconnect(&ctx);
                             }
-                            if action(ui, true, "运行详情", ButtonKind::Quiet).clicked() {
+                            if action(ui, true, "查看日志", ButtonKind::Quiet).clicked() {
                                 self.show_logs = true;
                             }
                         });
@@ -1091,6 +1115,253 @@ pub fn data_row(
 #[cfg(test)]
 mod view_tests {
     use super::*;
+
+    #[test]
+    fn search_toolbar_overlays_the_header_without_moving_rows_and_status_follows_navigation() {
+        for width in [900., 1080.] {
+            let ctx = egui::Context::default();
+            crate::theme::install(&ctx);
+            let mut app = Desktop::initial();
+            app.loaded = true;
+            app.connected = true;
+            app.tab = 1;
+            let mut frame = 0;
+            let mut draw = |app: &mut Desktop, events| {
+                frame += 1;
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(width, 680.),
+                        )),
+                        time: Some(f64::from(frame) / 60.),
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| {
+                        app.header(ui);
+                        if app.tab == 1 {
+                            app.search_page(ui);
+                        } else {
+                            app.replacement(ui);
+                        }
+                    },
+                );
+                output.textures_delta.clear();
+                output
+                    .shapes
+                    .into_iter()
+                    .filter_map(|shape| match shape.shape {
+                        egui::Shape::Text(text) => Some((
+                            text.galley.text().to_owned(),
+                            egui::Rect::from_min_size(text.pos, text.galley.size()),
+                        )),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+            };
+            let empty = draw(&mut app, vec![]);
+            assert!(
+                empty
+                    .iter()
+                    .any(|(text, _)| text == "输入关键词查找游戏文本")
+            );
+            assert!(!empty.iter().any(|(text, _)| text == "导出底稿文本"));
+            app.search = Arc::new(
+                json!({"nonce":"fixed","total":60,"rows":(0..60).map(|i|json!({"text":format!("result-{i:03}"),"label":"来源","table":"test"})).collect::<Vec<_>>()}),
+            );
+            let mut labels = Vec::new();
+            for _ in 0..3 {
+                labels = draw(&mut app, vec![]);
+            }
+            let row = labels
+                .iter()
+                .find(|(text, _)| text == "result-000")
+                .unwrap()
+                .1;
+            assert!(!labels.iter().any(|(text, _)| text == "替换选中文本"));
+            app.selection.click(0, false, false);
+            for _ in 0..3 {
+                labels = draw(&mut app, vec![]);
+            }
+            let selected_row = labels
+                .iter()
+                .find(|(text, _)| text == "result-000")
+                .unwrap()
+                .1;
+            let edit = labels
+                .iter()
+                .find(|(text, _)| text == "编辑文本")
+                .unwrap()
+                .1;
+            assert_eq!(row, selected_row, "selection must not move the table");
+            assert!(
+                edit.bottom() <= row.top(),
+                "toolbar overlaps the first result"
+            );
+            assert!(labels.iter().any(|(text, _)| text == "用此表添加词条"));
+            app.selection.click(1, true, false);
+            for _ in 0..3 {
+                labels = draw(&mut app, vec![]);
+            }
+            assert!(!labels.iter().any(|(text, _)| text == "编辑文本"));
+            assert!(labels.iter().any(|(text, _)| text == "替换选中文本"));
+            assert_eq!(
+                row,
+                labels
+                    .iter()
+                    .find(|(text, _)| text == "result-000")
+                    .unwrap()
+                    .1
+            );
+            app.restore_context_status();
+            assert!(app.status.contains("共找到 60"));
+            let replace = labels
+                .iter()
+                .find(|(text, _)| text == "替换")
+                .unwrap()
+                .1
+                .center();
+            for pressed in [true, false] {
+                draw(
+                    &mut app,
+                    vec![
+                        egui::Event::PointerMoved(replace),
+                        egui::Event::PointerButton {
+                            pos: replace,
+                            button: egui::PointerButton::Primary,
+                            pressed,
+                            modifiers: Default::default(),
+                        },
+                    ],
+                );
+            }
+            assert_eq!(app.tab, 0);
+            assert!(!app.status.contains("共找到"));
+            assert_eq!(count(&app.search, "total"), 60);
+        }
+    }
+
+    #[test]
+    fn log_copy_and_export_preserve_colored_selectable_messages_without_timestamps() {
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx);
+        let mut app = Desktop::initial();
+        app.show_logs = true;
+        app.log("读取完成".into(), None);
+        app.log("警告：跳过非文本表".into(), None);
+        app.log("读取失败\n详细原因".into(), None);
+        let mut frame = 0;
+        let mut draw = |app: &mut Desktop, events| {
+            frame += 1;
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1080., 680.),
+                    )),
+                    time: Some(f64::from(frame) / 60.),
+                    events,
+                    ..Default::default()
+                },
+                |ui| app.dialogs(ui.ctx()),
+            );
+            output.textures_delta.clear();
+            output
+        };
+        let mut output = draw(&mut app, vec![]);
+        for _ in 0..3 {
+            output = draw(&mut app, vec![]);
+        }
+        let texts: Vec<_> = output
+            .shapes
+            .iter()
+            .filter_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) => Some(text),
+                _ => None,
+            })
+            .collect();
+        let warning = texts
+            .iter()
+            .find(|text| text.galley.text().contains("跳过非文本表"))
+            .unwrap();
+        let error = texts
+            .iter()
+            .find(|text| text.galley.text().contains("详细原因"))
+            .unwrap();
+        assert!(
+            warning
+                .galley
+                .job
+                .sections
+                .iter()
+                .any(|section| section.format.color == ORANGE)
+        );
+        assert!(
+            error
+                .galley
+                .job
+                .sections
+                .iter()
+                .any(|section| section.format.color == RED)
+        );
+        let copy = texts
+            .iter()
+            .find(|text| text.galley.text() == "复制全部")
+            .unwrap();
+        assert!(
+            copy.pos.y >= error.pos.y + error.galley.size().y,
+            "log actions must stay below the scrollable text"
+        );
+        let position = egui::Rect::from_min_size(copy.pos, copy.galley.size()).center();
+        draw(
+            &mut app,
+            vec![
+                egui::Event::PointerMoved(position),
+                egui::Event::PointerButton {
+                    pos: position,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Default::default(),
+                },
+            ],
+        );
+        let copied = draw(
+            &mut app,
+            vec![
+                egui::Event::PointerMoved(position),
+                egui::Event::PointerButton {
+                    pos: position,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: Default::default(),
+                },
+            ],
+        )
+        .platform_output
+        .commands
+        .into_iter()
+        .find_map(|command| match command {
+            egui::OutputCommand::CopyText(text) => Some(text),
+            _ => None,
+        })
+        .unwrap();
+        assert_eq!(
+            copied,
+            "[INFO ] 读取完成\n[WARN ] 警告：跳过非文本表\n[ERROR] 读取失败\n[ERROR] 详细原因"
+        );
+        let data = std::env::temp_dir().join(format!(
+            "bajptr-log-export-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let path = data.join("log.txt");
+        app.export_logs(&path).unwrap();
+        assert_eq!(std::fs::read_to_string(path).unwrap(), copied);
+        bajptr_project::storage::retire(&data).unwrap();
+    }
 
     #[test]
     fn edited_path_waits_for_save_and_late_checks_cannot_replace_its_status() {

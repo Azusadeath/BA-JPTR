@@ -2,6 +2,7 @@
 mod app;
 mod dialogs;
 mod fonts;
+mod logging;
 mod pages;
 mod startup;
 mod state;

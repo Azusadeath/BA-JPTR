@@ -4,6 +4,7 @@ pub const BLUE: Color32 = Color32::from_rgb(31, 105, 181);
 pub const TEXT: Color32 = Color32::from_rgb(37, 54, 77);
 pub const MUTED: Color32 = Color32::from_rgb(96, 111, 132);
 pub const RED: Color32 = Color32::from_rgb(174, 51, 64);
+pub const ORANGE: Color32 = Color32::from_rgb(157, 83, 13);
 pub const BG: Color32 = Color32::from_rgb(244, 247, 251);
 pub const LINE: Color32 = Color32::from_rgb(226, 233, 242);
 pub const SOFT_BLUE: Color32 = Color32::from_rgb(233, 243, 254);
@@ -54,7 +55,7 @@ pub fn install(ctx: &egui::Context) {
     style.visuals.widgets.inactive.bg_fill = Color32::WHITE;
     style.visuals.widgets.inactive.weak_bg_fill = Color32::WHITE;
     style.visuals.widgets.inactive.bg_stroke = Stroke::new(1., LINE);
-    style.visuals.widgets.inactive.fg_stroke = Stroke::new(1.5, TEXT);
+    style.visuals.widgets.inactive.fg_stroke = Stroke::new(1.5, MUTED);
     style.visuals.widgets.hovered.bg_fill = SOFT_BLUE;
     style.visuals.widgets.hovered.weak_bg_fill = SOFT_BLUE;
     style.visuals.widgets.hovered.bg_stroke = Stroke::new(1., Color32::from_rgb(165, 197, 231));
@@ -72,11 +73,16 @@ pub fn install(ctx: &egui::Context) {
     style.visuals.widgets.noninteractive.fg_stroke = Stroke::new(1., MUTED);
     style.spacing.item_spacing = vec2(8., 10.);
     style.spacing.button_padding = vec2(12., 8.);
-    style.spacing.interact_size.y = 34.;
+    style.spacing.interact_size.y = 36.;
+    style.spacing.icon_width = 20.;
+    style.spacing.icon_width_inner = 12.;
+    style.spacing.combo_height = 240.;
     style.spacing.window_margin = egui::Margin::same(18);
     style.spacing.menu_margin = egui::Margin::same(8);
+    style.spacing.scroll = egui::style::ScrollStyle::solid();
     style.spacing.scroll.foreground_color = true;
-    style.spacing.scroll.bar_width = 12.;
+    style.spacing.scroll.bar_width = 10.;
+    style.spacing.scroll.handle_min_length = 36.;
     style
         .text_styles
         .insert(egui::TextStyle::Body, FontId::proportional(16.));
@@ -89,8 +95,25 @@ pub fn install(ctx: &egui::Context) {
     style
         .text_styles
         .insert(egui::TextStyle::Small, FontId::proportional(12.5));
+    style
+        .text_styles
+        .insert(egui::TextStyle::Monospace, FontId::monospace(14.));
     ctx.set_theme(egui::ThemePreference::Light);
     ctx.set_style_of(egui::Theme::Light, style);
+}
+
+pub fn tool_section(ui: &mut egui::Ui, title: &str, content: impl FnOnce(&mut egui::Ui)) {
+    egui::Frame::new()
+        .fill(Color32::WHITE)
+        .stroke(Stroke::new(1., LINE))
+        .corner_radius(10)
+        .inner_margin(16)
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            ui.label(egui::RichText::new(title).size(17.).strong().color(BLUE));
+            ui.add_space(4.);
+            content(ui);
+        });
 }
 
 #[derive(Clone, Copy)]
@@ -123,7 +146,7 @@ impl Icon {
             "撤销" => Self::Undo,
             "重做" => Self::Redo,
             "导入词表" => Self::Import,
-            "导出词表" | "导出文本" => Self::Export,
+            "导出词表" | "导出底稿文本" | "导出日志" => Self::Export,
             "预览替换" | "预览选中" | "预览并应用" => Self::Preview,
             "应用到游戏" | "保存词条" | "保存修改" | "填入词条" | "确定" => {
                 Self::Apply
@@ -131,7 +154,7 @@ impl Icon {
             "选择文件夹" | "打开输出目录" | "打开底稿位置" => Self::Folder,
             "检查底稿" | "刷新" | "查看最新版本" => Self::Refresh,
             "查找" => Self::Search,
-            "运行详情" | "来源表详情" | "关于 BA-JPTR" | "使用说明" => Self::Info,
+            "查看日志" | "来源表详情" | "关于 BA-JPTR" | "使用说明" => Self::Info,
             "取消任务" => Self::Close,
             "替换选中文本" | "替换" => Self::Replace,
             "恢复底稿" | "恢复初始底稿" | "恢复" => Self::Restore,

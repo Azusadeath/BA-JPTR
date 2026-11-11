@@ -90,6 +90,7 @@ impl Desktop {
             .clicked()
             {
                 self.tab = index;
+                self.restore_context_status();
             }
         }
     }
@@ -331,8 +332,7 @@ impl Desktop {
         let mut run = false;
         ui.horizontal(|ui| {
             let reserved = action_width(ui, "查找")
-                + action_width(ui, "导出文本")
-                + ui.spacing().item_spacing.x * 2.
+                + ui.spacing().item_spacing.x
                 + if wide { 170. } else { 0. };
             let id = egui::Id::unique("search-keyword");
             let focused = ui.memory(|m| m.has_focus(id));
@@ -363,7 +363,6 @@ impl Desktop {
             if wide {
                 run |= self.search_source_control(ui);
             }
-            self.export_text_button(ui);
         });
         if !wide {
             ui.horizontal(|ui| {
@@ -380,22 +379,7 @@ impl Desktop {
         }
         let search = self.search.clone();
         let rows = slice(&search, "rows");
-        if !rows.is_empty() && !self.selection.rows.is_empty() {
-            egui::Frame::new()
-            .inner_margin(egui::Margin::symmetric(0, 2))
-            .show(ui, |ui| {
-            ui.horizontal_wrapped(|ui|{let selected=self.selection.rows.len();
-                    if selected == 1 && !self.write_busy() && ui.add(ToolButton::new("编辑文本")).clicked(){self.open_text(*self.selection.rows.first().unwrap());}
-                    if !self.write_busy() && ui.add(ToolButton::new("替换选中文本")).clicked(){self.batch_form=Some(BatchForm{group_id:String::new(),indices:self.selection.rows.iter().copied().collect(),old:text(&self.search,"keyword"),new:String::new(),nonce:String::new(),changes:Vec::new(),error:String::new()});}
-                    if selected == 1 && !self.write_busy() && ui.add(ToolButton::new("用此表添加词条")).clicked(){let row=&rows[*self.selection.rows.first().unwrap()];let keyword=text(&self.search,"keyword");let value=json!({"rule":{"old":keyword,"new":keyword,"mode":"sub","source":"-","table":row["table"]}});self.rule_form=Some(RuleForm::new(None,self.revision(),Some(&value)));}
-                    if selected == 1 && ui.add(ToolButton::new("来源表详情")).clicked() {
-                        let row=&rows[*self.selection.rows.first().unwrap()];
-                        self.table_detail=Some(self.tables.iter().find(|v|v["name"]==row["table"]).cloned().unwrap_or(json!({"name":row["table"],"label":row["table"]})));
-                    }
-                    ui.colored_label(MUTED,format!("已选 {selected} 条"));
-            });
-            });
-        }
+        let toolbar_position = ui.cursor().min + egui::vec2(8., -4.);
         let width = ui.available_width() - 12.;
         let widths = [width - 180., 180.];
         table_header(ui, &["本次文本", "来源表"], &widths);
@@ -414,6 +398,8 @@ impl Desktop {
                         |ui| {
                             if !self.search.is_null() {
                                 ui.colored_label(MUTED, "未找到匹配文本");
+                            } else {
+                                ui.colored_label(MUTED, "输入关键词查找游戏文本");
                             }
                         },
                     );
@@ -482,6 +468,65 @@ impl Desktop {
                         );
                 }
             });
+        if !rows.is_empty()
+            && !self.selection.rows.is_empty()
+            && !self.modal()
+            && !self.show_logs
+            && !egui::Popup::is_any_open(ui.ctx())
+            && ui.is_enabled()
+        {
+            let selected = self.selection.rows.len();
+            let labels: &[&str] = if selected == 1 {
+                &["编辑文本", "替换选中文本", "用此表添加词条", "来源表详情"]
+            } else {
+                &["替换选中文本"]
+            };
+            let toolbar_width = labels
+                .iter()
+                .map(|label| action_width(ui, label))
+                .sum::<f32>()
+                + ui.painter()
+                    .layout_no_wrap(
+                        format!("已选 {selected} 条"),
+                        egui::FontId::proportional(14.),
+                        BLUE,
+                    )
+                    .size()
+                    .x
+                + ui.spacing().item_spacing.x * labels.len() as f32
+                + 8.;
+            egui::Area::new(egui::Id::unique("search-selection-toolbar"))
+                .default_width(toolbar_width)
+                .order(egui::Order::Foreground).fixed_pos(toolbar_position).movable(false)
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::new().fill(SOFT_BLUE).stroke(egui::Stroke::new(1., BLUE))
+                        .corner_radius(8).inner_margin(4).shadow(egui::epaint::Shadow {
+                            offset: [0, 3], blur: 10, spread: 0, color: Color32::from_black_alpha(20)
+                        }).show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                let selected = self.selection.rows.len();
+                                if selected == 1 && secondary(ui, !self.write_busy(), "编辑文本").clicked() {
+                                    self.open_text(*self.selection.rows.first().unwrap());
+                                }
+                                if secondary(ui, !self.write_busy(), "替换选中文本").clicked() {
+                                    self.batch_form = Some(BatchForm { group_id: String::new(), indices: self.selection.rows.iter().copied().collect(), old: text(&self.search, "keyword"), new: String::new(), nonce: String::new(), changes: Vec::new(), error: String::new() });
+                                }
+                                if selected == 1 {
+                                    let row = &rows[*self.selection.rows.first().unwrap()];
+                                    if secondary(ui, !self.write_busy(), "用此表添加词条").clicked() {
+                                        let keyword = text(&self.search, "keyword");
+                                        let value = json!({"rule":{"old":keyword,"new":keyword,"mode":"sub","source":"-","table":row["table"]}});
+                                        self.rule_form = Some(RuleForm::new(None, self.revision(), Some(&value)));
+                                    }
+                                    if secondary(ui, true, "来源表详情").clicked() {
+                                        self.table_detail = Some(self.tables.iter().find(|v|v["name"]==row["table"]).cloned().unwrap_or(json!({"name":row["table"],"label":row["table"]})));
+                                    }
+                                }
+                                ui.label(egui::RichText::new(format!("已选 {selected} 条")).size(14.).color(BLUE));
+                            });
+                        });
+                });
+        }
     }
     fn search_source_control(&mut self, ui: &mut egui::Ui) -> bool {
         let selected = if self.search_source.is_empty() {
@@ -520,7 +565,7 @@ impl Desktop {
         if ui
             .add_enabled(
                 self.connected && self.busy.is_none(),
-                ToolButton::new("导出文本"),
+                ToolButton::new("导出底稿文本"),
             )
             .clicked()
             && let Some(path) = rfd::FileDialog::new()
@@ -535,128 +580,130 @@ impl Desktop {
             .id_salt("tools-page")
             .auto_shrink([false, true])
             .show(ui, |ui| {
-                egui::Frame::new()
-                    .fill(Color32::WHITE)
-                    .stroke(egui::Stroke::new(1., LINE))
-                    .corner_radius(12)
-                    .inner_margin(18)
-                    .show(ui, |ui| {
-                        ui.set_min_width(ui.available_width());
-                        ui.label(egui::RichText::new("游戏与底稿").strong().color(TEXT));
-                        self.directory_controls(ui);
-                        ui.horizontal(|ui| {
-                            ui.colored_label(MUTED, "初始底稿");
-                            self.check_button(ui);
-                            if !self.baseline.is_null() {
-                                ui.colored_label(Color32::from_rgb(37, 107, 78), "已验证");
-                                let version = text(&self.baseline, "version");
-                                if !version.is_empty() {
-                                    ui.label(format!("资源版本 {version}"));
-                                }
-                                if secondary(ui, true, "打开底稿位置").clicked() {
-                                    Self::open_folder(&PathBuf::from(text(
-                                        &self.baseline,
-                                        "folder",
-                                    )));
-                                }
-                                if secondary(
-                                    ui,
-                                    self.connected && self.busy.is_none(),
-                                    "恢复初始底稿",
-                                )
-                                .clicked()
-                                {
-                                    self.confirm_restore = true;
-                                }
-                            }
-                        });
+                tool_section(ui, "游戏与底稿", |ui| {
+                    self.directory_controls(ui);
+                    ui.horizontal_wrapped(|ui| {
+                        ui.colored_label(MUTED, "初始底稿");
                         if !self.baseline.is_null() {
-                            egui::CollapsingHeader::new("底稿详情").show(ui, |ui| {
-                                for (label, key) in [
-                                    ("建立时间", "created"),
-                                    ("底稿位置", "folder"),
-                                    ("资源标识", "resource"),
-                                    ("版本标识", "version_id"),
-                                ] {
-                                    let value = text(&self.baseline, key);
-                                    if !value.is_empty() {
-                                        ui.colored_label(MUTED, label);
-                                        ui.add(egui::Label::new(value).wrap().selectable(true));
-                                    }
-                                }
-                            });
+                            ui.colored_label(Color32::from_rgb(37, 107, 78), "已验证");
+                            if secondary(ui, true, "打开底稿位置").clicked() {
+                                Self::open_folder(&PathBuf::from(text(&self.baseline, "folder")));
+                            }
                         }
-                        ui.separator();
-                        let can_edit = self.loaded && self.healthy() && !self.write_busy();
-                        ui.label(egui::RichText::new("处理选项").strong().color(TEXT));
-                        if ui
-                            .add_enabled(
-                                can_edit && !self.path_dirty,
-                                egui::Checkbox::new(&mut self.skip, "跳过含日文假名的文本"),
-                            )
-                            .changed()
+                        self.check_button(ui);
+                        if !self.baseline.is_null()
+                            && secondary(ui, self.connected && self.busy.is_none(), "恢复初始底稿")
+                                .clicked()
                         {
-                            self.search = Value::Null.into();
-                            self.selection.clear();
-                            self.status = "跳过假名选项已更新，请重新查找".into();
-                            self.save_settings();
-                        }
-                        ui.separator();
-                        egui::Grid::new("tool-operations")
-                            .num_columns(2)
-                            .spacing(egui::vec2(24., 12.))
-                            .show(ui, |ui| {
-                                ui.label("词表");
-                                ui.horizontal(|ui| {
-                                    if secondary(ui, can_edit, "导入词表").clicked()
-                                        && let Some(path) = rfd::FileDialog::new()
-                                            .add_filter("替换词表", &["tsv", "txt"])
-                                            .pick_file()
-                                    {
-                                        self.submit(
-                                            "import_read",
-                                            json!({"path":path}),
-                                            "正在读取词表…",
-                                        );
-                                    }
-                                    if secondary(
-                                        ui,
-                                        can_edit && !slice(&self.state, "rules").is_empty(),
-                                        "导出词表",
-                                    )
-                                    .clicked()
-                                        && let Some(path) = rfd::FileDialog::new()
-                                            .add_filter("替换词表", &["tsv"])
-                                            .set_file_name("我的译名.tsv")
-                                            .save_file()
-                                    {
-                                        self.submit(
-                                            "export_rules",
-                                            json!({"path":path}),
-                                            "正在导出词表…",
-                                        );
-                                    }
-                                });
-                                ui.end_row();
-                                ui.label("输出");
-                                if secondary(ui, true, "打开输出目录").clicked() {
-                                    match std::fs::create_dir_all(&self.output_dir) {
-                                        Ok(()) => Self::open_folder(&self.output_dir),
-                                        Err(error) => {
-                                            self.error = Some(format!(
-                                                "无法创建输出目录 {}：{error}",
-                                                self.output_dir.display()
-                                            ))
-                                        }
-                                    }
-                                }
-                                ui.end_row();
-                            });
-                        ui.separator();
-                        if action(ui, true, "关于 BA-JPTR", ButtonKind::Quiet).clicked() {
-                            self.show_about = true;
+                            self.confirm_restore = true;
                         }
                     });
+                    if !self.baseline.is_null() {
+                        egui::CollapsingHeader::new("底稿详情").show(ui, |ui| {
+                            egui::Grid::new("baseline-metadata")
+                                .num_columns(2)
+                                .spacing(egui::vec2(20., 6.))
+                                .show(ui, |ui| {
+                                    for (label, key) in [
+                                        ("资源版本", "version"),
+                                        ("建立时间", "created"),
+                                        ("底稿位置", "folder"),
+                                        ("资源标识", "resource"),
+                                        ("版本标识", "version_id"),
+                                    ] {
+                                        let value = text(&self.baseline, key);
+                                        if !value.is_empty() {
+                                            ui.colored_label(MUTED, label);
+                                            ui.add(egui::Label::new(value).wrap().selectable(true));
+                                            ui.end_row();
+                                        }
+                                    }
+                                });
+                        });
+                    }
+                });
+                ui.add_space(4.);
+                tool_section(ui, "工作区", |ui| {
+                    let can_edit = self.loaded && self.healthy() && !self.write_busy();
+                    let checked = self.skip;
+                    let response = egui::Frame::new()
+                        .fill(if checked { SOFT_BLUE } else { BG })
+                        .stroke(egui::Stroke::new(
+                            1.,
+                            if checked {
+                                Color32::from_rgb(165, 197, 231)
+                            } else {
+                                LINE
+                            },
+                        ))
+                        .corner_radius(7)
+                        .inner_margin(egui::Margin::symmetric(10, 0))
+                        .show(ui, |ui| {
+                            if checked {
+                                let widgets = &mut ui.style_mut().visuals.widgets;
+                                widgets.inactive.bg_fill = SOFT_BLUE;
+                                widgets.inactive.bg_stroke = egui::Stroke::new(1., BLUE);
+                                widgets.inactive.fg_stroke = egui::Stroke::new(2., BLUE);
+                            }
+                            ui.add_enabled(
+                                can_edit && !self.path_dirty,
+                                egui::Checkbox::new(
+                                    &mut self.skip,
+                                    egui::RichText::new("跳过含日文假名的文本").size(14.5),
+                                ),
+                            )
+                        })
+                        .inner;
+                    if response.changed() {
+                        self.search = Value::Null.into();
+                        self.selection.clear();
+                        self.status = "跳过假名选项已更新，请重新查找".into();
+                        self.save_settings();
+                    }
+                    ui.horizontal_wrapped(|ui| {
+                        ui.colored_label(MUTED, "词表");
+                        if secondary(ui, can_edit, "导入词表").clicked()
+                            && let Some(path) = rfd::FileDialog::new()
+                                .add_filter("替换词表", &["tsv", "txt"])
+                                .pick_file()
+                        {
+                            self.submit("import_read", json!({"path":path}), "正在读取词表…");
+                        }
+                        if secondary(
+                            ui,
+                            can_edit && !slice(&self.state, "rules").is_empty(),
+                            "导出词表",
+                        )
+                        .clicked()
+                            && let Some(path) = rfd::FileDialog::new()
+                                .add_filter("替换词表", &["tsv"])
+                                .set_file_name("我的译名.tsv")
+                                .save_file()
+                        {
+                            self.submit("export_rules", json!({"path":path}), "正在导出词表…");
+                        }
+                    });
+                });
+                ui.add_space(4.);
+                tool_section(ui, "文件输出", |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        self.export_text_button(ui);
+                        if secondary(ui, true, "打开输出目录").clicked() {
+                            match std::fs::create_dir_all(&self.output_dir) {
+                                Ok(()) => Self::open_folder(&self.output_dir),
+                                Err(error) => {
+                                    self.error = Some(format!(
+                                        "无法创建输出目录 {}：{error}",
+                                        self.output_dir.display()
+                                    ))
+                                }
+                            }
+                        }
+                    });
+                });
+                if action(ui, true, "关于 BA-JPTR", ButtonKind::Quiet).clicked() {
+                    self.show_about = true;
+                }
             });
     }
 }

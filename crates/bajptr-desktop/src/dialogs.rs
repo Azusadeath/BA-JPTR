@@ -489,28 +489,72 @@ impl Desktop {
             let longest = self
                 .logs
                 .iter()
+                .map(crate::logging::Entry::formatted)
                 .max_by_key(|line| line.chars().count())
-                .map(String::as_str)
-                .unwrap_or("");
-            let font = egui::TextStyle::Body.resolve(&ctx.style_of(egui::Theme::Light));
+                .unwrap_or_default();
+            let font = egui::TextStyle::Monospace.resolve(&ctx.style_of(egui::Theme::Light));
             let width = ctx
-                .fonts_mut(|fonts| fonts.layout_no_wrap(longest.into(), font, TEXT).size().x + 12.)
-                .clamp(320., (ctx.content_rect().width() - 80.).clamp(320., 720.));
-            window("运行详情", ctx, width)
+                .fonts_mut(|fonts| fonts.layout_no_wrap(longest, font, TEXT).size().x + 12.)
+                .clamp(440., (ctx.content_rect().width() - 80.).clamp(440., 800.));
+            window("查看日志", ctx, width)
                 .id(egui::Id::unique("run-details-content-width"))
                 .min_width(280.)
                 .max_width(width)
                 .open(&mut open)
                 .resizable(true)
                 .show(ctx, |ui| {
+                    ui.add_space(4.);
+                    let log_height = (ui.available_height() - 56.)
+                        .min(ctx.content_rect().height() - 236.)
+                        .max(80.);
                     egui::ScrollArea::vertical()
-                        .max_height(ctx.content_rect().height() - 160.)
+                        .id_salt("log-content")
+                        .auto_shrink([false, true])
+                        .max_height(log_height)
                         .stick_to_bottom(true)
                         .show(ui, |ui| {
-                            for line in &self.logs {
-                                ui.add(egui::Label::new(line).wrap().selectable(true));
-                            }
+                            egui::Frame::new()
+                                .inner_margin(egui::Margin::symmetric(8, 10))
+                                .show(ui, |ui| {
+                                    ui.spacing_mut().item_spacing.y = 5.;
+                                    if self.logs.is_empty() {
+                                        ui.colored_label(MUTED, "暂无日志");
+                                    }
+                                    for entry in &self.logs {
+                                        let color = match entry.level {
+                                            crate::logging::Level::Info => TEXT,
+                                            crate::logging::Level::Warning => ORANGE,
+                                            crate::logging::Level::Error => RED,
+                                        };
+                                        ui.add(
+                                            egui::Label::new(
+                                                egui::RichText::new(entry.formatted())
+                                                    .monospace()
+                                                    .color(color),
+                                            )
+                                            .wrap()
+                                            .selectable(true),
+                                        );
+                                    }
+                                });
                         });
+                    ui.add_space(8.);
+                    ui.horizontal(|ui| {
+                        if secondary(ui, !self.logs.is_empty(), "复制全部").clicked() {
+                            ctx.copy_text(self.log_text());
+                        }
+                        if secondary(ui, !self.logs.is_empty(), "导出日志").clicked()
+                            && let Some(path) = rfd::FileDialog::new()
+                                .add_filter("日志文本", &["txt"])
+                                .set_file_name("bajptr-log.txt")
+                                .save_file()
+                            && let Err(error) = self.export_logs(&path)
+                        {
+                            let message = format!("日志导出失败：{error}");
+                            self.log(message.clone(), Some(crate::logging::Level::Error));
+                            self.error = Some(message);
+                        }
+                    });
                 });
             self.show_logs = open;
         }
@@ -527,7 +571,7 @@ impl Desktop {
                 if primary(ui, true, "知道了").clicked() {
                     close = true;
                 }
-                if ui.button("运行详情").clicked() {
+                if ui.button("查看日志").clicked() {
                     self.show_logs = true;
                 }
             });
