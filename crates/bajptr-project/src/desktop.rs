@@ -167,13 +167,7 @@ impl Project {
         self.application = "词表已保存，尚未应用".into();
     }
     fn commit(&mut self, document: Document, record: bool) -> Result<()> {
-        self.commit_controlled(
-            document,
-            record,
-            &Control {
-                callback: &|_| true,
-            },
-        )
+        self.commit_controlled(document, record, &Control::new(&|_| true))
     }
     fn commit_controlled(
         &mut self,
@@ -331,14 +325,7 @@ impl Project {
             return Err(invalid("来源表核对期间资源版本发生变化，请重新检查底稿。"));
         }
         control.check()?;
-        let commit_control = Control {
-            callback: &|message| {
-                if let Some(message) = message {
-                    let _ = control.log(message);
-                }
-                true
-            },
-        };
+        let commit_control = control.uncancellable();
         if values != self.rules {
             self.store.check("rules.tsv")?;
             let bytes = fs::read(self.store.root.join("rules.tsv"))?;
@@ -627,7 +614,7 @@ impl Project {
                 if p["draft"].is_object()
                     && let Err(e) = self.templates.remember(&rule.old, &rule.new, &p["draft"])
                 {
-                    control.log(&format!("词条已保存；模板表单未保存：{e}"))?;
+                    control.warn(&format!("词条已保存；模板表单未保存：{e}"))?;
                 }
                 self.state()
             }

@@ -201,7 +201,7 @@ impl Baselines {
             return Err(error.into());
         }
         if replace && let Err(error) = storage::retire(&previous) {
-            let _ = control.log(&format!(
+            let _ = control.warn(&format!(
                 "新底稿已保存，旧副本仍保留在 {}：{error}",
                 previous.display()
             ));
@@ -239,7 +239,7 @@ fn retire_old(current: &Path, control: &Control<'_>) {
                     let _ = control.log("新版底稿已验证，旧版底稿已移出项目。");
                 }
                 Err(e) => {
-                    let _ = control.log(&e.to_string());
+                    let _ = control.warn(&e.to_string());
                 }
             }
         }

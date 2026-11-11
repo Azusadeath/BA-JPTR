@@ -538,7 +538,7 @@ impl Engine {
             && stats["parse_failed"] == 0
             && let Err(e) = record(game, data, config, "checked", Some(&identity))
         {
-            control.log(&format!("预览完成；应用状态记录未保存：{e}"))?;
+            control.warn(&format!("预览完成；应用状态记录未保存：{e}"))?;
         }
         Ok(stats)
     }
@@ -546,9 +546,7 @@ impl Engine {
         if let Some(patch) = self.prepared.take() {
             crate::cleanup::retire_success(
                 patch.output.parent().unwrap(),
-                &Control {
-                    callback: &|_| true,
-                },
+                &Control::new(&|_| true),
             );
         }
     }
@@ -788,9 +786,7 @@ impl Engine {
             let size = encrypted.metadata()?.len();
             // Cancellation is checked before this commit point; publication then finishes.
             control.check()?;
-            let commit_control = Control {
-                callback: &|_| true,
-            };
+            let commit_control = Control::new(&|_| true);
             let entry = region::Entry {
                 size_offset: 0,
                 crc_offset: 0,
@@ -855,9 +851,7 @@ impl Engine {
         } = job;
         // This is the same final publication path for fresh and prepared patches.
         // Validation and cancellation happen before entry; publication then finishes.
-        let commit_control = Control {
-            callback: &|_| true,
-        };
+        let commit_control = Control::new(&|_| true);
         let entry = region::Entry {
             size_offset: 0,
             crc_offset: 0,
@@ -881,7 +875,7 @@ impl Engine {
             match installed {
                 Ok(()) => {
                     if let Err(e) = record(game, data, config, "applied", None) {
-                        let _ = control.log(&format!("游戏已应用；状态记录未保存：{e}"));
+                        let _ = control.warn(&format!("游戏已应用；状态记录未保存：{e}"));
                     }
                     target
                 }
@@ -954,9 +948,7 @@ impl Engine {
             &target,
             entry.size,
             entry.crc,
-            &Control {
-                callback: &|_| true,
-            },
+            &Control::new(&|_| true),
         )?;
         region::publish_catalog(&live, entry.size, entry.crc)?;
         if let Err(e) = record(
@@ -966,7 +958,7 @@ impl Engine {
             "restored",
             None,
         ) {
-            let _ = control.log(&format!("底稿已恢复；状态记录未保存：{e}"));
+            let _ = control.warn(&format!("底稿已恢复；状态记录未保存：{e}"));
         }
         Ok(original)
     }

@@ -9,9 +9,7 @@ use serde_json::json;
 use std::collections::HashMap;
 
 fn ctl() -> Control<'static> {
-    Control {
-        callback: &|_| true,
-    }
+    Control::new(&|_| true)
 }
 fn rule(old: &str, new: &str, mode: &str) -> Rule {
     Rule {
@@ -599,16 +597,8 @@ fn scanning_bad_records_emits_a_location_and_the_actual_parse_reason() {
         }
         true
     };
-    let (_, total) = database::scan(
-        &con,
-        "Localize",
-        "攻击",
-        10,
-        &Control {
-            callback: &callback,
-        },
-    )
-    .unwrap();
+    let (_, total) =
+        database::scan(&con, "Localize", "攻击", 10, &Control::new(&callback)).unwrap();
     assert_eq!(total, 0);
     let logs = logs.lock().unwrap().join("\n");
     for detail in ["LocalizeDBSchema", "记录 12", "bad vtable length"] {

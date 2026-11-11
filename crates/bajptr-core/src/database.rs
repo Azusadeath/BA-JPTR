@@ -135,7 +135,14 @@ fn note(
             slot,
             message,
         };
-        control.log(&diagnostic.display())?;
+        control.log_at(
+            if kind == "parse" {
+                crate::LogLevel::Error
+            } else {
+                crate::LogLevel::Warning
+            },
+            &diagnostic.display(),
+        )?;
         stats.diagnostics.push(diagnostic);
     }
     Ok(())
@@ -396,7 +403,7 @@ pub fn current_overrides(
         let key = match key_name(original, table) {
             Ok(key) => key,
             Err(Error::UnsupportedTable(reason)) => {
-                control.log(&format!("来源表 {table}：{reason}"))?;
+                control.warn(&format!("来源表 {table}：{reason}"))?;
                 continue;
             }
             Err(error) => return Err(error),
@@ -976,10 +983,17 @@ fn report_skips(stats: &Stats, control: &Control<'_>) -> Result<()> {
         parts.push(format!("{} 个异常字段", stats.fields_skipped));
     }
     if !parts.is_empty() {
-        control.log(&format!(
-            "已跳过{}，原始数据保留；上方最多列出 20 项位置与原因。",
-            parts.join("、")
-        ))?;
+        control.log_at(
+            if stats.parse_failed > 0 {
+                crate::LogLevel::Error
+            } else {
+                crate::LogLevel::Warning
+            },
+            &format!(
+                "已跳过{}，原始数据保留；上方最多列出 20 项位置与原因。",
+                parts.join("、")
+            ),
+        )?;
     }
     Ok(())
 }

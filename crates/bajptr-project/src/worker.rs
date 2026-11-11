@@ -89,13 +89,14 @@ impl Worker {
                     }continue;
                 }
                 let read=read_only(&request.action);let can_cancel=cancellable(&request.action);let before=project.snapshot();let revision=project.revision;
-                let callback=|message:Option<&str>|{if let Some(message)=message{send(json!({"id":request.id,"event":"progress","message":message}));} !can_cancel || !request.token.load(Ordering::Relaxed)};
-                let control=Control{callback:&callback};
+                let callback=|_:Option<&str>| !can_cancel || !request.token.load(Ordering::Relaxed);
+                let logger=|level:crate::LogLevel,message:&str|send(json!({"id":request.id,"event":"progress","level":level,"message":message}));
+                let control=Control::new(&callback).with_logger(&logger);
                 let result=control.check().and_then(|_|project.dispatch(&request.action,&request.payload,&control));
                 match result{
                     Ok(data)=>{if read{completed.push_back(Completed{id:request.id,revision,before,after:project.snapshot()});if completed.len()>32{completed.pop_front();}}send(json!({"id":request.id,"event":"result","data":data}));},
                     Err(Error::Cancelled)=>{project.restore_snapshot(&before);send(json!({"id":request.id,"event":"cancelled"}));},
-                    Err(error)=>{if read{project.restore_snapshot(&before);}send(json!({"id":request.id,"event":"error","message":error.to_string(),"detail":error.to_string()}));},
+                    Err(error)=>{if read{project.restore_snapshot(&before);}send(json!({"id":request.id,"event":"error","level":"error","message":error.to_string(),"detail":error.to_string()}));},
                 }
                 worker_tokens.lock().unwrap().remove(&request.id);
             }
@@ -166,6 +167,34 @@ impl Drop for Worker {
 mod tests {
     use super::*;
     use std::{sync::atomic::AtomicUsize, time::Duration};
+
+    #[test]
+    fn warning_metadata_does_not_turn_a_successful_save_into_an_error() {
+        let data = tempfile::tempdir().unwrap();
+        let worker = Worker::start(data.path().to_path_buf(), Arc::new(|| {})).unwrap();
+        worker.send(1, "load", json!({})).unwrap();
+        assert_eq!(
+            worker.events.recv_timeout(Duration::from_secs(3)).unwrap()["event"],
+            "result"
+        );
+        worker.send(2, "save_rule", json!({"revision":0,"index":null,"rule":{"old":"原词","new":"新词","mode":"sub","source":"-","table":"test"},"draft":{}})).unwrap();
+        let warning = worker.events.recv_timeout(Duration::from_secs(3)).unwrap();
+        assert_eq!(warning["event"], "progress");
+        assert_eq!(warning["level"], "warning");
+        assert!(
+            warning["message"]
+                .as_str()
+                .unwrap()
+                .contains("模板表单未保存")
+        );
+        let result = worker.events.recv_timeout(Duration::from_secs(3)).unwrap();
+        assert_eq!(result["event"], "result");
+        assert_eq!(result["data"]["rules"][0]["rule"]["old"], "原词");
+        worker.send(3, "unknown-action", json!({})).unwrap();
+        let error = worker.events.recv_timeout(Duration::from_secs(3)).unwrap();
+        assert_eq!(error["event"], "error");
+        assert_eq!(error["level"], "error");
+    }
 
     #[test]
     fn queued_loading_import_and_export_requests_can_cancel_before_any_work() {

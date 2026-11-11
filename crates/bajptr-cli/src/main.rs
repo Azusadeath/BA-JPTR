@@ -25,9 +25,7 @@ fn main() {
         }
         !cancelled.load(Ordering::Relaxed)
     };
-    if let Err(error) = commands::run(&Control {
-        callback: &callback,
-    }) {
+    if let Err(error) = commands::run(&Control::new(&callback)) {
         eprintln!("错误：{error}");
         std::process::exit(if matches!(error, bajptr_core::Error::Cancelled) {
             130
@@ -83,9 +81,7 @@ fn kernel_stdio() {
         }
         true
     };
-    let control = Control {
-        callback: &callback,
-    };
+    let control = Control::new(&callback);
     for line in io::stdin().lock().lines() {
         let result = line
             .map_err(bajptr_core::Error::Io)

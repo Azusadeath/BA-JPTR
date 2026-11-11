@@ -7,14 +7,12 @@ use std::{
     time::Duration,
 };
 fn control() -> Control<'static> {
-    Control {
-        callback: &|m| {
-            if let Some(m) = m {
-                eprintln!("{m}");
-            }
-            true
-        },
-    }
+    Control::new(&|m| {
+        if let Some(m) = m {
+            eprintln!("{m}");
+        }
+        true
+    })
 }
 struct Fixture {
     root: PathBuf,
@@ -107,9 +105,7 @@ fn cancellation_preserves_import_and_export_files_and_allows_retry() {
     let mut project = f.ready_project();
     let before = fs::read(f.data.join(".gui/rules.tsv")).unwrap();
     let revision = project.revision;
-    let cancel = Control {
-        callback: &|_| false,
-    };
+    let cancel = Control::new(&|_| false);
     assert!(matches!(
         project.dispatch(
             "import_commit",
@@ -124,9 +120,8 @@ fn cancellation_preserves_import_and_export_files_and_allows_retry() {
     fs::create_dir_all(&export).unwrap();
     let existing = export.join("LocalizeDBSchema.tsv");
     fs::write(&existing, b"previous export").unwrap();
-    let cancel_export = Control {
-        callback: &|message| !message.is_some_and(|m| m.starts_with("导出来源表：")),
-    };
+    let cancel_export =
+        Control::new(&|message| !message.is_some_and(|m| m.starts_with("导出来源表：")));
     assert!(matches!(
         project.dispatch("export_text", &json!({"path":export}), &cancel_export),
         Err(bajptr_project::Error::Cancelled)
@@ -149,9 +144,7 @@ fn source_and_baseline_commits_report_success_after_a_late_cancel() {
     let mut project = f.project();
     let candidate = call(&mut project, "check", json!({}));
     let payload = json!({"token":candidate["baseline_status"]["token"]});
-    let cancel = Control {
-        callback: &|message| message != Some("正在验证底稿数据库完整性…"),
-    };
+    let cancel = Control::new(&|message| message != Some("正在验证底稿数据库完整性…"));
     assert!(matches!(
         project.dispatch("baseline_commit", &payload, &cancel),
         Err(bajptr_project::Error::Cancelled)
@@ -160,15 +153,12 @@ fn source_and_baseline_commits_report_success_after_a_late_cancel() {
         call(&mut project, "check", json!({}))["baseline_status"]["state"],
         "missing"
     );
-    let late = Control {
-        callback: &|message| message != Some("初始底稿已保存，之后从这份底稿重建。"),
-    };
+    let late = Control::new(&|message| message != Some("初始底稿已保存，之后从这份底稿重建。"));
     project
         .dispatch("baseline_commit", &payload, &late)
         .unwrap();
-    let early_sources = Control {
-        callback: &|message| !message.is_some_and(|m| m.starts_with("正在读取初始底稿")),
-    };
+    let early_sources =
+        Control::new(&|message| !message.is_some_and(|m| m.starts_with("正在读取初始底稿")));
     assert!(matches!(
         project.dispatch("sources", &json!({}), &early_sources),
         Err(bajptr_project::Error::Cancelled)
@@ -177,16 +167,15 @@ fn source_and_baseline_commits_report_success_after_a_late_cancel() {
     // Legacy unrestricted rules need a recorded inventory before migration.
     call(&mut project, "tables", json!({}));
     let late_source_cancel = std::cell::Cell::new(false);
-    let late_sources = Control {
-        callback: &|message| {
-            if message == Some("来源表已就绪。") {
-                late_source_cancel.set(true);
-                false
-            } else {
-                true
-            }
-        },
+    let cancel_after_commit = |message: Option<&str>| {
+        if message == Some("来源表已就绪。") {
+            late_source_cancel.set(true);
+            false
+        } else {
+            true
+        }
     };
+    let late_sources = Control::new(&cancel_after_commit);
     let result = project
         .dispatch("sources", &json!({}), &late_sources)
         .unwrap();
@@ -393,14 +382,12 @@ fn unchanged_source_inventory_reuses_metadata_without_opening_the_database() {
         .dispatch(
             "sources",
             &json!({}),
-            &Control {
-                callback: &|message| {
-                    if message == Some("来源表已就绪。") {
-                        ready_messages.set(ready_messages.get() + 1);
-                    }
-                    !message.is_some_and(|m| m.starts_with("正在读取初始底稿"))
-                },
-            },
+            &Control::new(&|message| {
+                if message == Some("来源表已就绪。") {
+                    ready_messages.set(ready_messages.get() + 1);
+                }
+                !message.is_some_and(|m| m.starts_with("正在读取初始底稿"))
+            }),
         )
         .unwrap();
     assert_eq!(sync["missing_history"], false);
@@ -452,13 +439,11 @@ fn prepared_preview_never_writes_game_and_reopens_without_rebuilding() {
         .dispatch(
             "apply",
             &json!({"nonce":reopened["nonce"],"prepared":true}),
-            &Control {
-                callback: &|message| {
-                    !message.is_some_and(|m| {
-                        m.starts_with("正在从初始底稿重建") || m.starts_with("正在加密数据库")
-                    })
-                },
-            },
+            &Control::new(&|message| {
+                !message.is_some_and(|m| {
+                    m.starts_with("正在从初始底稿重建") || m.starts_with("正在加密数据库")
+                })
+            }),
         )
         .unwrap();
     assert_eq!(applied["installed"], true);
@@ -579,9 +564,7 @@ fn cancelled_preparation_can_retry_without_writing_game_or_exporting_patch() {
     let result = p.dispatch(
         "prepare_patch",
         &json!({"nonce":preview["nonce"]}),
-        &Control {
-            callback: &|message| !message.is_some_and(|m| m.starts_with("正在加密数据库")),
-        },
+        &Control::new(&|message| !message.is_some_and(|m| m.starts_with("正在加密数据库"))),
     );
     assert!(matches!(result, Err(bajptr_project::Error::Cancelled)));
     assert!(!f.data.join("output").exists());
@@ -610,13 +593,10 @@ fn prepared_install_failure_exports_patch_and_retries_without_rebuilding() {
     let preview = call(&mut p, "preview", json!({}));
     call(&mut p, "prepare_patch", json!({"nonce":preview["nonce"]}));
     let locked = lock_catalog_against_replacement(&f);
-    let no_build = Control {
-        callback: &|message| {
-            !message.is_some_and(|m| {
-                m.starts_with("正在从初始底稿重建") || m.starts_with("正在加密数据库")
-            })
-        },
-    };
+    let no_build = Control::new(&|message| {
+        !message
+            .is_some_and(|m| m.starts_with("正在从初始底稿重建") || m.starts_with("正在加密数据库"))
+    });
     let fallback = p
         .dispatch(
             "apply",
@@ -1751,9 +1731,7 @@ fn cancelling_apply_during_encryption_leaves_game_unchanged_and_preview_reusable
     let cancelled = project.dispatch(
         "apply",
         &json!({"nonce":preview["nonce"]}),
-        &Control {
-            callback: &|message| !message.is_some_and(|m| m.starts_with("正在加密数据库：")),
-        },
+        &Control::new(&|message| !message.is_some_and(|m| m.starts_with("正在加密数据库："))),
     );
     assert!(matches!(cancelled, Err(bajptr_project::Error::Cancelled)));
     assert!(!f.data.join("output").exists());

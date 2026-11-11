@@ -27,9 +27,7 @@ fn unavailable_custom_trash_falls_back_to_recycle_bin() {
 fn clean_project_can_save_first_rule_before_selecting_a_game() {
     let root = temporary();
     let mut project = Project::new(root.join("全新工具 目录"));
-    let ctl = Control {
-        callback: &|_| true,
-    };
+    let ctl = Control::new(&|_| true);
     let loaded = project.dispatch("load", &json!({}), &ctl).unwrap();
     assert!(loaded["errors"].as_object().unwrap().is_empty());
     assert!(loaded["rules"].as_array().unwrap().is_empty());
@@ -67,9 +65,7 @@ fn raw_international_key_works_but_upstream_eight_byte_trailer_is_not_supported(
     let root = temporary();
     let source =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/v1/encrypted.db");
-    let ctl = Control {
-        callback: &|_| true,
-    };
+    let ctl = Control::new(&|_| true);
     let plain = root.join("plain.db");
     let info = codec::decrypt(&source, &plain, &codec::key(region::KEY).unwrap(), &ctl).unwrap();
     let salt = B64.decode(info.salt).unwrap();

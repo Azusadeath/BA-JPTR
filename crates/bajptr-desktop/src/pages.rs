@@ -499,9 +499,9 @@ impl Desktop {
                 .default_width(toolbar_width)
                 .order(egui::Order::Foreground).fixed_pos(toolbar_position).movable(false)
                 .show(ui.ctx(), |ui| {
-                    egui::Frame::new().fill(SOFT_BLUE).stroke(egui::Stroke::new(1., BLUE))
+                    egui::Frame::new().fill(Color32::WHITE).stroke(egui::Stroke::new(1., LINE))
                         .corner_radius(8).inner_margin(4).shadow(egui::epaint::Shadow {
-                            offset: [0, 3], blur: 10, spread: 0, color: Color32::from_black_alpha(20)
+                            offset: [0, 2], blur: 8, spread: 0, color: Color32::from_black_alpha(12)
                         }).show(ui, |ui| {
                             ui.horizontal(|ui| {
                                 let selected = self.selection.rows.len();
@@ -522,7 +522,7 @@ impl Desktop {
                                         self.table_detail = Some(self.tables.iter().find(|v|v["name"]==row["table"]).cloned().unwrap_or(json!({"name":row["table"],"label":row["table"]})));
                                     }
                                 }
-                                ui.label(egui::RichText::new(format!("已选 {selected} 条")).size(14.).color(BLUE));
+                                ui.label(egui::RichText::new(format!("已选 {selected} 条")).size(14.).color(MUTED));
                             });
                         });
                 });
@@ -631,6 +631,8 @@ impl Desktop {
                         .corner_radius(7)
                         .inner_margin(egui::Margin::symmetric(10, 0))
                         .show(ui, |ui| {
+                            ui.spacing_mut().icon_width = 20.;
+                            ui.spacing_mut().icon_width_inner = 12.;
                             ui.add_enabled(
                                 can_edit && !self.path_dirty,
                                 egui::Checkbox::new(

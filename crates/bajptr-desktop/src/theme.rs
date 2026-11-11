@@ -74,8 +74,8 @@ pub fn install(ctx: &egui::Context) {
     style.spacing.item_spacing = vec2(8., 10.);
     style.spacing.button_padding = vec2(12., 8.);
     style.spacing.interact_size.y = 36.;
-    style.spacing.icon_width = 20.;
-    style.spacing.icon_width_inner = 12.;
+    style.spacing.icon_width = 14.;
+    style.spacing.icon_width_inner = 8.;
     style.spacing.combo_height = 240.;
     style.spacing.window_margin = egui::Margin::same(18);
     style.spacing.menu_margin = egui::Margin::same(8);

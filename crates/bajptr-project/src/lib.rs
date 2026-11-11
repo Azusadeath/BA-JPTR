@@ -8,4 +8,4 @@ pub mod sources;
 pub mod storage;
 pub mod templates;
 pub mod worker;
-pub use bajptr_core::{Control, Error, Result, invalid};
+pub use bajptr_core::{Control, Error, LogLevel, Result, invalid};

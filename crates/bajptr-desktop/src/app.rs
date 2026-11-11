@@ -532,7 +532,9 @@ impl Desktop {
                 if self.busy.as_ref().is_some_and(|b| b.id == id) {
                     self.status = message.clone();
                 }
-                self.log(message, None);
+                let level = serde_json::from_value(event["level"].clone())
+                    .unwrap_or(crate::logging::Level::Info);
+                self.log(message, Some(level));
                 continue;
             }
             let action = self.pending.remove(&id).unwrap_or_default();
@@ -653,7 +655,7 @@ impl Desktop {
                         .iter()
                         .filter_map(Value::as_str)
                     {
-                        self.log(message.into(), None);
+                        self.log(message.into(), Some(crate::logging::Level::Warning));
                     }
                     if !self.healthy() {
                         self.error = Some(
@@ -1248,9 +1250,12 @@ mod view_tests {
         crate::theme::install(&ctx);
         let mut app = Desktop::initial();
         app.show_logs = true;
-        app.log("读取完成".into(), None);
-        app.log("警告：跳过非文本表".into(), None);
-        app.log("读取失败\n详细原因".into(), None);
+        app.log("读取完成，错误数为 0".into(), None);
+        app.log("跳过非文本表".into(), Some(crate::logging::Level::Warning));
+        app.log(
+            "读取失败\n详细原因".into(),
+            Some(crate::logging::Level::Error),
+        );
         let mut frame = 0;
         let mut draw = |app: &mut Desktop, events| {
             frame += 1;
@@ -1285,6 +1290,17 @@ mod view_tests {
             .iter()
             .find(|text| text.galley.text().contains("跳过非文本表"))
             .unwrap();
+        let info = texts
+            .iter()
+            .find(|text| text.galley.text().contains("错误数为 0"))
+            .unwrap();
+        assert!(
+            info.galley
+                .job
+                .sections
+                .iter()
+                .all(|section| section.format.color == TEXT)
+        );
         let error = texts
             .iter()
             .find(|text| text.galley.text().contains("详细原因"))
@@ -1348,7 +1364,7 @@ mod view_tests {
         .unwrap();
         assert_eq!(
             copied,
-            "[INFO ] 读取完成\n[WARN ] 警告：跳过非文本表\n[ERROR] 读取失败\n[ERROR] 详细原因"
+            "读取完成，错误数为 0\n[WARN ] 跳过非文本表\n[ERROR] 读取失败\n[ERROR] 详细原因"
         );
         let data = std::env::temp_dir().join(format!(
             "bajptr-log-export-{}",

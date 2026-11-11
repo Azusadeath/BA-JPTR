@@ -70,7 +70,7 @@ pub fn retire_success(path: &Path, control: &Control<'_>) -> bool {
         Ok(true) => true,
         _ => {
             if let Err(e) = storage::retire(path) {
-                let _ = control.log(&e.to_string());
+                let _ = control.warn(&e.to_string());
             }
             false
         }
