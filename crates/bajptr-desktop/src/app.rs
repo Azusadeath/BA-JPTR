@@ -14,6 +14,7 @@ pub struct Busy {
 }
 pub struct Desktop {
     pub backend: Option<Backend>,
+    data_path: Option<PathBuf>,
     pub pending: HashMap<u64, String>,
     pub obsolete: HashSet<u64>,
     pub busy: Option<Busy>,
@@ -67,6 +68,7 @@ impl Desktop {
         crate::theme::install(ctx);
         let backend = Backend::start(&project, &data, ctx.clone());
         let mut app = Self::initial();
+        app.data_path = Some(data.clone());
         app.output_dir = data.join("output");
         if let Err(error) = std::fs::create_dir_all(&app.output_dir) {
             app.error = Some(format!(
@@ -89,6 +91,7 @@ impl Desktop {
     fn initial() -> Self {
         Self {
             backend: None,
+            data_path: None,
             pending: HashMap::new(),
             obsolete: HashSet::new(),
             busy: None,
@@ -239,11 +242,66 @@ impl Desktop {
                     self.busy = Some(Busy { id, cancellable });
                     self.status = title.into();
                 }
-                Err(e) => {
-                    self.error = Some(e.clone());
-                    self.status = e;
-                }
+                Err(e) => self.backend_failed(e),
             }
+        } else {
+            self.error = Some("项目服务未连接，请点击“重新连接”。".into());
+        }
+    }
+    fn backend_failed(&mut self, message: String) {
+        self.backend = None;
+        self.busy = None;
+        self.pending.clear();
+        self.obsolete.clear();
+        self.loaded = false;
+        self.connected = false;
+        self.sources_ready = false;
+        self.path_changed = None;
+        self.template_changed = None;
+        self.search = Value::Null.into();
+        self.selection.clear();
+        self.preview = None;
+        self.preview_row = None;
+        self.hits.clear();
+        self.tables.clear();
+        self.baseline = Value::Null;
+        self.baseline_check = Value::Null;
+        self.confirm_baseline = None;
+        self.confirm_restore = false;
+        self.confirm_import = None;
+        self.show_source_notices = false;
+        if let Some(form) = &mut self.scope_form {
+            form.request = None;
+            form.error = "项目服务已停止，请重新连接。".into();
+        }
+        self.application = "应用状态待核对，先预览".into();
+        self.logs.push(message.clone());
+        self.status = message;
+        self.error = Some(format!(
+            "{}\n重新连接将读取已保存记录，未保存的编辑需重新填写。若当时正在应用或恢复，请先核对游戏状态；原操作不会自动重试。",
+            self.status
+        ));
+    }
+    pub fn reconnect(&mut self, ctx: &egui::Context) {
+        let Some(data) = self.data_path.clone() else {
+            return;
+        };
+        match Backend::start(&data, &data, ctx.clone()) {
+            Ok(backend) => {
+                self.backend = Some(backend);
+                self.rule_form = None;
+                self.scope_form = None;
+                self.template_form = None;
+                self.template_changed = None;
+                self.text_form = None;
+                self.batch_form = None;
+                self.batch_scope = None;
+                self.show_edits = false;
+                self.table_detail = None;
+                self.error = None;
+                self.submit("load", json!({}), "正在重新读取已保存记录…", false);
+            }
+            Err(message) => self.backend_failed(message),
         }
     }
     pub fn background_tables(&mut self) {
@@ -403,23 +461,25 @@ impl Desktop {
         }
     }
     pub fn events(&mut self) {
-        let events: Vec<_> = self
-            .backend
-            .as_ref()
-            .map(|b| b.events().try_iter().take(200).collect())
-            .unwrap_or_default();
+        let (events, disconnected) = self.backend.as_ref().map(Backend::poll).unwrap_or_default();
+        if let Some(event) = events
+            .iter()
+            .find(|event| event["event"] == "backend_closed")
+        {
+            let detail = text(event, "detail");
+            if !detail.is_empty() {
+                self.logs.push(detail);
+            }
+            self.backend_failed(text(event, "message"));
+            return;
+        }
+        if disconnected {
+            self.backend_failed("项目服务连接已中断。".into());
+            return;
+        }
         for event in events {
             let id = count(&event, "id");
             let kind = text(&event, "event");
-            if kind == "backend_closed" {
-                self.busy = None;
-                self.pending.clear();
-                self.connected = false;
-                self.backend = None;
-                self.status = text(&event, "message");
-                self.error = Some(self.status.clone());
-                continue;
-            }
             if kind == "progress" || kind == "detail" {
                 let message = text(&event, "message");
                 if self.busy.as_ref().is_some_and(|b| b.id == id) {
@@ -801,6 +861,9 @@ impl eframe::App for Desktop {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.events();
         let ctx = ui.ctx().clone();
+        if self.busy.is_some() || !self.pending.is_empty() {
+            ctx.request_repaint_after(Duration::from_millis(100));
+        }
         if self
             .path_changed
             .is_some_and(|t| t.elapsed() > Duration::from_millis(300))
@@ -843,7 +906,9 @@ impl eframe::App for Desktop {
                                     .x
                                     .min(260.)
                             });
+                            let reconnect = self.backend.is_none() && self.data_path.is_some();
                             let reserve = 120.
+                                + if reconnect { 128. } else { 0. }
                                 + if cancellable { 128. } else { 0. }
                                 + if application.is_some() {
                                     application_width + ui.spacing().item_spacing.x
@@ -879,6 +944,9 @@ impl eframe::App for Desktop {
                             }
                             if cancellable && secondary(ui, true, "取消任务").clicked() {
                                 self.cancel();
+                            }
+                            if reconnect && secondary(ui, true, "重新连接").clicked() {
+                                self.reconnect(&ctx);
                             }
                             if action(ui, true, "运行详情", ButtonKind::Quiet).clicked() {
                                 self.show_logs = true;
@@ -1000,6 +1068,75 @@ pub fn data_row(
 #[cfg(test)]
 mod view_tests {
     use super::*;
+
+    #[test]
+    fn stopped_backend_releases_pending_work_and_reconnects_without_replaying_writes() {
+        for send_after_disconnect in [false, true] {
+            let ctx = egui::Context::default();
+            let data = std::env::temp_dir().join(format!(
+                "bajptr-reconnect-test-{}-{send_after_disconnect}",
+                std::process::id()
+            ));
+            let mut app = Desktop::initial();
+            app.data_path = Some(data.clone());
+            app.backend = Some(Backend::start(&data, &data, ctx.clone()).unwrap());
+            app.loaded = true;
+            app.connected = true;
+            app.sources_ready = true;
+            app.pending.insert(99, "apply".into());
+            app.busy = Some(Busy {
+                id: 99,
+                cancellable: false,
+            });
+            app.obsolete.insert(98);
+            app.search = Arc::new(json!({"rows":[{}]}));
+            app.selection.rows.insert(0);
+            app.preview = Some(Arc::new(json!({"nonce":"old","prepared":true})));
+            app.scope_form = Some(ScopeForm::new("", vec![]));
+            app.scope_form.as_mut().unwrap().request = Some(97);
+            app.backend
+                .as_mut()
+                .unwrap()
+                .send("quit", json!({}))
+                .unwrap();
+            let deadline = Instant::now() + Duration::from_secs(3);
+            if send_after_disconnect {
+                while !app.backend.as_ref().unwrap().poll().1 {
+                    assert!(Instant::now() < deadline);
+                    std::thread::yield_now();
+                }
+                app.busy = None;
+                app.submit("load", json!({}), "load", false);
+            } else {
+                while app.backend.is_some() {
+                    assert!(Instant::now() < deadline);
+                    app.events();
+                    std::thread::yield_now();
+                }
+            }
+            assert!(app.backend.is_none());
+            assert!(app.busy.is_none());
+            assert!(app.pending.is_empty() && app.obsolete.is_empty());
+            assert!(!app.loaded && !app.connected && !app.sources_ready);
+            assert!(app.preview.is_none() && app.search.is_null());
+            assert!(app.selection.rows.is_empty());
+            assert!(app.scope_form.as_ref().unwrap().request.is_none());
+            assert!(app.error.as_ref().unwrap().contains("不会自动重试"));
+            app.reconnect(&ctx);
+            assert_eq!(app.pending.values().collect::<Vec<_>>(), vec!["load"]);
+            assert!(app.scope_form.is_none());
+            let deadline = Instant::now() + Duration::from_secs(3);
+            while app.busy.is_some() {
+                assert!(Instant::now() < deadline);
+                app.events();
+                std::thread::yield_now();
+            }
+            assert!(app.loaded && app.backend.is_some());
+            assert!(app.error.is_none());
+            assert!(app.pending.is_empty());
+            assert!(slice(&app.state, "rules").is_empty());
+        }
+    }
 
     #[test]
     fn single_edit_manager_shows_one_full_comparison_and_preserves_filtered_selection() {

@@ -517,9 +517,13 @@ impl Desktop {
         if let Some(message) = self.error.clone() {
             let mut open = true;
             let mut close = false;
+            let mut reconnect = false;
             window("未完成", ctx, 520.).open(&mut open).show(ctx, |ui| {
                 ui.add(egui::Label::new(message).wrap());
                 ui.add_space(12.);
+                if self.backend.is_none() && primary(ui, true, "重新连接").clicked() {
+                    reconnect = true;
+                }
                 if primary(ui, true, "知道了").clicked() {
                     close = true;
                 }
@@ -529,6 +533,9 @@ impl Desktop {
             });
             if !open || close {
                 self.error = None;
+            }
+            if reconnect {
+                self.reconnect(ctx);
             }
         }
         let after = [
