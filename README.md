@@ -21,7 +21,7 @@
 
 ## 下载与启动
 
-在本仓库的 [Releases](https://github.com/Azusadeath/BA-JPTR/releases) 页面下载 Windows x64 ZIP 发行包，完整解压后双击 **bajptr.exe**。普通用户无需下载源码，也不需要安装 Rust、Python 或其他开发环境。
+在本仓库的 [Releases](https://github.com/Azusadeath/BA-JPTR/releases) 页面下载 Windows x64 ZIP 发行包，完整解压后双击 **bajptr.exe**。
 
 发行包包含程序、README.txt 和必要许可文件，不包含汉化补丁或游戏资源。
 
