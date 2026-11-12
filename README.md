@@ -144,7 +144,7 @@
 
 - [Agent-0808](https://github.com/Agent-0808) / [BA-Term-Replacer](https://github.com/Agent-0808/BA-Term-Replacer)：本工具的重要启发来源，提供文本字段处理的参考与移植基础。
 - [alisns1/blue-archive-gl-simplified](https://github.com/alisns1/blue-archive-gl-simplified)：上游项目所基于的早期实现，保留其 MIT 许可与署名。
-- [egui / eframe](https://github.com/emilk/egui) 及其他开源依赖：提供图形界面和底层组件。中文显示使用 Windows 系统字体。
+- [egui / eframe](https://github.com/emilk/egui) 及其他开源依赖：提供图形界面和底层组件。
 - 制作日服汉化补丁与分享资源处理经验的社区贡献者。
 
 完整第三方声明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) 和 licenses 文件夹。
