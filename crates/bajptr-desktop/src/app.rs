@@ -12,6 +12,11 @@ pub struct Busy {
     pub id: u64,
     pub cancellable: bool,
 }
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ErrorRecovery {
+    Baseline,
+    Records,
+}
 pub struct Desktop {
     pub backend: Option<Backend>,
     pub(crate) data_path: Option<PathBuf>,
@@ -29,6 +34,7 @@ pub struct Desktop {
     pub application: String,
     pub logs: Vec<crate::logging::Entry>,
     pub error: Option<String>,
+    pub error_recovery: Option<(String, ErrorRecovery)>,
     pub settings_warning: Option<String>,
     pub confirm_record_reset: Option<String>,
     pub rule_selection: Option<usize>,
@@ -120,6 +126,7 @@ impl Desktop {
             application: "应用状态待核对，先预览".into(),
             logs: Vec::new(),
             error: None,
+            error_recovery: None,
             settings_warning: None,
             confirm_record_reset: None,
             rule_selection: None,
@@ -591,6 +598,10 @@ impl Desktop {
             path.display()
         ));
     }
+    pub fn show_recovery_error(&mut self, message: String, recovery: ErrorRecovery) {
+        self.error_recovery = Some((message.clone(), recovery));
+        self.error = Some(message);
+    }
     pub fn events(&mut self) {
         let (events, disconnected) = self.backend.as_ref().map(Backend::poll).unwrap_or_default();
         if let Some(event) = events
@@ -719,14 +730,25 @@ impl Desktop {
                         self.baseline = Value::Null;
                         self.baseline_check = Value::Null;
                         self.confirm_baseline = None;
-                        self.error = Some(format!("检查底稿失败：{message}"));
+                        self.show_recovery_error(
+                            format!("检查底稿失败：{message}"),
+                            if self.healthy() {
+                                ErrorRecovery::Baseline
+                            } else {
+                                ErrorRecovery::Records
+                            },
+                        );
                     }
                     "baseline_commit" | "baseline_rebuild_commit" => {
                         self.connected = false;
                         self.baseline = Value::Null;
                         self.baseline_check = Value::Null;
-                        self.error = Some(message);
+                        self.show_recovery_error(message, ErrorRecovery::Baseline);
                     }
+                    "baseline_rebuild_preview" | "baseline" | "restore" => {
+                        self.show_recovery_error(message, ErrorRecovery::Baseline)
+                    }
+                    "reset_record" => self.show_recovery_error(message, ErrorRecovery::Records),
                     "tables" => {}
                     _ => self.error = Some(message),
                 }
@@ -750,11 +772,13 @@ impl Desktop {
                         self.log(message.into(), Some(crate::logging::Level::Warning));
                     }
                     if !self.healthy() {
-                        self.error = Some(
+                        self.show_recovery_error(
                             "记录文件读取失败，原文件已保留。请打开数据目录检查；损坏的词表和修改记录可归档并重置。".into(),
+                            ErrorRecovery::Records,
                         );
-                    }
-                    if !self.game.is_empty() {
+                        self.connected = false;
+                        self.status = "记录文件读取失败，请先处理损坏文件。".into();
+                    } else if !self.game.is_empty() {
                         self.submit("check", json!({}), "正在检查游戏目录…");
                     } else {
                         self.status = "先选择游戏目录，再添加或导入词条。".into();
@@ -793,7 +817,7 @@ impl Desktop {
                             self.confirm_baseline = None;
                             self.baseline = Value::Null;
                             self.status = "未找到初始底稿，当前资源已被本工具修改。".into();
-                            self.error = Some("当前资源是本工具替换后的内容，不能作为初始底稿。请先通过游戏修复资源，或找回原底稿，再点击“检查底稿”。".into());
+                            self.show_recovery_error("当前资源是本工具替换后的内容，不能作为初始底稿。请先通过游戏修复资源，或找回原底稿，再点击“检查底稿”。".into(),ErrorRecovery::Baseline);
                         }
                         _ => {
                             self.connected = false;
@@ -839,6 +863,11 @@ impl Desktop {
                     self.status = "损坏记录已归档并重置。".into();
                     if self.healthy() && !self.game.is_empty() && !self.path_dirty {
                         self.submit("check", json!({}), "记录已重置，正在重新核对底稿…");
+                    } else if !self.healthy() {
+                        self.show_recovery_error(
+                            "已归档选中的记录，其余文件仍有读取错误。请继续检查。".into(),
+                            ErrorRecovery::Records,
+                        );
                     }
                 }
                 "migration_preview" => {
@@ -1398,7 +1427,48 @@ mod view_tests {
     }
 
     #[test]
-    fn recovery_controls_remain_visible_and_settings_warning_can_be_dismissed() {
+    fn damaged_record_popup_is_not_replaced_by_an_automatic_baseline_check() {
+        let data = std::env::temp_dir().join(format!(
+            "bajptr-record-popup-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(data.join(".gui")).unwrap();
+        std::fs::write(
+            data.join(".gui/settings.json"),
+            br#"{"format":2,"game":"invalid-game","skip_kana":true}"#,
+        )
+        .unwrap();
+        std::fs::write(data.join(".gui/rules.tsv"), b"broken").unwrap();
+        let mut app = Desktop::initial();
+        app.backend = Some(Backend::start(&data, &data, egui::Context::default()).unwrap());
+        app.submit("load", json!({}), "loading");
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while app.busy.is_some() && Instant::now() < deadline {
+            app.events();
+            std::thread::yield_now();
+        }
+        assert!(app.loaded);
+        assert!(!app.healthy());
+        assert!(
+            app.pending.is_empty(),
+            "a failed record load must wait for recovery before checking the game"
+        );
+        assert_eq!(
+            app.error_recovery
+                .as_ref()
+                .map(|(_, recovery)| matches!(recovery, ErrorRecovery::Records)),
+            Some(true)
+        );
+        drop(app);
+        bajptr_project::storage::retire(&data).unwrap();
+    }
+
+    #[test]
+    fn recovery_actions_live_in_error_dialogs_and_settings_warning_can_be_dismissed() {
         for width in [900., 1080.] {
             let ctx = egui::Context::default();
             crate::theme::install(&ctx);
@@ -1455,16 +1525,12 @@ mod view_tests {
             for _ in 0..3 {
                 labels = draw(&mut app, vec![]);
             }
-            for label in [
-                "关闭警告",
-                "打开数据目录",
-                "归档并重置…",
-                "打开备份位置",
-                "尝试重建",
-            ] {
+            assert!(labels.iter().any(|(text, _)| text == "关闭警告"));
+            for label in ["打开数据目录", "归档并重置…", "打开备份位置", "尝试重建"]
+            {
                 assert!(
-                    labels.iter().any(|(text, _)| text == label),
-                    "missing recovery control {label}"
+                    !labels.iter().any(|(text, _)| text == label),
+                    "recovery control must not be a permanent page action: {label}"
                 );
             }
             let position = labels
@@ -1482,9 +1548,22 @@ mod view_tests {
                 app.settings_warning.is_none(),
                 "unchanged state must not reopen a dismissed warning"
             );
+            app.show_recovery_error("底稿损坏".into(), ErrorRecovery::Baseline);
             for _ in 0..3 {
                 labels = draw(&mut app, vec![]);
             }
+            for label in ["打开备份位置", "尝试重建"] {
+                assert!(labels.iter().any(|(text, _)| text == label));
+            }
+            assert!(!labels.iter().any(|(text, _)| text == "打开数据目录"));
+            app.error = None;
+            app.error_recovery = None;
+            app.show_recovery_error("记录文件损坏".into(), ErrorRecovery::Records);
+            for _ in 0..3 {
+                labels = draw(&mut app, vec![]);
+            }
+            assert!(labels.iter().any(|(text, _)| text == "打开数据目录"));
+            assert!(!labels.iter().any(|(text, _)| text == "尝试重建"));
             let position = labels
                 .iter()
                 .find(|(text, _)| text == "归档并重置…")

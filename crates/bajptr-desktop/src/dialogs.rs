@@ -566,12 +566,75 @@ impl Desktop {
             self.show_logs = open;
         }
         if let Some(message) = self.error.clone() {
+            let recovery = self
+                .error_recovery
+                .as_ref()
+                .filter(|(target, _)| target == &message)
+                .map(|(_, recovery)| *recovery);
+            let errors = self.state["errors"]
+                .as_object()
+                .into_iter()
+                .flatten()
+                .map(|(name, error)| (name.clone(), error.as_str().unwrap_or("").to_string()))
+                .collect::<Vec<_>>();
             let mut open = true;
             let mut close = false;
             let mut reconnect = false;
             window("未完成", ctx, 520.).open(&mut open).show(ctx, |ui| {
                 ui.add(egui::Label::new(message).wrap());
                 ui.add_space(12.);
+                match recovery {
+                    Some(ErrorRecovery::Baseline) => {
+                        ui.horizontal_wrapped(|ui| {
+                            if secondary(ui, self.data_path.is_some(), "打开备份位置").clicked()
+                            {
+                                self.open_data_folder("backup");
+                            }
+                            if secondary(
+                                ui,
+                                self.loaded
+                                    && self.busy.is_none()
+                                    && !self.path_dirty
+                                    && !self.game.is_empty(),
+                                "尝试重建",
+                            )
+                            .clicked()
+                            {
+                                self.submit(
+                                    "baseline_rebuild_preview",
+                                    json!({}),
+                                    "正在查找并校验可用于重建的原始资源…",
+                                );
+                                close = true;
+                            }
+                        });
+                    }
+                    Some(ErrorRecovery::Records) => {
+                        if secondary(ui, self.data_path.is_some(), "打开数据目录").clicked() {
+                            self.open_data_folder(".gui");
+                        }
+                        for (name, error) in &errors {
+                            ui.push_id(name, |ui| {
+                                ui.horizontal_wrapped(|ui| {
+                                    ui.label(name).on_hover_text(error);
+                                    if ["rules.tsv", "text-edits.json", "source-history.json"]
+                                        .contains(&name.as_str())
+                                        && secondary(
+                                            ui,
+                                            self.loaded && self.busy.is_none(),
+                                            "归档并重置…",
+                                        )
+                                        .clicked()
+                                    {
+                                        self.confirm_record_reset = Some(name.clone());
+                                        close = true;
+                                    }
+                                })
+                            });
+                        }
+                    }
+                    None => {}
+                }
                 if self.backend.is_none() && primary(ui, true, "重新连接").clicked() {
                     reconnect = true;
                 }
@@ -584,6 +647,7 @@ impl Desktop {
             });
             if !open || close {
                 self.error = None;
+                self.error_recovery = None;
             }
             if reconnect {
                 self.reconnect(ctx);

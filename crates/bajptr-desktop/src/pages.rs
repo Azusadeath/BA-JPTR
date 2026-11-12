@@ -39,45 +39,6 @@ impl Desktop {
                     ui.label("请重新选择游戏目录并保存设置；原设置文件保留到保存时。");
                 });
         }
-        let errors: Vec<_> = self.state["errors"]
-            .as_object()
-            .into_iter()
-            .flatten()
-            .map(|(name, error)| (name.clone(), error.as_str().unwrap_or("").to_string()))
-            .collect();
-        if !errors.is_empty() {
-            egui::Frame::new()
-                .fill(Color32::from_rgb(255, 235, 231))
-                .corner_radius(8)
-                .inner_margin(10)
-                .show(ui, |ui| {
-                    ui.colored_label(RED, "记录文件读取失败，保存和替换已停止");
-                    if secondary(ui, self.data_path.is_some(), "打开数据目录").clicked() {
-                        self.open_data_folder(".gui");
-                    }
-                    for (name, error) in errors {
-                        ui.push_id(&name, |ui| {
-                            ui.horizontal_wrapped(|ui| {
-                                ui.label(&name).on_hover_text(&error);
-                                if name == "application-state.json" {
-                                    ui.colored_label(
-                                        RED,
-                                        "应用状态文件损坏或无法读取，请修复后重新打开工具。",
-                                    );
-                                } else if secondary(
-                                    ui,
-                                    self.loaded && self.busy.is_none(),
-                                    "归档并重置…",
-                                )
-                                .clicked()
-                                {
-                                    self.confirm_record_reset = Some(name.clone());
-                                }
-                            });
-                        });
-                    }
-                });
-        }
     }
     fn directory_controls(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
@@ -289,7 +250,7 @@ impl Desktop {
                                     "词表尚未读取，请重新连接后重试。"
                                 }
                             } else if !self.healthy() {
-                                "记录文件读取失败，请先处理上方的文件错误。"
+                                "记录文件读取失败，请修复损坏文件后重新打开工具。"
                             } else if self.write_busy() {
                                 "正在处理当前任务，完成后可添加或导入词条。"
                             } else {
@@ -675,26 +636,6 @@ impl Desktop {
                             }
                         }
                         self.check_button(ui);
-                        if secondary(ui, self.data_path.is_some(), "打开备份位置").clicked() {
-                            self.open_data_folder("backup");
-                        }
-                        if secondary(
-                            ui,
-                            self.loaded
-                                && !self.connected
-                                && self.busy.is_none()
-                                && !self.path_dirty
-                                && !self.game.is_empty(),
-                            "尝试重建",
-                        )
-                        .clicked()
-                        {
-                            self.submit(
-                                "baseline_rebuild_preview",
-                                json!({}),
-                                "正在查找并校验可用于重建的原始资源…",
-                            );
-                        }
                         if !self.baseline.is_null()
                             && secondary(ui, self.connected && self.busy.is_none(), "恢复初始底稿")
                                 .clicked()
@@ -734,9 +675,6 @@ impl Desktop {
                 });
                 ui.add_space(4.);
                 tool_section(ui, "工作区", |ui| {
-                    if secondary(ui, self.data_path.is_some(), "打开数据目录").clicked() {
-                        self.open_data_folder(".gui");
-                    }
                     let can_edit = self.loaded && self.healthy() && !self.write_busy();
                     let response = egui::Frame::new()
                         .fill(Color32::WHITE)
