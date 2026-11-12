@@ -74,6 +74,8 @@ pub struct EditView {
     pub selected: Option<usize>,
 }
 
+pub use crate::migration_review::MigrationForm;
+
 pub fn edit_matches(entry: &Value, filter: &str) -> bool {
     if filter.trim().is_empty() {
         return true;

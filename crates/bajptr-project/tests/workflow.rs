@@ -186,6 +186,204 @@ fn source_and_baseline_commits_report_success_after_a_late_cancel() {
 }
 
 #[test]
+fn worker_reports_localized_file_errors_with_separate_system_details() {
+    let f = Fixture::new();
+    let worker = Worker::start(f.data.clone(), Arc::new(|| {})).unwrap();
+    worker
+        .send(1, "import_read", json!({"path":f.root.join("missing.tsv")}))
+        .unwrap();
+    let event = worker.events.recv_timeout(Duration::from_secs(3)).unwrap();
+    assert_eq!(event["event"], "error");
+    assert!(event["message"].as_str().unwrap().contains("不存在"));
+    assert_ne!(event["message"], event["detail"]);
+    assert!(!event["detail"].as_str().unwrap().is_empty());
+}
+
+#[test]
+fn interrupted_export_restores_the_previous_batch_before_retrying() {
+    let f = Fixture::new();
+    let target = f.root.join("export-recovery");
+    let stage = target.join(".bajptr-export-interrupted");
+    fs::create_dir_all(stage.join("previous")).unwrap();
+    for name in ["a.tsv", "b.tsv"] {
+        fs::write(stage.join("previous").join(name), b"old").unwrap();
+    }
+    fs::write(target.join("a.tsv"), b"new").unwrap();
+    fs::write(target.join("b.tsv"), b"old").unwrap();
+    fs::write(
+        target.join("导出未完成.json"),
+        serde_json::to_vec(&json!({"stage":".bajptr-export-interrupted","files":[
+            {"name":"a.tsv","before":storage::digest(b"old"),"after":storage::digest(b"new")},
+            {"name":"b.tsv","before":storage::digest(b"old"),"after":storage::digest(b"new")}
+        ]}))
+        .unwrap(),
+    )
+    .unwrap();
+    assert!(
+        bajptr_project::text_export::export(&target, &control(), |_| Err(
+            bajptr_project::Error::Cancelled
+        ))
+        .is_err()
+    );
+    assert_eq!(fs::read(target.join("a.tsv")).unwrap(), b"old");
+    assert_eq!(fs::read(target.join("b.tsv")).unwrap(), b"old");
+    assert!(!target.join("导出未完成.json").exists());
+    assert!(!stage.exists());
+}
+
+#[test]
+fn export_recovery_preserves_files_changed_by_another_program() {
+    let f = Fixture::new();
+    let target = f.root.join("export-recovery");
+    let stage = target.join(".bajptr-export-interrupted");
+    fs::create_dir_all(stage.join("previous")).unwrap();
+    fs::write(stage.join("previous/a.tsv"), b"old").unwrap();
+    fs::write(target.join("a.tsv"), b"external change").unwrap();
+    fs::write(
+        target.join("导出未完成.json"),
+        serde_json::to_vec(&json!({"stage":".bajptr-export-interrupted","files":[
+            {"name":"a.tsv","before":storage::digest(b"old"),"after":storage::digest(b"new")}
+        ]}))
+        .unwrap(),
+    )
+    .unwrap();
+    let entered = std::cell::Cell::new(false);
+    let error = bajptr_project::text_export::export(&target, &control(), |_| {
+        entered.set(true);
+        Ok(0)
+    })
+    .unwrap_err();
+    assert!(error.to_string().contains("尚未恢复完成"));
+    assert!(!entered.get());
+    assert_eq!(fs::read(target.join("a.tsv")).unwrap(), b"external change");
+    assert!(target.join("导出未完成.json").exists());
+    assert!(stage.join("previous/a.tsv").is_file());
+}
+
+#[cfg(windows)]
+#[test]
+fn exporting_a_batch_rolls_back_earlier_files_when_a_later_file_is_locked() {
+    use std::os::windows::fs::OpenOptionsExt;
+    for first_existed in [false, true] {
+        let mut f = Fixture::new();
+        add_new_source(&mut f, false);
+        let mut p = f.ready_project();
+        let target = f.root.join("export-transaction");
+        fs::create_dir(&target).unwrap();
+        let first = target.join("LocalizeDBSchema.tsv");
+        let second = target.join("LocalizeSkillDBSchema.tsv");
+        if first_existed {
+            fs::write(&first, b"old first").unwrap();
+        }
+        fs::write(&second, b"old second").unwrap();
+        fs::write(target.join("keep.txt"), b"unrelated").unwrap();
+        let held = fs::OpenOptions::new()
+            .read(true)
+            .share_mode(1 | 2)
+            .open(&second)
+            .unwrap();
+        let error = p
+            .dispatch("export_text", &json!({"path":target}), &control())
+            .unwrap_err();
+        assert!(error.to_string().contains("已撤回本次写入"), "{error}");
+        assert_eq!(fs::read(&second).unwrap(), b"old second");
+        if first_existed {
+            assert_eq!(fs::read(&first).unwrap(), b"old first");
+        } else {
+            assert!(!first.exists());
+        }
+        assert_eq!(fs::read(target.join("keep.txt")).unwrap(), b"unrelated");
+        assert_eq!(
+            fs::read_dir(&target).unwrap().count(),
+            2 + usize::from(first_existed)
+        );
+        drop(held);
+        assert!(
+            call(&mut p, "export_text", json!({"path":target}))["count"]
+                .as_u64()
+                .unwrap()
+                > 0
+        );
+        assert_ne!(fs::read(&first).unwrap(), b"old first");
+        assert_ne!(fs::read(&second).unwrap(), b"old second");
+        assert!(!target.join("导出未完成.json").exists());
+        f.unchanged();
+    }
+}
+
+#[test]
+fn invalid_application_state_is_reported_and_never_overwritten() {
+    for contents in [
+        b"{broken".as_slice(),
+        b"{}",
+        b"{\"format\":1,\"games\":{}}",
+        b"{\"format\":2,\"games\":{\"game\":false}}",
+    ] {
+        let f = Fixture::new();
+        let mut p = f.ready_project();
+        let path = f.data.join(".gui/application-state.json");
+        fs::write(&path, contents).unwrap();
+        let error = p
+            .dispatch("check", &json!({}), &control())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("应用状态文件"), "{error}");
+        assert!(error.contains("损坏") || error.contains("格式"));
+        let config = bajptr_project::service::Config::new(p.rules.clone(), vec![], true);
+        assert!(
+            bajptr_project::service::record(
+                f.game.to_str().unwrap(),
+                &f.data,
+                &config,
+                "restored",
+                None
+            )
+            .is_err()
+        );
+        assert_eq!(fs::read(&path).unwrap(), contents);
+        let reopened = f.project();
+        assert!(
+            reopened.state().unwrap()["errors"]
+                .get("application-state.json")
+                .is_some()
+        );
+        f.unchanged();
+    }
+}
+
+#[test]
+fn unreadable_application_state_is_reported_as_a_read_failure() {
+    let f = Fixture::new();
+    let mut p = f.ready_project();
+    fs::create_dir(f.data.join(".gui/application-state.json")).unwrap();
+    let error = p
+        .dispatch("check", &json!({}), &control())
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("应用状态文件无法读取"), "{error}");
+    f.unchanged();
+}
+
+#[cfg(windows)]
+#[test]
+fn failed_atomic_publication_removes_pending_files_and_keeps_the_old_catalog() {
+    let f = Fixture::new();
+    let _held = lock_catalog_against_replacement(&f);
+    let catalog = f.game.join(region::CATALOG);
+    assert!(storage::atomic_write(&catalog, b"replacement", None).is_err());
+    assert_eq!(fs::read(&catalog).unwrap(), f.before);
+    assert!(
+        !fs::read_dir(catalog.parent().unwrap())
+            .unwrap()
+            .any(|entry| entry
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .contains(".pending-"))
+    );
+}
+
+#[test]
 fn receipt_maintenance_keeps_missing_applied_games_and_live_restored_games() {
     let f = Fixture::new();
     let project = f.ready_project();
@@ -195,9 +393,12 @@ fn receipt_maintenance_keeps_missing_applied_games_and_live_restored_games() {
     fs::create_dir(&other).unwrap();
     let live_restored = storage::identity(&other).unwrap();
     let mut games = json!({});
-    games[&missing_restored] = json!({"kind":"restored"});
-    games[&missing_applied] = json!({"kind":"applied","fingerprint":"must-preserve"});
-    games[&live_restored] = json!({"kind":"restored"});
+    let identity =
+        region::resource_identity(&region::locate(f.game.to_str().unwrap()).unwrap()).unwrap();
+    games[&missing_restored] = json!({"kind":"restored","identity":identity,"fingerprint":"prior"});
+    games[&missing_applied] =
+        json!({"kind":"applied","identity":identity,"fingerprint":"must-preserve"});
+    games[&live_restored] = json!({"kind":"restored","identity":identity,"fingerprint":"prior"});
     let path = f.data.join(".gui/application-state.json");
     fs::write(
         &path,
@@ -329,6 +530,326 @@ fn missing_or_foreign_source_history_never_guesses_a_legacy_scope() {
     assert_eq!(call(&mut p, "sources", json!({}))["missing_history"], true);
     assert_eq!(fs::read(f.data.join(".gui/rules.tsv")).unwrap(), before);
     f.unchanged();
+}
+
+#[test]
+fn damaged_baseline_rebuild_preserves_evidence_and_restores_preview() {
+    let f = Fixture::new();
+    let mut p = f.ready_project();
+    let baseline = call(&mut p, "baseline", json!({}));
+    let folder = PathBuf::from(baseline["folder"].as_str().unwrap());
+    fs::write(folder.join("baseline.json"), b"{broken").unwrap();
+    assert!(p.dispatch("check", &json!({}), &control()).is_err());
+    assert!(p.dispatch("preview", &json!({}), &control()).is_err());
+    let plan = call(&mut p, "baseline_rebuild_preview", json!({}));
+    assert_eq!(fs::read(folder.join("baseline.json")).unwrap(), b"{broken");
+    assert!(
+        p.dispatch(
+            "baseline_rebuild_commit",
+            &json!({"token":plan["token"]}),
+            &Control::new(&|_| false)
+        )
+        .is_err()
+    );
+    let rebuilt = call(
+        &mut p,
+        "baseline_rebuild_commit",
+        json!({"token":plan["token"]}),
+    );
+    let archived = PathBuf::from(rebuilt["damaged_folder"].as_str().unwrap());
+    assert_eq!(
+        fs::read(archived.join("baseline.json")).unwrap(),
+        b"{broken"
+    );
+    assert_eq!(call(&mut p, "check", json!({}))["connected"], true);
+    assert!(
+        call(&mut p, "preview", json!({}))["total_changes"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
+    f.unchanged();
+}
+
+#[test]
+fn rebuild_refuses_modified_game_text_when_original_database_is_unavailable() {
+    let f = Fixture::new();
+    let original = region::locate(f.game.to_str().unwrap()).unwrap().bundle;
+    let mut p = f.ready_project();
+    let baseline = call(&mut p, "baseline", json!({}));
+    let folder = PathBuf::from(baseline["folder"].as_str().unwrap());
+    let preview = call(&mut p, "preview", json!({}));
+    call(&mut p, "apply", json!({"nonce":preview["nonce"]}));
+    if original.exists() {
+        storage::retire(&original).unwrap();
+    }
+    fs::write(
+        folder.join(baseline["resource"].as_str().unwrap()),
+        b"broken database",
+    )
+    .unwrap();
+    let catalog = fs::read(f.game.join(region::CATALOG)).unwrap();
+    assert!(
+        p.dispatch("baseline_rebuild_preview", &json!({}), &control())
+            .is_err()
+    );
+    assert_eq!(
+        fs::read(folder.join(baseline["resource"].as_str().unwrap())).unwrap(),
+        b"broken database"
+    );
+    assert_eq!(fs::read(f.game.join(region::CATALOG)).unwrap(), catalog);
+}
+
+#[test]
+fn damaged_records_can_be_archived_individually_without_losing_healthy_data() {
+    let f = Fixture::new();
+    fs::write(f.data.join(".gui/text-edits.json"), b"{broken edits").unwrap();
+    fs::write(f.data.join(".gui/source-history.json"), b"{broken sources").unwrap();
+    let mut p = f.project();
+    let rules = fs::read(f.data.join(".gui/rules.tsv")).unwrap();
+    for (name, bytes) in [
+        ("text-edits.json", b"{broken edits".as_slice()),
+        ("source-history.json", b"{broken sources".as_slice()),
+    ] {
+        let revision = p.revision;
+        let reset = call(
+            &mut p,
+            "reset_record",
+            json!({"name":name,"revision":revision}),
+        );
+        assert_eq!(
+            fs::read(reset["archived"].as_str().unwrap()).unwrap(),
+            bytes
+        );
+        assert!(!f.data.join(".gui").join(name).exists());
+        assert!(reset["state"]["errors"].get(name).is_none());
+        assert_eq!(fs::read(f.data.join(".gui/rules.tsv")).unwrap(), rules);
+    }
+    let revision = p.revision;
+    assert!(
+        p.dispatch(
+            "reset_record",
+            &json!({"name":"rules.tsv","revision":revision}),
+            &control()
+        )
+        .is_err()
+    );
+    call(
+        &mut p,
+        "save_rule",
+        json!({"revision":revision,"index":null,"rule":{"old":"测试词","new":"修复后","mode":"sub","table":"LocalizeDBSchema"}}),
+    );
+    f.unchanged();
+}
+
+#[test]
+fn reset_rejects_records_changed_after_the_error_was_reported() {
+    let f = Fixture::new();
+    let path = f.data.join(".gui/text-edits.json");
+    fs::write(&path, b"{broken").unwrap();
+    let mut p = f.project();
+    fs::write(&path, b"{another change").unwrap();
+    let revision = p.revision;
+    assert!(
+        p.dispatch(
+            "reset_record",
+            &json!({"name":"text-edits.json","revision":revision}),
+            &control()
+        )
+        .is_err()
+    );
+    assert_eq!(fs::read(path).unwrap(), b"{another change");
+}
+
+#[test]
+fn corrupt_settings_report_a_visible_warning_and_preserve_the_file_until_saved() {
+    let f = Fixture::new();
+    let settings = f.data.join(".gui/settings.json");
+    fs::write(&settings, b"{broken settings").unwrap();
+    let mut p = f.project();
+    let state = p.state().unwrap();
+    assert!(
+        state["settings_warning"]
+            .as_str()
+            .unwrap()
+            .contains("设置读取失败")
+    );
+    assert_eq!(fs::read(&settings).unwrap(), b"{broken settings");
+    assert_eq!(state["game"], "");
+    let revision = p.revision;
+    let saved = call(
+        &mut p,
+        "settings",
+        json!({"game":f.game,"skip_kana":true,"revision":revision}),
+    );
+    assert!(saved["settings_warning"].is_null());
+}
+
+#[cfg(windows)]
+#[test]
+fn failed_source_history_publication_rolls_back_rules_and_in_memory_state() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let f = Fixture::new();
+    let key = storage::identity(&f.game).unwrap();
+    let history = f.data.join(".gui/source-history.json");
+    fs::write(
+        &history,
+        serde_json::to_vec(
+            &json!({"format":1,"games":{key:{"known":["LocalizeDBSchema"],"notices":[]}}}),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let mut p = f.ready_project();
+    let rules = fs::read(f.data.join(".gui/rules.tsv")).unwrap();
+    let previous = fs::read(&history).unwrap();
+    let state = p.state().unwrap();
+    let held = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(1 | 2)
+        .open(&history)
+        .unwrap();
+    assert!(p.dispatch("sources", &json!({}), &control()).is_err());
+    assert_eq!(fs::read(f.data.join(".gui/rules.tsv")).unwrap(), rules);
+    assert_eq!(fs::read(&history).unwrap(), previous);
+    assert_eq!(p.state().unwrap(), state);
+    drop(held);
+    let retry = call(&mut p, "sources", json!({}));
+    assert!(retry["migrated"].as_u64().unwrap() > 0);
+    assert_eq!(retry["missing_history"], false);
+    f.unchanged();
+}
+
+#[test]
+fn interrupted_source_save_recovers_both_documents_on_restart() {
+    for history_published in [false, true] {
+        let f = Fixture::new();
+        let root = f.data.join(".gui");
+        let before = fs::read(root.join("rules.tsv")).unwrap();
+        let after = model_rules_with_fixed_scope(&before);
+        let history = serde_json::to_vec(&json!({"format":1,"games":{}})).unwrap();
+        fs::write(root.join("rules.tsv"), &after).unwrap();
+        if history_published {
+            fs::write(root.join("source-history.json"), &history).unwrap();
+        }
+        fs::write(
+            root.join("sources-transaction.json"),
+            serde_json::to_vec(&json!([
+                {"name":"rules.tsv","before":before,"after":after},
+                {"name":"source-history.json","before":null,"after":history}
+            ]))
+            .unwrap(),
+        )
+        .unwrap();
+        let p = f.project();
+        assert!(p.state().unwrap()["errors"].as_object().unwrap().is_empty());
+        assert_eq!(fs::read(root.join("rules.tsv")).unwrap(), before);
+        assert!(!root.join("source-history.json").exists());
+        assert!(!root.join("sources-transaction.json").exists());
+        f.unchanged();
+    }
+}
+
+fn model_rules_with_fixed_scope(bytes: &[u8]) -> Vec<u8> {
+    let mut rules = bajptr_project::model::parse_rules(bytes).unwrap();
+    for rule in &mut rules {
+        rule.table = "LocalizeDBSchema".into();
+    }
+    bajptr_project::model::rules_bytes(&rules).unwrap()
+}
+
+#[test]
+fn interrupted_source_recovery_refuses_to_overwrite_subsequent_external_changes() {
+    let f = Fixture::new();
+    let root = f.data.join(".gui");
+    let before = fs::read(root.join("rules.tsv")).unwrap();
+    let after = model_rules_with_fixed_scope(&before);
+    fs::write(
+        root.join("sources-transaction.json"),
+        serde_json::to_vec(&json!([
+            {"name":"rules.tsv","before":before,"after":after},
+            {"name":"source-history.json","before":null,"after":[]}
+        ]))
+        .unwrap(),
+    )
+    .unwrap();
+    fs::write(root.join("rules.tsv"), b"external changes").unwrap();
+    let mut p = Project::new(f.data.clone());
+    assert!(p.dispatch("load", &json!({}), &control()).is_err());
+    assert_eq!(
+        fs::read(root.join("rules.tsv")).unwrap(),
+        b"external changes"
+    );
+    assert!(root.join("sources-transaction.json").exists());
+}
+
+#[test]
+fn damaged_catalog_or_database_can_rebuild_from_matching_game_resources() {
+    for name in ["TableCatalog.bytes", "database"] {
+        let f = Fixture::new();
+        let mut p = f.ready_project();
+        let info = call(&mut p, "baseline", json!({}));
+        let folder = PathBuf::from(info["folder"].as_str().unwrap());
+        let damaged = folder.join(if name == "database" {
+            info["resource"].as_str().unwrap()
+        } else {
+            name
+        });
+        fs::write(&damaged, b"broken").unwrap();
+        let plan = call(&mut p, "baseline_rebuild_preview", json!({}));
+        call(
+            &mut p,
+            "baseline_rebuild_commit",
+            json!({"token":plan["token"]}),
+        );
+        assert_eq!(call(&mut p, "check", json!({}))["connected"], true);
+        f.unchanged();
+    }
+}
+
+#[test]
+fn baseline_rebuild_rejects_stale_confirmation() {
+    let f = Fixture::new();
+    let mut p = f.ready_project();
+    let info = call(&mut p, "baseline", json!({}));
+    let path = PathBuf::from(info["folder"].as_str().unwrap()).join("baseline.json");
+    fs::write(&path, b"broken").unwrap();
+    let plan = call(&mut p, "baseline_rebuild_preview", json!({}));
+    fs::write(&path, b"another change").unwrap();
+    assert!(
+        p.dispatch(
+            "baseline_rebuild_commit",
+            &json!({"token":plan["token"]}),
+            &control()
+        )
+        .is_err()
+    );
+    assert_eq!(fs::read(path).unwrap(), b"another change");
+    f.unchanged();
+}
+
+#[test]
+fn damaged_wordlist_reset_preserves_the_text_edit_document() {
+    let f = Fixture::new();
+    let edits = serde_json::to_vec(&json!({"format":2,"edits":[]})).unwrap();
+    fs::write(f.data.join(".gui/text-edits.json"), &edits).unwrap();
+    fs::write(f.data.join(".gui/rules.tsv"), b"broken wordlist").unwrap();
+    let mut p = f.project();
+    let revision = p.revision;
+    let reset = call(
+        &mut p,
+        "reset_record",
+        json!({"name":"rules.tsv","revision":revision}),
+    );
+    assert_eq!(
+        fs::read(reset["archived"].as_str().unwrap()).unwrap(),
+        b"broken wordlist"
+    );
+    assert_eq!(
+        fs::read(f.data.join(".gui/text-edits.json")).unwrap(),
+        edits
+    );
+    assert_eq!(reset["state"]["rules"], json!([]));
 }
 
 #[test]
@@ -632,6 +1153,10 @@ fn prepared_install_failure_exports_patch_and_retries_without_rebuilding() {
 #[test]
 fn failed_game_write_saves_a_verified_patch_and_allows_retry() {
     let f = Fixture::new();
+    let before_files = fs::read_dir(f.game.join(region::BUNDLES))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect::<std::collections::BTreeSet<_>>();
     let mut p = f.ready_project();
     let preview = call(&mut p, "preview", json!({}));
     let locked = lock_catalog_against_replacement(&f);
@@ -655,6 +1180,19 @@ fn failed_game_write_saves_a_verified_patch_and_allows_retry() {
     assert_eq!(checked.crc, entry.crc);
     assert_eq!(fs::metadata(&output).unwrap().len(), entry.size);
     assert!(output.with_file_name("TableCatalog.hash").is_file());
+    assert_eq!(
+        fs::read_dir(f.game.join(region::BUNDLES))
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect::<std::collections::BTreeSet<_>>(),
+        before_files
+    );
+    assert!(
+        !walkdir::WalkDir::new(&f.game)
+            .into_iter()
+            .filter_map(Result::ok)
+            .any(|entry| entry.file_name().to_string_lossy().contains(".pending-"))
+    );
     f.unchanged();
     drop(locked);
     let applied = call(&mut p, "apply", json!({"nonce":preview["nonce"]}));
@@ -761,6 +1299,164 @@ fn game_update_prompts_without_retiring_previous_baseline_until_confirmed() {
         call(&mut reopened, "check", json!({}))["baseline_status"]["state"],
         "ready"
     );
+    f.unchanged();
+}
+
+#[test]
+fn migration_after_update_preserves_pairs_backs_up_and_rejects_stale_or_cancelled_saves() {
+    let f = Fixture::new();
+    let mut p = f.ready_project();
+    let search = call(&mut p, "search", json!({"keyword":"任务"}));
+    let opened = call(
+        &mut p,
+        "text_open",
+        json!({"index":0,"search_nonce":search["nonce"]}),
+    );
+    call(
+        &mut p,
+        "text_save",
+        json!({"nonce":opened["nonce"],"text":"阿罗娜的任务【单条】"}),
+    );
+    let batch = call(
+        &mut p,
+        "batch_preview",
+        json!({"search_nonce":search["nonce"],"indices":[0],"old":"任务","new":"委托"}),
+    );
+    call(&mut p, "batch_save", json!({"nonce":batch["nonce"]}));
+    let edits_path = f.data.join(".gui/text-edits.json");
+    let before = fs::read(&edits_path).unwrap();
+    let original_edits = p.edits.clone();
+    let hash = f
+        .game
+        .join(region::CATALOG)
+        .with_file_name("TableCatalog.hash");
+    fs::write(&hash, b"migration update").unwrap();
+    let check = call(&mut p, "check", json!({}));
+    assert_eq!(check["baseline_status"]["state"], "update");
+    assert!(
+        p.dispatch("migration_preview", &json!({}), &control())
+            .is_err()
+    );
+    call(
+        &mut p,
+        "baseline_commit",
+        json!({"token":check["baseline_status"]["token"]}),
+    );
+    assert_eq!(call(&mut p, "check", json!({}))["migration_count"], 2);
+    let plan = call(&mut p, "migration_preview", json!({}));
+    assert_eq!(plan["items"].as_array().unwrap().len(), 1);
+    assert_eq!(plan["items"][0]["kind"], "exact");
+    assert_eq!(fs::read(&edits_path).unwrap(), before);
+    let payload = json!({"revision":p.revision,"nonce":plan["nonce"],"choices":[{"item":0,"candidate":plan["items"][0]["suggested"]}]});
+    assert!(matches!(
+        p.dispatch("migration_commit", &payload, &Control::new(&|_| false)),
+        Err(bajptr_project::Error::Cancelled)
+    ));
+    assert_eq!(fs::read(&edits_path).unwrap(), before);
+    fs::write(&hash, b"changed after review").unwrap();
+    assert!(
+        p.dispatch("migration_commit", &payload, &control())
+            .is_err()
+    );
+    assert_eq!(fs::read(&edits_path).unwrap(), before);
+    fs::write(&hash, b"migration update").unwrap();
+    let saved = call(&mut p, "migration_start", json!({}));
+    assert_eq!(saved["automatic_count"], 1);
+    assert!(saved["plan"]["items"].as_array().unwrap().is_empty());
+    assert_eq!(fs::read(saved["backup"].as_str().unwrap()).unwrap(), before);
+    assert_eq!(p.edits.len(), 2);
+    assert!(
+        p.edits
+            .iter()
+            .all(|e| Some(&e.version) == p.version.as_ref())
+    );
+    assert!(
+        p.dispatch("migration_commit", &payload, &control())
+            .is_err()
+    );
+    let search = call(&mut p, "search", json!({"keyword":"任务"}));
+    assert_eq!(search["rows"][0]["text"], "阿罗娜的委托【单条】");
+    call(&mut p, "history", json!({"undo":true}));
+    assert_eq!(p.edits, original_edits);
+    call(&mut p, "history", json!({"undo":false}));
+    assert!(
+        p.edits
+            .iter()
+            .all(|e| Some(&e.version) == p.version.as_ref())
+    );
+    let mut reopened = f.project();
+    assert_eq!(
+        call(&mut reopened, "check", json!({}))["migration_count"],
+        0
+    );
+    f.unchanged();
+}
+
+#[test]
+fn migration_start_saves_unchanged_content_even_when_its_position_moved() {
+    let f = Fixture::new();
+    let mut p = f.ready_project();
+    for (keyword, replacement) in [("任务", "自动迁移"), ("老师", "人工迁移")] {
+        let search = call(&mut p, "search", json!({"keyword":keyword}));
+        let opened = call(
+            &mut p,
+            "text_open",
+            json!({"index":0,"search_nonce":search["nonce"]}),
+        );
+        call(
+            &mut p,
+            "text_save",
+            json!({"nonce":opened["nonce"],"text":replacement}),
+        );
+    }
+    assert_eq!(p.edits.len(), 2);
+    p.edits[1].row_id = bajptr_core::database::RowId::Integer(1_000_000);
+    p.store
+        .save(
+            "text-edits.json",
+            &bajptr_project::model::edits_bytes(&p.edits).unwrap(),
+        )
+        .unwrap();
+    let old = p.edits.clone();
+    fs::write(
+        f.game
+            .join(region::CATALOG)
+            .with_file_name("TableCatalog.hash"),
+        b"mixed migration update",
+    )
+    .unwrap();
+    let check = call(&mut p, "check", json!({}));
+    call(
+        &mut p,
+        "baseline_commit",
+        json!({"token":check["baseline_status"]["token"]}),
+    );
+    let started = call(&mut p, "migration_start", json!({}));
+    assert_eq!(started["automatic_count"], 2);
+    assert!(started["plan"]["items"].as_array().unwrap().is_empty());
+    assert_eq!(started["plan"]["revision"], p.revision);
+    let after_automatic = p.edits.clone();
+    assert_eq!(
+        after_automatic
+            .iter()
+            .filter(|e| Some(&e.version) == p.version.as_ref())
+            .count(),
+        2
+    );
+    assert_eq!(
+        f.project().edits,
+        after_automatic,
+        "closing review must keep automatic migrations"
+    );
+    assert!(
+        p.edits
+            .iter()
+            .all(|e| Some(&e.version) == p.version.as_ref())
+    );
+    call(&mut p, "history", json!({"undo":true}));
+    assert_eq!(p.edits, old);
+    call(&mut p, "history", json!({"undo":false}));
+    assert_eq!(p.edits, after_automatic);
     f.unchanged();
 }
 
@@ -895,6 +1591,136 @@ fn external_same_version_content_can_only_replace_baseline_after_confirmation() 
 }
 
 #[test]
+fn search_trims_keyword_before_matching_and_recording_context() {
+    let f = Fixture::new();
+    let mut p = f.ready_project();
+    let expected = call(&mut p, "search", json!({"keyword":"任务"}));
+    assert!(expected["total"].as_u64().unwrap() > 0);
+    let actual = call(&mut p, "search", json!({"keyword":" 任务 \t"}));
+    assert_eq!(actual["keyword"], "任务");
+    assert_eq!(actual["rows"], expected["rows"]);
+    assert_eq!(actual["total"], expected["total"]);
+}
+
+#[test]
+fn later_search_pages_remain_editable_without_rescanning_the_database() {
+    let mut f = Fixture::new();
+    let game = region::locate(f.game.to_str().unwrap()).unwrap();
+    let plain = f.root.join("pagination.db");
+    let encrypted = f.root.join("pagination.encrypted");
+    let key = bajptr_core::codec::key(region::KEY).unwrap();
+    bajptr_core::codec::decrypt(&game.bundle, &plain, &key, &control()).unwrap();
+    let con = rusqlite::Connection::open(&plain).unwrap();
+    con.execute_batch(
+        "WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<1100)
+         INSERT INTO LocalizeDBSchema(Bytes)
+         SELECT Bytes FROM LocalizeDBSchema, n WHERE rowid=1",
+    )
+    .unwrap();
+    drop(con);
+    let (_, inspection) =
+        bajptr_core::codec::encrypt_checked(&plain, &encrypted, &key, &[0; 16], &[], &control())
+            .unwrap();
+    fs::copy(
+        &encrypted,
+        game.bundle
+            .with_file_name(format!("123456_{}", inspection.crc)),
+    )
+    .unwrap();
+    region::publish_catalog(
+        &game,
+        fs::metadata(&encrypted).unwrap().len(),
+        inspection.crc,
+    )
+    .unwrap();
+    f.before = fs::read(&game.catalog).unwrap();
+    let mut p = f.ready_project();
+    let first = call(&mut p, "search", json!({"keyword":"任务"}));
+    assert_eq!(first["rows"].as_array().unwrap().len(), 500);
+    assert!(first["total"].as_u64().unwrap() > 1000);
+    let no_scan = Control::new(&|message| !message.is_some_and(|m| m.starts_with("扫描文本表：")));
+    let second = p
+        .dispatch(
+            "search_more",
+            &json!({"keyword":"任务","offset":500}),
+            &no_scan,
+        )
+        .unwrap();
+    assert_eq!(second["rows"].as_array().unwrap().len(), 1000);
+    assert_eq!(
+        &second["rows"].as_array().unwrap()[..500],
+        first["rows"].as_array().unwrap()
+    );
+    let third = p
+        .dispatch(
+            "search_more",
+            &json!({"keyword":"任务","offset":1000}),
+            &no_scan,
+        )
+        .unwrap();
+    let opened = call(
+        &mut p,
+        "text_open",
+        json!({"search_nonce":third["nonce"],"index":500}),
+    );
+    assert_eq!(opened["original"], third["rows"][500]["original"]);
+    let saved = call(
+        &mut p,
+        "text_save",
+        json!({"nonce":opened["nonce"],"text":"分页编辑"}),
+    );
+    assert_eq!(saved["search"]["rows"][500]["text"], "分页编辑");
+    let old = saved["search"]["rows"][999]["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(
+        saved["search"]["rows"][1000]["text"]
+            .as_str()
+            .unwrap()
+            .contains(&old)
+    );
+    let preview = call(
+        &mut p,
+        "batch_preview",
+        json!({"search_nonce":third["nonce"],"indices":[999,1000],"old":old,"new":"分页批量"}),
+    );
+    assert_eq!(preview["changes"].as_array().unwrap().len(), 2);
+    let saved = call(&mut p, "batch_save", json!({"nonce":preview["nonce"]}));
+    for i in [999, 1000] {
+        assert!(
+            saved["search"]["rows"][i]["text"]
+                .as_str()
+                .unwrap()
+                .contains("分页批量")
+        );
+    }
+    assert_eq!(saved["search"]["rows"][500]["text"], "分页编辑");
+    f.unchanged();
+}
+
+#[test]
+fn data_directory_rejects_gui_contents_without_creating_nested_storage() {
+    let f = Fixture::new();
+    for data in [f.data.join(".gui"), f.root.join("copied-gui-contents")] {
+        fs::create_dir_all(&data).unwrap();
+        fs::write(data.join("settings.json"), b"{}").unwrap();
+        let mut p = Project::new(data.clone());
+        let error = p
+            .dispatch("load", &json!({}), &control())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("--data-dir"));
+        assert!(error.contains("父目录"));
+        assert!(!data.join(".gui").exists());
+        assert!(Worker::start(data, Arc::new(|| {})).is_err());
+    }
+    let empty = f.root.join("new-data");
+    let mut p = Project::new(empty);
+    assert!(p.dispatch("load", &json!({}), &control()).is_ok());
+}
+
+#[test]
 fn search_source_choices_follow_completed_keyword_and_survive_paging() {
     let f = Fixture::new();
     let mut p = f.ready_project();
@@ -912,7 +1738,7 @@ fn search_source_choices_follow_completed_keyword_and_survive_paging() {
     let page = call(
         &mut p,
         "search_more",
-        json!({"keyword":"任务","source":"LocalizeDBSchema","offset":1}),
+        json!({"keyword":"任务","source":"LocalizeDBSchema","offset":search["rows"].as_array().unwrap().len()}),
     );
     assert_eq!(page["source_tables"], search["source_tables"]);
     let empty = call(&mut p, "search", json!({"keyword":"没有命中的新词"}));

@@ -16,15 +16,6 @@ and its contributors. The original MIT notice is retained in `licenses/blue-arch
 The application does not include BATR's OpenCC dictionaries, automatic translation-name downloads,
 Python runtime, or CRC-preserving installation implementation.
 
-## Bundled Chinese font
-
-Noto Sans SC Regular, from [notofonts/noto-cjk](https://github.com/notofonts/noto-cjk),
-is embedded as a fallback when Windows Chinese fonts are unavailable.
-It is licensed under the SIL Open Font License 1.1; see `licenses/NotoSansSC-OFL.txt`.
-
-Upstream asset: `Sans/SubsetOTF/SC/NotoSansSC-Regular.otf`.
-SHA-256: `faa6c9df652116dde789d351359f3d7e5d2285a2b2a1f04a2d7244df706d5ea9`.
-
 ## Rust dependencies and SQLite
 
 The resolved dependency inventory and available license texts are included under

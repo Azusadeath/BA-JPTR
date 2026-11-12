@@ -1,8 +1,7 @@
 use eframe::egui;
 use std::path::Path;
 
-const FALLBACK: &[u8] = include_bytes!("../assets/NotoSansSC-Regular.otf");
-pub fn definitions(windows_dir: Option<&Path>) -> (egui::FontDefinitions, bool) {
+pub fn definitions(windows_dir: Option<&Path>) -> Option<egui::FontDefinitions> {
     let mut fonts = egui::FontDefinitions::default();
     let system = windows_dir.and_then(|root| {
         [("msyh.ttc", 1), ("simhei.ttf", 0)]
@@ -16,12 +15,10 @@ pub fn definitions(windows_dir: Option<&Path>) -> (egui::FontDefinitions, bool) 
                         font
                     })
             })
-    });
-    let fallback = system.is_none();
-    let data = system.unwrap_or_else(|| egui::FontData::from_static(FALLBACK));
+    })?;
     fonts
         .font_data
-        .insert("interface".into(), std::sync::Arc::new(data));
+        .insert("interface".into(), std::sync::Arc::new(system));
     fonts
         .families
         .get_mut(&egui::FontFamily::Proportional)
@@ -32,16 +29,19 @@ pub fn definitions(windows_dir: Option<&Path>) -> (egui::FontDefinitions, bool) 
         .get_mut(&egui::FontFamily::Monospace)
         .unwrap()
         .push("interface".into());
-    (fonts, fallback)
+    Some(fonts)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
-    fn missing_system_cjk_fonts_still_render_chinese_labels() {
-        let (fonts, fallback) = definitions(None);
-        assert!(fallback);
+    fn windows_fonts_render_chinese_labels_and_missing_fonts_are_reported() {
+        assert!(definitions(None).is_none());
+        let root = std::env::var_os("SystemRoot")
+            .or_else(|| std::env::var_os("WINDIR"))
+            .map(std::path::PathBuf::from);
+        let fonts = definitions(root.as_deref()).expect("Windows Chinese font required");
         let ctx = egui::Context::default();
         ctx.set_fonts(fonts);
         let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {

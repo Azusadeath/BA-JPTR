@@ -3,7 +3,7 @@ use eframe::egui::{self, RichText};
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
-fn window<'a>(title: &'a str, ctx: &egui::Context, width: f32) -> egui::Window<'a> {
+pub(crate) fn window<'a>(title: &'a str, ctx: &egui::Context, width: f32) -> egui::Window<'a> {
     egui::Window::new(title)
         .frame(
             egui::Frame::window(&ctx.style_of(egui::Theme::Light))
@@ -421,6 +421,8 @@ impl Desktop {
                 self.table_detail = None;
             } else if self.error.is_some() {
                 self.error = None;
+            } else if self.confirm_record_reset.is_some() {
+                self.confirm_record_reset = None;
             } else if self.show_about {
                 self.show_about = false;
             } else if self.template_form.is_some() {
@@ -439,6 +441,12 @@ impl Desktop {
                 self.rule_form = None;
             } else if self.confirm_import.is_some() {
                 self.confirm_import = None;
+            } else if self.migration_form.as_ref().is_some_and(|form| form.open) {
+                if let Some(form) = &mut self.migration_form {
+                    form.open = false;
+                }
+            } else if self.migration_notice {
+                self.migration_notice = false;
             } else if self.confirm_restore {
                 self.confirm_restore = false;
             } else if self.confirm_baseline.is_some() {
@@ -460,6 +468,7 @@ impl Desktop {
         self.source_notices_dialog(ctx);
         self.edit_manager(ctx);
         self.confirmations(ctx);
+        self.migration_dialogs(ctx);
         self.about_dialog(ctx);
         if let Some(detail) = self.table_detail.clone() {
             let mut open = true;
@@ -550,9 +559,7 @@ impl Desktop {
                                 .save_file()
                             && let Err(error) = self.export_logs(&path)
                         {
-                            let message = format!("日志导出失败：{error}");
-                            self.log(message.clone(), Some(crate::logging::Level::Error));
-                            self.error = Some(message);
+                            self.report_file_error("export_logs", &path, error);
                         }
                     });
                 });
@@ -1113,6 +1120,9 @@ if ui.button("取消").clicked(){close=true;}});
         }
     }
     fn source_notices_dialog(&mut self, ctx: &egui::Context) {
+        if self.migration_notice || self.migration_form.as_ref().is_some_and(|form| form.open) {
+            return;
+        }
         if !self.show_source_notices {
             return;
         }
@@ -1556,30 +1566,55 @@ if ui.button("取消").clicked(){close=true;}});
         self.show_edits = open;
     }
     fn confirmations(&mut self, ctx: &egui::Context) {
+        if let Some(name) = self.confirm_record_reset.clone() {
+            let mut open = true;
+            let mut close = false;
+            window("归档并重置损坏记录", ctx, 540.).open(&mut open).show(ctx, |ui| {
+                ui.label(format!("将 {name} 原文件完整移入数据目录下的 recovery 文件夹，并清空这一类记录。其他记录保持不变。"));
+                ui.colored_label(ORANGE, "如需抢救原有内容，请先打开数据目录检查文件。");
+                ui.horizontal(|ui| {
+                    if primary(ui, self.busy.is_none(), "归档并重置").clicked() {
+                        self.submit("reset_record", json!({"name":name,"revision":self.revision()}), "正在归档并重置损坏记录…");
+                        close = true;
+                    }
+                    if secondary(ui, !self.write_busy(), "取消").clicked() { close = true; }
+                });
+            });
+            if !open || close {
+                self.confirm_record_reset = None;
+            }
+        }
         if let Some(candidate) = self.confirm_baseline.clone() {
             let state = text(&candidate, "state");
             let first = state == "missing";
+            let repair = state == "repair";
             let mut open = true;
             let mut close = false;
-            window(if first {"设置初始底稿"} else {"更新初始底稿"},ctx,540.)
+            window(if repair {"重建初始底稿"} else if first {"设置初始底稿"} else {"更新初始底稿"},ctx,540.)
                 .open(&mut open)
                 .show(ctx,|ui| {
                     ui.label(match state.as_str() {
                         "missing" => "还没有初始底稿。将当前游戏文本保存为初始底稿？",
                         "changed" => "当前游戏资源与初始底稿不同。将当前文本设为新的初始底稿？",
+                        "repair" => "已找到与原底稿目录记录一致、并通过完整性校验的数据库。使用它重建初始底稿？",
                         _ => "检测到游戏资源版本更新。将当前游戏文本保存为新版初始底稿？",
                     });
                     ui.add_space(8.);
-                    ui.colored_label(MUTED,format!("当前资源：{}",text(&candidate,"game_version")));
-                    ui.add_space(8.);
-                    ui.label("会包含当前已安装的汉化或其他修改。请先退出游戏，并确认这是要作为替换起点的文本。");
-                    if !first {
+                    if repair {
+                        ui.add(egui::Label::new(format!("重建来源：{}",text(&candidate,"source"))).wrap());
+                        ui.label("新底稿校验成功后才替换目录；损坏底稿完整保留在旁边，游戏文件、词表和修改记录保持不变。");
+                    } else {
+                        ui.colored_label(MUTED,format!("当前资源：{}",text(&candidate,"game_version")));
+                        ui.add_space(8.);
+                        ui.label("会包含当前已安装的汉化或其他修改。请先退出游戏，并确认这是要作为替换起点的文本。");
+                    }
+                    if !first && !repair {
                         ui.colored_label(MUTED,"新底稿校验成功后才移出旧底稿；词表和修改记录会保留。");
                     }
                     ui.add_space(14.);
                     ui.horizontal(|ui| {
-                        if primary(ui,!self.write_busy(),if first {"设为初始底稿"} else {"更新底稿"}).clicked() {
-                            self.submit("baseline_commit",json!({"token":candidate["token"]}),"正在保存并校验初始底稿…");
+                        if primary(ui,!self.write_busy(),if repair {"重建底稿"} else if first {"设为初始底稿"} else {"更新底稿"}).clicked() {
+                            self.submit(if repair {"baseline_rebuild_commit"} else {"baseline_commit"},json!({"token":candidate["token"]}),"正在保存并校验初始底稿…");
                             close = true;
                         }
                         if ui.button(if first {"暂不设置"} else {"暂不更新"}).clicked() { close = true; }

@@ -14,7 +14,7 @@ pub struct Busy {
 }
 pub struct Desktop {
     pub backend: Option<Backend>,
-    data_path: Option<PathBuf>,
+    pub(crate) data_path: Option<PathBuf>,
     pub pending: HashMap<u64, String>,
     pub obsolete: HashSet<u64>,
     pub busy: Option<Busy>,
@@ -29,6 +29,8 @@ pub struct Desktop {
     pub application: String,
     pub logs: Vec<crate::logging::Entry>,
     pub error: Option<String>,
+    pub settings_warning: Option<String>,
+    pub confirm_record_reset: Option<String>,
     pub rule_selection: Option<usize>,
     pub search: Arc<Value>,
     pub keyword: String,
@@ -54,6 +56,10 @@ pub struct Desktop {
     pub confirm_import: Option<Value>,
     pub confirm_restore: bool,
     pub confirm_baseline: Option<Value>,
+    pub migration_notice: bool,
+    pub migration_count: usize,
+    pub migration_form: Option<MigrationForm>,
+    migration_prompted: HashSet<String>,
     pub baseline_check: Value,
     pub baseline: Value,
     pub output_dir: PathBuf,
@@ -65,19 +71,27 @@ impl Desktop {
     pub fn new(cc: &eframe::CreationContext<'_>, project: PathBuf, data: PathBuf) -> Self {
         let ctx = &cc.egui_ctx;
         ctx.options_mut(|options| options.zoom_with_keyboard = false);
-        crate::theme::install(ctx);
+        if !crate::theme::install(ctx) {
+            rfd::MessageDialog::new()
+                .set_title("无法加载中文字体")
+                .set_description(
+                    "未能读取 Windows 的微软雅黑或黑体。请安装或修复系统中文字体后重新打开工具。",
+                )
+                .set_level(rfd::MessageLevel::Error)
+                .show();
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            return Self::initial();
+        }
         let backend = Backend::start(&project, &data, ctx.clone());
         let mut app = Self::initial();
         app.data_path = Some(data.clone());
         app.output_dir = data.join("output");
-        if let Err(error) = std::fs::create_dir_all(&app.output_dir) {
-            app.error = Some(format!(
-                "无法创建输出目录 {}：{error}",
-                app.output_dir.display()
-            ));
-        }
         match backend {
             Ok(backend) => {
+                if let Err(error) = std::fs::create_dir_all(&app.output_dir) {
+                    let output = app.output_dir.clone();
+                    app.report_file_error("open_directory", &output, error.into());
+                }
                 app.backend = Some(backend);
                 app.submit("load", json!({}), "正在读取修改记录…");
             }
@@ -106,6 +120,8 @@ impl Desktop {
             application: "应用状态待核对，先预览".into(),
             logs: Vec::new(),
             error: None,
+            settings_warning: None,
+            confirm_record_reset: None,
             rule_selection: None,
             search: Value::Null.into(),
             keyword: String::new(),
@@ -131,6 +147,10 @@ impl Desktop {
             confirm_import: None,
             confirm_restore: false,
             confirm_baseline: None,
+            migration_notice: false,
+            migration_count: 0,
+            migration_form: None,
+            migration_prompted: HashSet::new(),
             baseline_check: Value::Null,
             baseline: Value::Null,
             output_dir: PathBuf::from("output"),
@@ -182,6 +202,9 @@ impl Desktop {
         Ok(())
     }
     pub fn game_path_changed(&mut self) {
+        self.migration_notice = false;
+        self.migration_form = None;
+        self.migration_count = 0;
         self.path_dirty = true;
         self.connected = false;
         self.sources_ready = false;
@@ -193,9 +216,9 @@ impl Desktop {
         self.hits.clear();
         self.search_input_changed();
         if self.busy.as_ref().is_some_and(|busy| {
-            self.pending
-                .get(&busy.id)
-                .is_some_and(|action| action == "check")
+            self.pending.get(&busy.id).is_some_and(|action| {
+                matches!(action.as_str(), "check" | "baseline_rebuild_preview")
+            })
         }) {
             let busy = self.busy.take().unwrap();
             self.obsolete.insert(busy.id);
@@ -258,7 +281,10 @@ impl Desktop {
             || self.confirm_import.is_some()
             || self.confirm_restore
             || self.confirm_baseline.is_some()
+            || self.migration_notice
+            || self.migration_form.as_ref().is_some_and(|form| form.open)
             || self.error.is_some()
+            || self.confirm_record_reset.is_some()
             || self.table_detail.is_some()
             || self.show_source_notices
             || self.show_about
@@ -300,6 +326,9 @@ impl Desktop {
         }
     }
     fn backend_failed(&mut self, message: String) {
+        self.migration_notice = false;
+        self.migration_form = None;
+        self.migration_count = 0;
         self.backend = None;
         self.busy = None;
         self.pending.clear();
@@ -320,6 +349,7 @@ impl Desktop {
         self.confirm_baseline = None;
         self.confirm_restore = false;
         self.confirm_import = None;
+        self.confirm_record_reset = None;
         self.show_source_notices = false;
         if let Some(form) = &mut self.scope_form {
             form.request = None;
@@ -357,6 +387,7 @@ impl Desktop {
     }
     pub fn background_tables(&mut self) {
         if self.sources_ready
+            || !self.healthy()
             || self.pending.values().any(|a| a == "sources")
             || !self.connected
             || self.busy.is_some()
@@ -429,6 +460,9 @@ impl Desktop {
         );
     }
     pub fn apply_state(&mut self, value: Value) {
+        if value["settings_warning"] != self.state["settings_warning"] {
+            self.settings_warning = value["settings_warning"].as_str().map(str::to_string);
+        }
         let changed = count(&value, "revision") != self.revision();
         let game_changed = text(&value, "game") != text(&self.state, "game");
         if !self.path_dirty {
@@ -471,13 +505,37 @@ impl Desktop {
             self.search = search.clone().into();
         }
         self.application = text(&value, "application");
+        self.migration_count = slice(&value, "edits")
+            .iter()
+            .filter(|e| e["active"] == false)
+            .count();
         self.state = value.into();
     }
     pub fn open_text(&mut self, index: usize) {
+        if !self.connected || self.busy.is_some() || self.modal() {
+            return;
+        }
         self.submit(
             "text_open",
             json!({"index":index,"search_nonce":text(&self.search,"nonce")}),
             "正在读取这段文本…",
+        );
+    }
+    pub fn open_migration(&mut self) {
+        let revision = self.revision();
+        let version = text(&self.baseline, "version_id");
+        if let Some(form) = &mut self.migration_form
+            && form.plan["revision"] == revision
+            && form.plan["version"] == version
+        {
+            form.open = true;
+            return;
+        }
+        self.migration_form = None;
+        self.submit(
+            "migration_start",
+            json!({"revision":revision}),
+            "正在核对旧版修改…",
         );
     }
     pub fn open_batch(&mut self, entry: &Value) {
@@ -506,6 +564,32 @@ impl Desktop {
                 .creation_flags(0x08000000)
                 .spawn();
         }
+    }
+    pub fn open_data_folder(&mut self, child: &str) {
+        let Some(data) = &self.data_path else {
+            return;
+        };
+        let folder = data.join(child);
+        match std::fs::create_dir_all(&folder) {
+            Ok(()) => Self::open_folder(&folder),
+            Err(error) => self.report_file_error("open_directory", &folder, error.into()),
+        }
+    }
+    pub fn report_file_error(
+        &mut self,
+        action: &str,
+        path: &std::path::Path,
+        error: bajptr_project::Error,
+    ) {
+        self.log(
+            format!("{}：{error}", path.display()),
+            Some(crate::logging::Level::Error),
+        );
+        self.error = Some(format!(
+            "{}\n位置：{}",
+            bajptr_project::diagnostics::user_message(action, &error),
+            path.display()
+        ));
     }
     pub fn events(&mut self) {
         let (events, disconnected) = self.backend.as_ref().map(Backend::poll).unwrap_or_default();
@@ -548,7 +632,9 @@ impl Desktop {
                 }
                 continue;
             }
-            if action == "check" && (self.path_dirty || text(&self.state, "game") != self.game) {
+            if matches!(action.as_str(), "check" | "baseline_rebuild_preview")
+                && (self.path_dirty || text(&self.state, "game") != self.game)
+            {
                 self.status = "路径已更改，等待重新检查…".into();
                 continue;
             }
@@ -605,6 +691,11 @@ impl Desktop {
                             self.restore_context_status();
                         }
                     }
+                    "migration_commit" => {
+                        if let Some(form) = &mut self.migration_form {
+                            form.error = message;
+                        }
+                    }
                     "remove_batch_member" => {
                         if let Some(form) = &mut self.batch_scope {
                             form.error = message.clone();
@@ -628,8 +719,9 @@ impl Desktop {
                         self.baseline = Value::Null;
                         self.baseline_check = Value::Null;
                         self.confirm_baseline = None;
+                        self.error = Some(format!("检查底稿失败：{message}"));
                     }
-                    "baseline_commit" => {
+                    "baseline_commit" | "baseline_rebuild_commit" => {
                         self.connected = false;
                         self.baseline = Value::Null;
                         self.baseline_check = Value::Null;
@@ -659,7 +751,7 @@ impl Desktop {
                     }
                     if !self.healthy() {
                         self.error = Some(
-                            "修改记录读取失败，原文件已保留。请查看日志并修复文件后重启。".into(),
+                            "记录文件读取失败，原文件已保留。请打开数据目录检查；损坏的词表和修改记录可归档并重置。".into(),
                         );
                     }
                     if !self.game.is_empty() {
@@ -686,6 +778,14 @@ impl Desktop {
                     match text(&self.baseline_check, "state").as_str() {
                         "ready" => {
                             self.confirm_baseline = None;
+                            self.migration_count = count(&data, "migration_count") as usize;
+                            let prompt_key =
+                                format!("{}:{}", self.game, text(&self.baseline, "version_id"));
+                            if self.migration_count > 0
+                                && self.migration_prompted.insert(prompt_key)
+                            {
+                                self.migration_notice = true;
+                            }
                             self.status = "底稿已就绪。修改自动保存，预览后应用。".into();
                             self.background_tables();
                         }
@@ -707,7 +807,17 @@ impl Desktop {
                         }
                     }
                 }
-                "baseline_commit" => {
+                "baseline_rebuild_preview" => {
+                    self.confirm_baseline = Some(data);
+                    self.status = "已找到校验通过的原始资源，请确认重建底稿。".into();
+                }
+                "baseline_commit" | "baseline_rebuild_commit" => {
+                    if let Some(folder) = data["damaged_folder"].as_str() {
+                        self.log(
+                            format!("重建前的损坏底稿已保留：{folder}"),
+                            Some(crate::logging::Level::Warning),
+                        );
+                    }
                     self.set_baseline(data);
                     self.sources_ready = false;
                     self.confirm_baseline = None;
@@ -717,6 +827,72 @@ impl Desktop {
                     self.hits.clear();
                     self.tables.clear();
                     self.submit("check", json!({}), "底稿已保存，正在核对…");
+                }
+                "reset_record" => {
+                    self.apply_state(data["state"].clone());
+                    self.sources_ready = false;
+                    self.selection.clear();
+                    self.log(
+                        format!("损坏记录已归档：{}", text(&data, "archived")),
+                        Some(crate::logging::Level::Warning),
+                    );
+                    self.status = "损坏记录已归档并重置。".into();
+                    if self.healthy() && !self.game.is_empty() && !self.path_dirty {
+                        self.submit("check", json!({}), "记录已重置，正在重新核对底稿…");
+                    }
+                }
+                "migration_preview" => {
+                    self.migration_form = Some(MigrationForm::new(data));
+                    self.status = "已核对旧版修改，请选择要迁移的文本。".into();
+                }
+                "migration_start" => {
+                    self.apply_state(data["state"].clone());
+                    let review = list(&data["plan"], "items");
+                    self.migration_form =
+                        (!review.is_empty()).then(|| MigrationForm::new(data["plan"].clone()));
+                    self.status = if review.is_empty() {
+                        format!(
+                            "已自动迁移 {} 段，预览后应用到游戏。",
+                            count(&data, "automatic_count")
+                        )
+                    } else {
+                        format!(
+                            "已自动迁移 {} 段，{} 段待核对。",
+                            count(&data, "automatic_count"),
+                            review.len()
+                        )
+                    };
+                    if data["backup"].is_string() {
+                        self.log(
+                            format!("迁移前的修改记录已备份：{}", text(&data, "backup")),
+                            None,
+                        );
+                    }
+                    if count(&data, "unavailable_count") > 0 {
+                        self.log(
+                            format!(
+                                "{} 段原文已变化、缺失或已有新版修改，旧记录已保留。",
+                                count(&data, "unavailable_count")
+                            ),
+                            Some(crate::logging::Level::Warning),
+                        );
+                    }
+                }
+                "migration_commit" => {
+                    self.apply_state(data["state"].clone());
+                    self.migration_form = None;
+                    self.migration_count = slice(&self.state, "edits")
+                        .iter()
+                        .filter(|e| e["active"] == false)
+                        .count();
+                    self.status = format!(
+                        "已迁移 {} 段文本，预览后应用到游戏。",
+                        count(&data, "count")
+                    );
+                    self.log(
+                        format!("迁移前的修改记录已备份：{}", text(&data, "backup")),
+                        None,
+                    );
                 }
                 "tables" => {
                     self.tables = data.as_array().cloned().unwrap_or_default();
@@ -1119,7 +1295,385 @@ mod view_tests {
     use super::*;
 
     #[test]
-    fn search_toolbar_overlays_the_header_without_moving_rows_and_status_follows_navigation() {
+    fn empty_rule_table_only_suggests_adding_when_the_action_is_available() {
+        for case in ["loading", "failed", "empty"] {
+            let ctx = egui::Context::default();
+            crate::theme::install(&ctx);
+            let mut app = Desktop::initial();
+            app.loaded = case != "loading";
+            app.state = json!({"rules":[],"batches":[],"errors":if case=="failed" {json!({"rules.tsv":"invalid"})} else {json!({})}}).into();
+            if case == "loading" {
+                app.pending.insert(7, "load".into());
+                app.busy = Some(Busy {
+                    id: 7,
+                    cancellable: true,
+                });
+            }
+            let mut frame = 0;
+            let mut draw = |app: &mut Desktop, events| {
+                frame += 1;
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(900., 620.),
+                        )),
+                        time: Some(f64::from(frame) / 60.),
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| app.replacement(ui),
+                );
+                output.textures_delta.clear();
+                output
+                    .shapes
+                    .into_iter()
+                    .filter_map(|shape| match shape.shape {
+                        egui::Shape::Text(text) => Some((
+                            text.galley.text().to_string(),
+                            egui::Rect::from_min_size(text.pos, text.galley.size()),
+                        )),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+            };
+            let mut labels = Vec::new();
+            for _ in 0..3 {
+                labels = draw(&mut app, vec![]);
+            }
+            assert_eq!(
+                labels
+                    .iter()
+                    .any(|(text, _)| text.contains("点击「添加词条」")),
+                case == "empty"
+            );
+            if case == "loading" {
+                assert!(labels.iter().any(|(text, _)| text.contains("正在读取词表")));
+            }
+            if case == "failed" {
+                assert!(
+                    labels
+                        .iter()
+                        .any(|(text, _)| text.contains("记录文件读取失败"))
+                );
+            }
+            let position = labels
+                .iter()
+                .find(|(text, _)| text == "添加词条")
+                .unwrap()
+                .1
+                .center();
+            for pressed in [true, false] {
+                draw(
+                    &mut app,
+                    vec![
+                        egui::Event::PointerMoved(position),
+                        egui::Event::PointerButton {
+                            pos: position,
+                            button: egui::PointerButton::Primary,
+                            pressed,
+                            modifiers: Default::default(),
+                        },
+                    ],
+                );
+            }
+            assert_eq!(app.rule_form.is_some(), case == "empty");
+        }
+    }
+
+    #[test]
+    fn file_error_dialog_uses_chinese_advice_and_retains_system_details_in_logs() {
+        let mut app = Desktop::initial();
+        app.report_file_error(
+            "export_logs",
+            std::path::Path::new("output/log.txt"),
+            bajptr_project::Error::Io(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "raw system detail",
+            )),
+        );
+        assert!(app.error.as_ref().unwrap().contains("权限"));
+        assert!(!app.error.as_ref().unwrap().contains("raw system detail"));
+        assert!(app.log_text().contains("raw system detail"));
+    }
+
+    #[test]
+    fn recovery_controls_remain_visible_and_settings_warning_can_be_dismissed() {
+        for width in [900., 1080.] {
+            let ctx = egui::Context::default();
+            crate::theme::install(&ctx);
+            let mut app = Desktop::initial();
+            app.loaded = true;
+            app.tab = 2;
+            app.data_path = Some(PathBuf::from("test-data"));
+            let state = json!({"game":"test-game","revision":0,"settings_warning":"设置读取失败：格式无效","errors":{"text-edits.json":"invalid JSON"}});
+            app.apply_state(state.clone());
+            let mut frame = 0;
+            let mut draw = |app: &mut Desktop, events| {
+                frame += 1;
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(width, 620.),
+                        )),
+                        time: Some(f64::from(frame) / 60.),
+                        events,
+                        ..Default::default()
+                    },
+                    |ui| {
+                        app.header(ui);
+                        app.tools_page(ui);
+                        app.dialogs(ui.ctx());
+                    },
+                );
+                output.textures_delta.clear();
+                output
+                    .shapes
+                    .into_iter()
+                    .filter_map(|shape| match shape.shape {
+                        egui::Shape::Text(text) => Some((
+                            text.galley.text().to_owned(),
+                            egui::Rect::from_min_size(text.pos, text.galley.size()),
+                        )),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+            };
+            let click = |pos, pressed| {
+                vec![
+                    egui::Event::PointerMoved(pos),
+                    egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: Default::default(),
+                    },
+                ]
+            };
+            let mut labels = Vec::new();
+            for _ in 0..3 {
+                labels = draw(&mut app, vec![]);
+            }
+            for label in [
+                "关闭警告",
+                "打开数据目录",
+                "归档并重置…",
+                "打开备份位置",
+                "尝试重建",
+            ] {
+                assert!(
+                    labels.iter().any(|(text, _)| text == label),
+                    "missing recovery control {label}"
+                );
+            }
+            let position = labels
+                .iter()
+                .find(|(text, _)| text == "关闭警告")
+                .unwrap()
+                .1
+                .center();
+            for pressed in [true, false] {
+                draw(&mut app, click(position, pressed));
+            }
+            assert!(app.settings_warning.is_none());
+            app.apply_state(state.clone());
+            assert!(
+                app.settings_warning.is_none(),
+                "unchanged state must not reopen a dismissed warning"
+            );
+            for _ in 0..3 {
+                labels = draw(&mut app, vec![]);
+            }
+            let position = labels
+                .iter()
+                .find(|(text, _)| text == "归档并重置…")
+                .unwrap()
+                .1
+                .center();
+            for pressed in [true, false] {
+                draw(&mut app, click(position, pressed));
+            }
+            assert_eq!(app.confirm_record_reset.as_deref(), Some("text-edits.json"));
+            assert!(app.pending.is_empty(), "reset requires confirmation");
+            app.confirm_record_reset = None;
+            app.apply_state(
+                json!({"game":"test-game","revision":1,"errors":{},"settings_warning":null}),
+            );
+            assert!(app.healthy());
+            assert!(app.settings_warning.is_none());
+        }
+    }
+
+    #[test]
+    fn migration_review_confirms_then_advances_and_keeps_long_lists_above_actions() {
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx);
+        let mut app = Desktop::initial();
+        let mut items = vec![
+            json!({"group_key":"subset","original":"原文二","replacement":"结果二","table":"LocalizeDBSchema","candidates":[{"row":["Text",1,0,"原文二"],"context":"上下文甲"},{"row":["Text",2,0,"原文二"],"context":"上下文乙"}]}),
+        ];
+        for n in 0..504 {
+            items.push(json!({"group_key":format!("item-{n}"),"original":format!("列表原文{n}"),"replacement":format!("列表结果{n}"),"table":"LocalizeDBSchema","candidates":[{"row":["Text",n*2+3,0,format!("列表原文{n}")],"context":"上下文甲"},{"row":["Text",n*2+4,0,format!("列表原文{n}")],"context":"上下文乙"}]}));
+        }
+        app.migration_form = Some(MigrationForm::new(
+            json!({"nonce":"plan","revision":0,"items":items}),
+        ));
+        assert_eq!(app.migration_form.as_ref().unwrap().confirmed_count(), 0);
+        let mut frame = 0;
+        let mut draw = |app: &mut Desktop, events| {
+            frame += 1;
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(900., 620.),
+                    )),
+                    time: Some(f64::from(frame) / 60.),
+                    events,
+                    ..Default::default()
+                },
+                |ui| app.migration_dialogs(ui.ctx()),
+            );
+            output.textures_delta.clear();
+            output
+                .shapes
+                .into_iter()
+                .filter_map(|shape| match shape.shape {
+                    egui::Shape::Text(t) => Some((
+                        t.galley.text().to_owned(),
+                        egui::Rect::from_min_size(t.pos, t.galley.size()),
+                        shape.clip_rect,
+                    )),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let mut labels = Vec::new();
+        for _ in 0..3 {
+            labels = draw(&mut app, vec![]);
+        }
+        let save = labels
+            .iter()
+            .find(|(t, ..)| t == "保存迁移（0 段）")
+            .unwrap()
+            .1;
+        let footer = labels
+            .iter()
+            .find(|(t, ..)| t.starts_with("保存时自动备份"))
+            .unwrap()
+            .1;
+        assert!(footer.bottom() < 620.);
+        let rows: Vec<_> = labels
+            .iter()
+            .filter(|(t, ..)| t.starts_with("列表原文"))
+            .collect();
+        assert!(!rows.is_empty());
+        for (_, rect, clip) in rows {
+            assert!(clip.bottom() < save.top());
+            assert!(rect.left() < 150.);
+        }
+        let click = |position: egui::Pos2, pressed| {
+            vec![
+                egui::Event::PointerMoved(position),
+                egui::Event::PointerButton {
+                    pos: position,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]
+        };
+        let position = labels
+            .iter()
+            .find(|(t, ..)| t == "1 处")
+            .unwrap()
+            .1
+            .center();
+        for pressed in [true, false] {
+            draw(&mut app, click(position, pressed));
+        }
+        labels = draw(&mut app, vec![]);
+        let position = labels
+            .iter()
+            .find(|(t, ..)| t == "确认 1 处并继续")
+            .unwrap()
+            .1
+            .center();
+        for pressed in [true, false] {
+            draw(&mut app, click(position, pressed));
+        }
+        assert_eq!(app.migration_form.as_ref().unwrap().confirmed_count(), 1);
+        assert_eq!(app.migration_form.as_ref().unwrap().selected, Some(1));
+        assert_eq!(
+            app.migration_form.as_ref().unwrap().payload()["choices"][0],
+            json!({"item":0,"candidate":0})
+        );
+        app.migration_form.as_mut().unwrap().filter = "列表原文499".into();
+        for _ in 0..3 {
+            labels = draw(&mut app, vec![]);
+        }
+        assert_eq!(app.migration_form.as_ref().unwrap().selected, Some(500));
+        assert!(labels.iter().any(|(t, ..)| t == "列表结果499"));
+        app.migration_form.as_mut().unwrap().filter = "没有这个文本".into();
+        for _ in 0..3 {
+            labels = draw(&mut app, vec![]);
+        }
+        assert_eq!(app.migration_form.as_ref().unwrap().selected, None);
+        assert!(labels.iter().any(|(t, ..)| t == "没有匹配的文本。"));
+        assert!(!labels.iter().any(|(t, ..)| t == "列表结果499"));
+        app.migration_form.as_mut().unwrap().filter.clear();
+        for _ in 0..3 {
+            draw(&mut app, vec![]);
+        }
+        let position = egui::pos2(180., 300.);
+        draw(
+            &mut app,
+            vec![
+                egui::Event::PointerMoved(position),
+                egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(0., -600.),
+                    phase: egui::TouchPhase::Move,
+                    source: egui::MouseWheelSource::Unknown,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ],
+        );
+        for _ in 0..6 {
+            labels = draw(&mut app, vec![]);
+        }
+        for (t, _, clip) in &labels {
+            if t.starts_with("列表原文") {
+                assert!(clip.bottom() < save.top());
+            }
+        }
+        assert_eq!(app.migration_form.as_ref().unwrap().confirmed_count(), 1);
+        assert!(labels.iter().any(|(t, ..)| t == "保存迁移（1 段）"));
+        let position = labels
+            .iter()
+            .find(|(t, ..)| t == "已确认 1")
+            .unwrap()
+            .1
+            .center();
+        for pressed in [true, false] {
+            draw(&mut app, click(position, pressed));
+        }
+        for _ in 0..3 {
+            labels = draw(&mut app, vec![]);
+        }
+        assert!(labels.iter().any(|(t, ..)| t == "重新核对这组"));
+        app.migration_form.as_mut().unwrap().plan["version"] = json!("test-version");
+        app.baseline = json!({"version_id":"test-version"});
+        app.migration_form.as_mut().unwrap().open = false;
+        assert!(!app.modal());
+        app.open_migration();
+        assert!(app.migration_form.as_ref().unwrap().open);
+        assert_eq!(app.migration_form.as_ref().unwrap().confirmed_count(), 1);
+        assert!(app.pending.is_empty());
+    }
+    #[test]
+    fn search_toolbar_preserves_headers_and_row_positions_and_status_follows_navigation() {
         for width in [900., 1080.] {
             let ctx = egui::Context::default();
             crate::theme::install(&ctx);
@@ -1197,6 +1751,11 @@ mod view_tests {
                 .unwrap()
                 .1;
             assert_eq!(row, selected_row, "selection must not move the table");
+            for title in ["本次文本", "来源表"] {
+                let header = labels.iter().find(|(text, _)| text == title).unwrap().1;
+                assert!(edit.bottom() < header.top(), "toolbar overlaps {title}");
+                assert!(header.bottom() < row.top());
+            }
             assert!(
                 edit.bottom() <= row.top(),
                 "toolbar overlaps the first result"
@@ -1736,6 +2295,11 @@ mod view_tests {
             }
             assert!(app.busy.is_none(), "the check must have completed");
             assert!(
+                app.error
+                    .as_ref()
+                    .is_some_and(|message| message.starts_with("检查底稿失败："))
+            );
+            assert!(
                 !app.connected,
                 "a failed check must invalidate the connection"
             );
@@ -1919,6 +2483,91 @@ mod view_tests {
         );
         assert_eq!(form.encode().unwrap(), "A");
         assert!(app.obsolete.contains(&7), "late results must be discarded");
+    }
+
+    #[test]
+    fn search_actions_are_disabled_when_disconnected_or_loading_more() {
+        let ctx = egui::Context::default();
+        crate::theme::install(&ctx);
+        let mut app = Desktop::initial();
+        app.search = json!({"nonce":"page","keyword":"任务","total":1000,"rows":[{"text":"任务结果","label":"来源"}]}).into();
+        app.selection.click(0, false, false);
+        app.baseline_check = json!({"state":"blocked"});
+        let mut frame = 0;
+        let mut draw = |app: &mut Desktop, events| {
+            frame += 1;
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(900., 620.),
+                    )),
+                    time: Some(f64::from(frame) / 60.),
+                    events,
+                    ..Default::default()
+                },
+                |ui| app.search_page(ui),
+            );
+            output.textures_delta.clear();
+            output
+                .shapes
+                .into_iter()
+                .filter_map(|shape| match shape.shape {
+                    egui::Shape::Text(text) => Some((
+                        text.galley.text().to_owned(),
+                        egui::Rect::from_min_size(text.pos, text.galley.size()),
+                    )),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let click = |pos, pressed| {
+            vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: Default::default(),
+                },
+            ]
+        };
+        for loading in [false, true] {
+            app.connected = loading;
+            if loading {
+                app.pending.insert(7, "search_more".into());
+                app.busy = Some(Busy {
+                    id: 7,
+                    cancellable: true,
+                });
+            }
+            let mut labels = Vec::new();
+            for _ in 0..3 {
+                labels = draw(&mut app, vec![]);
+            }
+            for label in [
+                "加载更多",
+                "编辑文本",
+                "替换选中文本",
+                "任务结果",
+                "任务结果",
+            ] {
+                let pos = labels
+                    .iter()
+                    .find(|(text, _)| text == label)
+                    .unwrap()
+                    .1
+                    .center();
+                for pressed in [true, false] {
+                    draw(&mut app, click(pos, pressed));
+                }
+            }
+            assert!(app.error.is_none());
+            assert!(app.text_form.is_none());
+            assert!(app.batch_form.is_none());
+            assert!(!app.obsolete.contains(&7));
+            assert_eq!(app.busy.as_ref().map(|busy| busy.id), loading.then_some(7));
+        }
     }
 
     #[test]

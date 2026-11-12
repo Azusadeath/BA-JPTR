@@ -3,6 +3,8 @@ mod app;
 mod dialogs;
 mod fonts;
 mod logging;
+mod migration_review;
+mod migration_ui;
 mod pages;
 mod startup;
 mod state;

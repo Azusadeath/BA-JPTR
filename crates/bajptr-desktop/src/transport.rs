@@ -18,7 +18,17 @@ impl Backend {
             next: 1,
             ctx,
         })
-        .map_err(|e| format!("无法启动项目服务：{e}"))
+        .map_err(|error| {
+            let message = if let Some(source) = error
+                .get_ref()
+                .and_then(|source| source.downcast_ref::<bajptr_project::Error>())
+            {
+                bajptr_project::diagnostics::user_message("load", source)
+            } else {
+                bajptr_project::diagnostics::user_message("load", &bajptr_project::Error::Io(error))
+            };
+            format!("无法启动项目服务：{message}")
+        })
     }
     pub fn send(&mut self, action: &str, payload: Value) -> Result<u64, String> {
         let id = self.next;

@@ -38,6 +38,9 @@ pub fn cancellable(action: &str) -> bool {
                 | "export_rules"
                 | "export_text"
                 | "baseline_commit"
+                | "baseline_rebuild_commit"
+                | "migration_commit"
+                | "migration_start"
                 | "restore"
                 | "apply"
         )
@@ -46,6 +49,7 @@ pub fn read_only(action: &str) -> bool {
     matches!(
         action,
         "check"
+            | "baseline_rebuild_preview"
             | "search"
             | "search_more"
             | "preview"
@@ -54,6 +58,7 @@ pub fn read_only(action: &str) -> bool {
             | "scope_sources"
             | "baseline"
             | "batch_open"
+            | "migration_preview"
             | "text_open"
             | "batch_preview"
             | "import_read"
@@ -62,6 +67,8 @@ pub fn read_only(action: &str) -> bool {
 }
 impl Worker {
     pub fn start(data: PathBuf, notify: Arc<dyn Fn() + Send + Sync>) -> std::io::Result<Self> {
+        crate::storage::validate_data_dir(&data)
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
         let (input, jobs) = mpsc::channel::<Request>();
         let (output, events) = mpsc::channel();
         let tokens = Arc::new(Mutex::new(HashMap::new()));
@@ -96,7 +103,7 @@ impl Worker {
                 match result{
                     Ok(data)=>{if read{completed.push_back(Completed{id:request.id,revision,before,after:project.snapshot()});if completed.len()>32{completed.pop_front();}}send(json!({"id":request.id,"event":"result","data":data}));},
                     Err(Error::Cancelled)=>{project.restore_snapshot(&before);send(json!({"id":request.id,"event":"cancelled"}));},
-                    Err(error)=>{if read{project.restore_snapshot(&before);}send(json!({"id":request.id,"event":"error","level":"error","message":error.to_string(),"detail":error.to_string()}));},
+                    Err(error)=>{if read{project.restore_snapshot(&before);}send(json!({"id":request.id,"event":"error","level":"error","message":crate::diagnostics::user_message(&request.action,&error),"detail":error.to_string()}));},
                 }
                 worker_tokens.lock().unwrap().remove(&request.id);
             }

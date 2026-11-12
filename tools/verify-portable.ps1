@@ -27,7 +27,7 @@ $start=[Diagnostics.ProcessStartInfo]::new()
 $start.FileName=Join-Path $copy 'bajptr.exe'
 $start.WorkingDirectory=$foreign
 $start.UseShellExecute=$false
-$start.WindowStyle=[Diagnostics.ProcessWindowStyle]::Normal
+$start.WindowStyle=[Diagnostics.ProcessWindowStyle]::Hidden
 Set-CleanEnvironment $start
 $start.EnvironmentVariables['BAJPTR_STARTUP_REPORT']=$startupReport
 $launcher=[Diagnostics.Process]::Start($start)

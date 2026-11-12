@@ -86,8 +86,7 @@ pub struct Engine {
     pub baselines: Baselines,
     session: Session,
     source_key: String,
-    scans: VecDeque<(String, Value)>,
-    search_tables: VecDeque<(String, Value)>,
+    search_index: Option<(String, database::SearchIndex)>,
     scope_sources: VecDeque<(String, Value)>,
     previews: VecDeque<(String, Value)>,
     prepared: Option<PreparedPatch>,
@@ -103,6 +102,39 @@ struct PreparedPatch {
     seconds: f64,
 }
 impl Engine {
+    pub fn rebuild_baseline(
+        &mut self,
+        game: &str,
+        root: &Path,
+        expected: Option<&Value>,
+        control: &Control<'_>,
+    ) -> Result<Value> {
+        let live = region::locate(game)?;
+        let _lock = Lock::acquire(&live.catalog)?;
+        if let Some(expected) = expected {
+            self.close();
+            let result = crate::recovery::rebuild_baseline(&live, root, expected, control)?;
+            self.baselines = Baselines::default();
+            Ok(result)
+        } else {
+            crate::recovery::baseline_plan(&live, root, control)
+        }
+    }
+    pub fn migration_candidates(
+        &mut self,
+        game: &str,
+        root: &Path,
+        edits: &[Edit],
+        control: &Control<'_>,
+    ) -> Result<Vec<database::LocatedText>> {
+        let original = self.baseline(game, root, control)?;
+        self.open(&original, control)?;
+        database::locate_originals(
+            &self.session.database.as_ref().unwrap().con,
+            &edits.iter().map(Edit::core).collect::<Vec<_>>(),
+            control,
+        )
+    }
     pub fn close(&mut self) {
         self.invalidate_prepared();
         self.close_session();
@@ -110,8 +142,7 @@ impl Engine {
     fn close_session(&mut self) {
         self.session = Session::default();
         self.source_key.clear();
-        self.scans.clear();
-        self.search_tables.clear();
+        self.search_index = None;
         self.scope_sources.clear();
         self.previews.clear();
     }
@@ -161,7 +192,7 @@ impl Engine {
         let identity = region::resource_identity(live)?;
         let version = region::version(&live.catalog)?;
         let key = storage::identity(&live.dir)?;
-        let receipts = read_receipts(&data.join(".gui/application-state.json"));
+        let receipts = read_receipts(&data.join(".gui/application-state.json"))?;
         let receipt = &receipts[&key];
         // Touching or copying a file does not turn our own patch into a game update.
         let known = receipt["identity"].is_array()
@@ -379,54 +410,35 @@ impl Engine {
         skip_kana: bool,
         control: &Control<'_>,
     ) -> Result<(Value, String)> {
-        if keyword.trim().is_empty() {
+        let keyword = keyword.trim();
+        if keyword.is_empty() {
             return Err(invalid("请输入要查找的文字。"));
         }
         let original = self.baseline(game, root, control)?;
         self.open(&original, control)?;
-        let table_pattern = if tables.trim().is_empty() {
-            database::default_tables()
-        } else {
-            format!("^(?:{})$", regex::escape(tables))
-        };
-        let key = format!("{keyword}\0{tables}\0{limit}\0{offset}\0{skip_kana}");
-        let mut value = if let Some((_, value)) = self.scans.iter().find(|(k, _)| k == &key) {
-            value.clone()
-        } else {
-            let value = execute(
-                &mut self.session,
-                json!({"op":"scan","keyword":keyword,"tables":table_pattern,"limit":limit,"offset":offset,"skip_kana":skip_kana}),
+        let key = format!("{keyword}\0{skip_kana}");
+        if self
+            .search_index
+            .as_ref()
+            .is_none_or(|(cached, _)| cached != &key)
+        {
+            self.search_index = None;
+            let index = database::SearchIndex::build(
+                &self.session.database.as_ref().unwrap().con,
+                &database::default_tables(),
+                keyword,
+                skip_kana,
                 control,
             )?;
-            remember(&mut self.scans, key, value.clone(), 8);
-            value
-        };
-        // Source choices describe the keyword across all tables, independently
-        // of the selected table and the currently loaded page.
-        let sources_key = format!("{keyword}\0{skip_kana}");
-        let matching_tables = if tables.trim().is_empty() {
-            value["matching_tables"].clone()
-        } else if let Some((_, sources)) =
-            self.search_tables.iter().find(|(k, _)| k == &sources_key)
-        {
-            sources.clone()
-        } else {
-            execute(
-                &mut self.session,
-                json!({"op":"scan","keyword":keyword,"limit":0,"skip_kana":skip_kana}),
-                control,
-            )?["matching_tables"]
-                .clone()
-        };
-        if !self.search_tables.iter().any(|(k, _)| k == &sources_key) {
-            remember(
-                &mut self.search_tables,
-                sources_key,
-                matching_tables.clone(),
-                8,
-            );
+            self.search_index = Some((key, index));
         }
-        value["matching_tables"] = matching_tables;
+        let value = serde_json::to_value(
+            self.search_index
+                .as_ref()
+                .unwrap()
+                .1
+                .page(tables, limit, offset, control)?,
+        )?;
         if region::version(&region::locate(game)?.catalog)? != original.version {
             return Err(invalid("游戏资源版本已变化，请重新查找。"));
         }
@@ -441,25 +453,14 @@ impl Engine {
     ) -> Result<u64> {
         let original = self.baseline(game, root, control)?;
         self.open(&original, control)?;
-        fs::create_dir_all(target)?;
-        let stage = tempfile::Builder::new()
-            .prefix(".bajptr-export-")
-            .tempdir_in(target)?;
-        let result = execute(
-            &mut self.session,
-            json!({"op":"export","destination":stage.path()}),
-            control,
-        )?;
-        control.log("正在保存导出文件…")?;
-        for entry in fs::read_dir(stage.path())? {
-            let entry = entry?;
-            storage::atomic_write(
-                &target.join(entry.file_name()),
-                &fs::read(entry.path())?,
-                None,
+        crate::text_export::export(target, control, |stage| {
+            let result = execute(
+                &mut self.session,
+                json!({"op":"export","destination":stage}),
+                control,
             )?;
-        }
-        Ok(result["count"].as_u64().unwrap_or(0))
+            Ok(result["count"].as_u64().unwrap_or(0))
+        })
     }
     pub fn preview(
         &mut self,
@@ -861,8 +862,9 @@ impl Engine {
         let mut install_error = None;
         let target = if *install {
             let target = live.dir.join(region::BUNDLES).join(name);
+            let mut published = false;
             let installed = (|| -> Result<()> {
-                publish_resource(
+                published = publish_resource(
                     &mut self.baselines,
                     &patch.output,
                     &target,
@@ -880,24 +882,40 @@ impl Engine {
                     target
                 }
                 Err(error) => {
+                    if published
+                        && target.is_file()
+                        && fs::read(&live.catalog).is_ok_and(|bytes| bytes == live.bytes)
+                        && let Err(cleanup) = storage::retire(&target)
+                    {
+                        let _ = control.warn(&format!(
+                            "未启用的资源副本暂未移出 {}：{cleanup}",
+                            target.display()
+                        ));
+                    }
                     // Resource changes and failed verification still block publication.
                     // Only filesystem errors while installing fall back to a saved patch.
                     if !matches!(error, crate::Error::Io(_)) {
                         return Err(error);
                     }
-                    let reason = error.to_string();
+                    let _ = control.warn(&format!("安装补丁失败：{error}"));
+                    let reason = crate::diagnostics::user_message("apply", &error);
                     let target = save_patch(
-                            &mut self.baselines,
-                            &patch.output,
-                            output_root,
-                            live,
-                            name,
-                            &entry,
-                            &commit_control,
-                        ).map_err(|save_error| invalid(format!(
-                            "应用失败：{reason}\n补丁保存失败：{save_error}\n已校验的暂存文件保留在：{}",
+                        &mut self.baselines,
+                        &patch.output,
+                        output_root,
+                        live,
+                        name,
+                        &entry,
+                        &commit_control,
+                    )
+                    .map_err(|save_error| {
+                        let _ = control.warn(&format!("补丁导出失败：{save_error}"));
+                        invalid(format!(
+                            "应用失败：{reason}\n补丁保存失败：{}\n已校验的暂存文件保留在：{}",
+                            crate::diagnostics::user_message("export_text", &save_error),
                             patch.output.parent().unwrap().display()
-                        )))?;
+                        ))
+                    })?;
                     install_error = Some(reason);
                     target
                 }
@@ -942,7 +960,7 @@ impl Engine {
             return Err(invalid("恢复期间游戏资源发生变化，请重试。"));
         }
         control.check()?;
-        publish_resource(
+        let published = publish_resource(
             &mut self.baselines,
             &original.bundle,
             &target,
@@ -950,7 +968,18 @@ impl Engine {
             entry.crc,
             &Control::new(&|_| true),
         )?;
-        region::publish_catalog(&live, entry.size, entry.crc)?;
+        if let Err(error) = region::publish_catalog(&live, entry.size, entry.crc) {
+            if published
+                && fs::read(&live.catalog).is_ok_and(|bytes| bytes == live.bytes)
+                && let Err(cleanup) = storage::retire(&target)
+            {
+                let _ = control.warn(&format!(
+                    "未启用的资源副本暂未移出 {}：{cleanup}",
+                    target.display()
+                ));
+            }
+            return Err(error);
+        }
         if let Err(e) = record(
             game,
             data,
@@ -1031,7 +1060,7 @@ fn publish_resource(
     size: u64,
     crc: u32,
     control: &Control<'_>,
-) -> Result<()> {
+) -> Result<bool> {
     let entry = region::Entry {
         size_offset: 0,
         crc_offset: 0,
@@ -1040,13 +1069,9 @@ fn publish_resource(
     };
     if target.exists() {
         checks.checked(target, &entry, control)?;
-        return Ok(());
+        return Ok(false);
     }
-    let pending = target.with_file_name(format!(
-        "{}.pending-{}",
-        target.file_name().unwrap().to_string_lossy(),
-        uuid::Uuid::new_v4().simple()
-    ));
+    let pending = storage::temporary_path(target)?;
     baseline::copy_sync(source, &pending)?;
     // Verify the bytes that reached the destination, including restore copies.
     // The encryption-time digest alone cannot detect a damaged copied file.
@@ -1056,7 +1081,7 @@ fn publish_resource(
         return Err(invalid("目标资源在发布前出现，请重新预览。"));
     }
     fs::rename(&pending, target)?;
-    Ok(())
+    Ok(true)
 }
 pub fn total(stats: &Value) -> u64 {
     ["added", "updated", "reverted"]
@@ -1064,6 +1089,7 @@ pub fn total(stats: &Value) -> u64 {
         .map(|k| stats[k].as_u64().unwrap_or(0))
         .sum()
 }
+
 pub fn record(
     game: &str,
     data: &Path,
@@ -1085,7 +1111,7 @@ pub fn record(
         .collect::<Vec<_>>();
     let path = data.join(".gui/application-state.json");
     let _lock = Lock::acquire(&path)?;
-    let mut values = read_receipts(&path);
+    let mut values = read_receipts(&path)?;
     values.as_object_mut().unwrap().retain(|stored_game, receipt| {
         // Applied receipts protect against adopting our own patch as a new baseline.
         // Only discard restored entries whose directory is missing on an online volume.
@@ -1104,18 +1130,50 @@ pub fn record(
     )?;
     Ok(())
 }
-fn read_receipts(path: &Path) -> Value {
-    fs::read(path)
-        .ok()
-        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
-        .filter(|v| v["format"] == 2 && v["games"].is_object())
-        .map(|v| v["games"].clone())
-        .unwrap_or(json!({}))
+pub(crate) fn parse_receipts(bytes: &[u8]) -> Result<Value> {
+    let parsed = (|| -> Result<Value> {
+        let value: Value = serde_json::from_slice(bytes)?;
+        if value["format"] != 2
+            || !value["games"].is_object()
+            || value["games"].as_object().unwrap().values().any(|receipt| {
+                let identity = receipt["identity"].as_array();
+                !receipt.is_object()
+                    || !matches!(
+                        receipt["kind"].as_str(),
+                        Some("applied" | "restored" | "checked")
+                    )
+                    || identity.is_none_or(|identity| {
+                        identity.len() != 6
+                            || !identity[0].is_string()
+                            || identity[1..5].iter().any(|part| part.as_u64().is_none())
+                            || !identity[5].is_string()
+                    })
+                    || !receipt["fingerprint"].is_string()
+            })
+        {
+            return Err(invalid("应用状态记录格式无效。"));
+        }
+        Ok(value["games"].clone())
+    })();
+    parsed.map_err(|source| crate::Error::Context { message:"应用状态文件损坏或格式不受支持，原文件已保留。请检查数据目录中的 application-state.json，修复后重新打开工具。".into(),source:Box::new(source) })
+}
+fn read_receipts(path: &Path) -> Result<Value> {
+    match fs::read(path) {
+        Ok(bytes) => parse_receipts(&bytes),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(json!({})),
+        Err(error) => Err(crate::Error::Context {
+            message: format!(
+                "应用状态文件无法读取。请检查 {} 的路径和访问权限，原文件未改动。",
+                path.display()
+            ),
+            source: Box::new(error.into()),
+        }),
+    }
 }
 pub fn status(game: &str, data: &Path, config: &Config) -> Result<String> {
     let live = region::locate(game)?;
     let key = storage::identity(&live.dir)?;
-    let receipts = read_receipts(&data.join(".gui/application-state.json"));
+    let receipts = read_receipts(&data.join(".gui/application-state.json"))?;
     let receipt = &receipts[&key];
     if !receipt.is_object() {
         return Ok("应用状态待核对，先预览".into());
@@ -1144,4 +1202,33 @@ pub fn status(game: &str, data: &Path, config: &Config) -> Result<String> {
         "当前游戏文字与词表一致"
     }
     .into())
+}
+
+#[cfg(test)]
+mod publication_tests {
+    use super::*;
+    #[test]
+    fn failed_resource_verification_removes_only_its_pending_copy() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("source");
+        let target = root.path().join("resource");
+        let unrelated = root.path().join("unrelated.pending-keep");
+        fs::write(&source, vec![0; 8192]).unwrap();
+        fs::write(&unrelated, b"keep").unwrap();
+        let control = Control::new(&|_| true);
+        assert!(
+            publish_resource(
+                &mut Baselines::default(),
+                &source,
+                &target,
+                8192,
+                1,
+                &control
+            )
+            .is_err()
+        );
+        assert!(!target.exists());
+        assert_eq!(fs::read(&unrelated).unwrap(), b"keep");
+        assert_eq!(fs::read_dir(root.path()).unwrap().count(), 2);
+    }
 }

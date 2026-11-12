@@ -698,21 +698,6 @@
                           ]
     },
     {
-        "name":  "egui_extras",
-        "version":  "0.37.0",
-        "license":  "MIT OR Apache-2.0",
-        "distributed_license":  "Apache-2.0",
-        "authors":  [
-                        "Dominik Rössler \u003cdominik@freshx.de\u003e",
-                        "Emil Ernerfeldt \u003cemil.ernerfeldt@gmail.com\u003e",
-                        "René Rössler \u003crene@freshx.de\u003e"
-                    ],
-        "repository":  "https://github.com/emilk/egui",
-        "license_texts":  [
-                              "../STANDARD-APACHE-2.0.txt"
-                          ]
-    },
-    {
         "name":  "egui_glow",
         "version":  "0.37.0",
         "license":  "MIT OR Apache-2.0",
@@ -806,32 +791,6 @@
         "repository":  "https://github.com/nabijaczleweli/rust-embed-resource",
         "license_texts":  [
                               "LICENSE"
-                          ]
-    },
-    {
-        "name":  "enum-map",
-        "version":  "3.1.0",
-        "license":  "MIT OR Apache-2.0",
-        "distributed_license":  "Apache-2.0",
-        "authors":  [
-                        "Luna Borowska \u003cluna@borowska.pw\u003e"
-                    ],
-        "repository":  "https://codeberg.org/sugar700/enum-map",
-        "license_texts":  [
-                              "../STANDARD-APACHE-2.0.txt"
-                          ]
-    },
-    {
-        "name":  "enum-map-derive",
-        "version":  "1.0.1",
-        "license":  "MIT OR Apache-2.0",
-        "distributed_license":  "Apache-2.0",
-        "authors":  [
-                        "Luna Borowska \u003cluna@borowska.pw\u003e"
-                    ],
-        "repository":  "https://codeberg.org/sugar700/enum-map",
-        "license_texts":  [
-                              "../STANDARD-APACHE-2.0.txt"
                           ]
     },
     {
@@ -1681,33 +1640,6 @@
                           ]
     },
     {
-        "name":  "mime",
-        "version":  "0.3.18",
-        "license":  "MIT OR Apache-2.0",
-        "distributed_license":  "MIT OR Apache-2.0",
-        "authors":  [
-                        "Sean McArthur \u003csean@seanmonstar.com\u003e"
-                    ],
-        "repository":  "https://github.com/hyperium/mime",
-        "license_texts":  [
-                              "LICENSE-APACHE",
-                              "LICENSE-MIT"
-                          ]
-    },
-    {
-        "name":  "mime_guess2",
-        "version":  "2.3.1",
-        "license":  "MIT",
-        "distributed_license":  "MIT",
-        "authors":  [
-                        "Austin Bonander \u003caustin.bonander@gmail.com\u003e"
-                    ],
-        "repository":  "https://github.com/ttys3/mime_guess2",
-        "license_texts":  [
-                              "LICENSE"
-                          ]
-    },
-    {
         "name":  "miniz_oxide",
         "version":  "0.8.9",
         "license":  "MIT OR Zlib OR Apache-2.0",
@@ -1884,58 +1816,6 @@
                           ]
     },
     {
-        "name":  "phf",
-        "version":  "0.11.3",
-        "license":  "MIT",
-        "distributed_license":  "MIT",
-        "authors":  [
-                        "Steven Fackler \u003csfackler@gmail.com\u003e"
-                    ],
-        "repository":  "https://github.com/rust-phf/rust-phf",
-        "license_texts":  [
-                              "LICENSE"
-                          ]
-    },
-    {
-        "name":  "phf_generator",
-        "version":  "0.11.3",
-        "license":  "MIT",
-        "distributed_license":  "MIT",
-        "authors":  [
-                        "Steven Fackler \u003csfackler@gmail.com\u003e"
-                    ],
-        "repository":  "https://github.com/rust-phf/rust-phf",
-        "license_texts":  [
-                              "LICENSE"
-                          ]
-    },
-    {
-        "name":  "phf_macros",
-        "version":  "0.11.3",
-        "license":  "MIT",
-        "distributed_license":  "MIT",
-        "authors":  [
-                        "Steven Fackler \u003csfackler@gmail.com\u003e"
-                    ],
-        "repository":  "https://github.com/rust-phf/rust-phf",
-        "license_texts":  [
-                              "LICENSE"
-                          ]
-    },
-    {
-        "name":  "phf_shared",
-        "version":  "0.11.3",
-        "license":  "MIT",
-        "distributed_license":  "MIT",
-        "authors":  [
-                        "Steven Fackler \u003csfackler@gmail.com\u003e"
-                    ],
-        "repository":  "https://github.com/rust-phf/rust-phf",
-        "license_texts":  [
-                              "LICENSE"
-                          ]
-    },
-    {
         "name":  "pin-project-lite",
         "version":  "0.2.17",
         "license":  "Apache-2.0 OR MIT",
@@ -2071,38 +1951,6 @@
                     ],
         "repository":  "https://github.com/dtolnay/quote",
         "license_texts":  [
-                              "LICENSE-APACHE",
-                              "LICENSE-MIT"
-                          ]
-    },
-    {
-        "name":  "rand",
-        "version":  "0.8.8",
-        "license":  "MIT OR Apache-2.0",
-        "distributed_license":  "MIT OR Apache-2.0",
-        "authors":  [
-                        "The Rand Project Developers",
-                        "The Rust Project Developers"
-                    ],
-        "repository":  "https://github.com/rust-random/rand",
-        "license_texts":  [
-                              "COPYRIGHT",
-                              "LICENSE-APACHE",
-                              "LICENSE-MIT"
-                          ]
-    },
-    {
-        "name":  "rand_core",
-        "version":  "0.6.4",
-        "license":  "MIT OR Apache-2.0",
-        "distributed_license":  "MIT OR Apache-2.0",
-        "authors":  [
-                        "The Rand Project Developers",
-                        "The Rust Project Developers"
-                    ],
-        "repository":  "https://github.com/rust-random/rand",
-        "license_texts":  [
-                              "COPYRIGHT",
                               "LICENSE-APACHE",
                               "LICENSE-MIT"
                           ]
@@ -2381,21 +2229,6 @@
         "repository":  "https://github.com/mcountryman/simd-adler32",
         "license_texts":  [
                               "LICENSE.md"
-                          ]
-    },
-    {
-        "name":  "siphasher",
-        "version":  "1.0.4",
-        "license":  "MIT OR Apache-2.0",
-        "distributed_license":  "MIT OR Apache-2.0",
-        "authors":  [
-                        "Frank Denis \u003cgithub@pureftpd.org\u003e"
-                    ],
-        "repository":  "https://github.com/jedisct1/rust-siphash",
-        "license_texts":  [
-                              "COPYING",
-                              "LICENSE-APACHE",
-                              "LICENSE-MIT"
                           ]
     },
     {
@@ -2719,20 +2552,6 @@
         "repository":  "https://github.com/paholg/typenum",
         "license_texts":  [
                               "LICENSE",
-                              "LICENSE-APACHE",
-                              "LICENSE-MIT"
-                          ]
-    },
-    {
-        "name":  "unicase",
-        "version":  "2.10.0",
-        "license":  "MIT OR Apache-2.0",
-        "distributed_license":  "MIT OR Apache-2.0",
-        "authors":  [
-                        "Sean McArthur \u003csean@seanmonstar.com\u003e"
-                    ],
-        "repository":  "https://github.com/seanmonstar/unicase",
-        "license_texts":  [
                               "LICENSE-APACHE",
                               "LICENSE-MIT"
                           ]

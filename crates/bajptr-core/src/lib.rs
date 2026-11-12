@@ -10,6 +10,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum Error {
+    #[error("{message}：{source}")]
+    Context { message: String, source: Box<Error> },
     #[error("{0}")]
     Invalid(String),
     #[error("FlatBuffer 解析失败：{0}")]

@@ -53,6 +53,32 @@ fn simple_db() -> Connection {
 }
 
 #[test]
+fn migration_candidates_keep_full_context_and_distinct_addresses() {
+    let con = simple_db();
+    let prefix = "相同上下文".repeat(30);
+    for suffix in ["甲", "乙"] {
+        let context = format!("{prefix}{suffix}");
+        con.execute(
+            "INSERT INTO LocalizeDBSchema(Bytes) VALUES (?)",
+            [blob(&["待迁移", &context])],
+        )
+        .unwrap();
+    }
+    let edits = vec![TextEdit {
+        table: "LocalizeDBSchema".into(),
+        row_id: RowId::Integer(999),
+        slot: 0,
+        original: "待迁移".into(),
+        replacement: "修改后".into(),
+    }];
+    let candidates = database::locate_originals(&con, &edits, &ctl()).unwrap();
+    assert_eq!(candidates.len(), 2);
+    assert_ne!(candidates[0].row.1, candidates[1].row.1);
+    assert_eq!(candidates[0].context, format!("{prefix}甲"));
+    assert_eq!(candidates[1].context, format!("{prefix}乙"));
+}
+
+#[test]
 fn new_source_matches_report_original_text_without_applying_rules() {
     let con = simple_db();
     for text in ["任务开始", "任务", "任务アロナ"] {
@@ -339,6 +365,19 @@ fn search_sources_cover_unloaded_pages_and_exclude_nonmatching_or_skipped_tables
     let empty = database::scan_page_with_sources(&con, "DBSchema$", "不存在", 500, 0, true, &ctl())
         .unwrap();
     assert!(empty.matching_tables.is_empty());
+
+    let index = database::SearchIndex::build(&con, "DBSchema$", "任务", true, &ctl()).unwrap();
+    con.execute_batch("DROP TABLE LocalizeDBSchema; DROP TABLE SkillDBSchema")
+        .unwrap();
+    let next = index.page("", 500, 500, &ctl()).unwrap();
+    assert_eq!((next.rows.len(), next.total), (2, 502));
+    assert_eq!(next.matching_tables, page.matching_tables);
+    let filtered = index.page("SkillDBSchema", 500, 0, &ctl()).unwrap();
+    assert_eq!((filtered.rows.len(), filtered.total), (1, 1));
+    assert_eq!(filtered.rows[0].0, "SkillDBSchema");
+    assert_eq!(filtered.matching_tables, page.matching_tables);
+    assert!(index.page("", 500, 502, &ctl()).unwrap().rows.is_empty());
+    assert!(index.page("", 500, 0, &Control::new(&|_| false)).is_err());
 }
 
 #[test]

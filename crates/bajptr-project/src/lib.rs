@@ -1,11 +1,15 @@
 pub mod baseline;
 pub mod cleanup;
 pub mod desktop;
+pub mod diagnostics;
+pub mod migration;
 pub mod model;
+mod recovery;
 pub mod region;
 pub mod service;
 pub mod sources;
 pub mod storage;
 pub mod templates;
+pub mod text_export;
 pub mod worker;
 pub use bajptr_core::{Control, Error, LogLevel, Result, invalid};

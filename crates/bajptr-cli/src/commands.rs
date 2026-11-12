@@ -178,7 +178,9 @@ pub fn run(control: &Control<'_>) -> Result<()> {
             out,
         } => {
             let db = source.open(control)?;
-            let count = database::export(&db.con, &tables, &out, control)?;
+            let count = bajptr_project::text_export::export(&out, control, |stage| {
+                database::export(&db.con, &tables, stage, control)
+            })?;
             println!("已导出 {count} 条文本 → {}", out.display());
         }
         Command::Patch {

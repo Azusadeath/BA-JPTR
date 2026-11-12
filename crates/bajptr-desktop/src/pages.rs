@@ -8,6 +8,7 @@ impl Desktop {
         ui.horizontal(|ui| {
             self.navigation(ui);
         });
+        self.recovery_notices(ui);
         if self.tab != 2 && (!self.connected || self.confirm_baseline.is_some()) {
             ui.add_space(8.);
             egui::Frame::new()
@@ -18,6 +19,63 @@ impl Desktop {
                 .show(ui, |ui| {
                     ui.set_min_width(ui.available_width());
                     self.directory_controls(ui);
+                });
+        }
+    }
+    pub fn recovery_notices(&mut self, ui: &mut egui::Ui) {
+        if let Some(warning) = self.settings_warning.clone() {
+            egui::Frame::new()
+                .fill(Color32::from_rgb(255, 244, 218))
+                .corner_radius(8)
+                .inner_margin(10)
+                .show(ui, |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.colored_label(ORANGE, "设置读取失败，当前使用默认设置");
+                        if secondary(ui, true, "关闭警告").clicked() {
+                            self.settings_warning = None;
+                        }
+                    });
+                    ui.add(egui::Label::new(warning).wrap());
+                    ui.label("请重新选择游戏目录并保存设置；原设置文件保留到保存时。");
+                });
+        }
+        let errors: Vec<_> = self.state["errors"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(name, error)| (name.clone(), error.as_str().unwrap_or("").to_string()))
+            .collect();
+        if !errors.is_empty() {
+            egui::Frame::new()
+                .fill(Color32::from_rgb(255, 235, 231))
+                .corner_radius(8)
+                .inner_margin(10)
+                .show(ui, |ui| {
+                    ui.colored_label(RED, "记录文件读取失败，保存和替换已停止");
+                    if secondary(ui, self.data_path.is_some(), "打开数据目录").clicked() {
+                        self.open_data_folder(".gui");
+                    }
+                    for (name, error) in errors {
+                        ui.push_id(&name, |ui| {
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label(&name).on_hover_text(&error);
+                                if name == "application-state.json" {
+                                    ui.colored_label(
+                                        RED,
+                                        "应用状态文件损坏或无法读取，请修复后重新打开工具。",
+                                    );
+                                } else if secondary(
+                                    ui,
+                                    self.loaded && self.busy.is_none(),
+                                    "归档并重置…",
+                                )
+                                .clicked()
+                                {
+                                    self.confirm_record_reset = Some(name.clone());
+                                }
+                            });
+                        });
+                    }
                 });
         }
     }
@@ -224,7 +282,20 @@ impl Desktop {
                         ui.available_size(),
                         egui::Layout::centered_and_justified(egui::Direction::TopDown),
                         |ui| {
-                            ui.colored_label(MUTED, "点击「添加词条」开始，或导入已有词表。");
+                            let message = if !self.loaded {
+                                if self.busy.is_some() {
+                                    "正在读取词表，请稍候…"
+                                } else {
+                                    "词表尚未读取，请重新连接后重试。"
+                                }
+                            } else if !self.healthy() {
+                                "记录文件读取失败，请先处理上方的文件错误。"
+                            } else if self.write_busy() {
+                                "正在处理当前任务，完成后可添加或导入词条。"
+                            } else {
+                                "点击「添加词条」开始，或导入已有词表。"
+                            };
+                            ui.colored_label(MUTED, message);
                         },
                     );
                 } else {
@@ -373,13 +444,16 @@ impl Desktop {
             self.selection.clear();
             self.submit(
                 "search",
-                json!({"keyword":self.keyword,"source":self.search_source,"offset":0}),
+                json!({"keyword":self.keyword.trim(),"source":self.search_source,"offset":0}),
                 "正在查找…",
             );
         }
         let search = self.search.clone();
         let rows = slice(&search, "rows");
-        let toolbar_position = ui.cursor().min + egui::vec2(8., -4.);
+        let toolbar_position = ui.cursor().min + egui::vec2(8., 0.);
+        if !rows.is_empty() {
+            ui.add_space(44.);
+        }
         let width = ui.available_width() - 12.;
         let widths = [width - 180., 180.];
         table_header(ui, &["本次文本", "来源表"], &widths);
@@ -424,14 +498,21 @@ impl Desktop {
                                                     - action_width(ui, "加载更多"))
                                                     * 0.5;
                                                 ui.add_space(inset.max(0.));
-                                                if secondary(ui, self.busy.is_none(), "加载更多")
-                                                    .clicked()
+                                                if secondary(
+                                                    ui,
+                                                    self.connected
+                                                        && self.busy.is_none()
+                                                        && !self.modal(),
+                                                    "加载更多",
+                                                )
+                                                .clicked()
                                                 {
                                                     self.submit(
                                                         "search_more",
                                                         json!({
                                                             "keyword":text(&self.search,"keyword"),
                                                             "source":text(&self.search,"source"),
+                                                            "search_nonce":text(&self.search,"nonce"),
                                                             "offset":rows.len()
                                                         }),
                                                         "正在加载更多搜索结果…",
@@ -460,7 +541,10 @@ impl Desktop {
                                         let modifiers = ui.input(|i| i.modifiers);
                                         self.selection.click(i, modifiers.ctrl, modifiers.shift);
                                     }
-                                    if response.double_clicked() && !self.write_busy() {
+                                    if response.double_clicked()
+                                        && self.connected
+                                        && self.busy.is_none()
+                                    {
                                         self.open_text(i);
                                     }
                                 }
@@ -505,10 +589,10 @@ impl Desktop {
                         }).show(ui, |ui| {
                             ui.horizontal(|ui| {
                                 let selected = self.selection.rows.len();
-                                if selected == 1 && secondary(ui, !self.write_busy(), "编辑文本").clicked() {
+                                if selected == 1 && secondary(ui, self.connected && self.busy.is_none(), "编辑文本").clicked() {
                                     self.open_text(*self.selection.rows.first().unwrap());
                                 }
-                                if secondary(ui, !self.write_busy(), "替换选中文本").clicked() {
+                                if secondary(ui, self.connected && self.busy.is_none(), "替换选中文本").clicked() {
                                     self.batch_form = Some(BatchForm { group_id: String::new(), indices: self.selection.rows.iter().copied().collect(), old: text(&self.search, "keyword"), new: String::new(), nonce: String::new(), changes: Vec::new(), error: String::new() });
                                 }
                                 if selected == 1 {
@@ -591,6 +675,26 @@ impl Desktop {
                             }
                         }
                         self.check_button(ui);
+                        if secondary(ui, self.data_path.is_some(), "打开备份位置").clicked() {
+                            self.open_data_folder("backup");
+                        }
+                        if secondary(
+                            ui,
+                            self.loaded
+                                && !self.connected
+                                && self.busy.is_none()
+                                && !self.path_dirty
+                                && !self.game.is_empty(),
+                            "尝试重建",
+                        )
+                        .clicked()
+                        {
+                            self.submit(
+                                "baseline_rebuild_preview",
+                                json!({}),
+                                "正在查找并校验可用于重建的原始资源…",
+                            );
+                        }
                         if !self.baseline.is_null()
                             && secondary(ui, self.connected && self.busy.is_none(), "恢复初始底稿")
                                 .clicked()
@@ -621,9 +725,18 @@ impl Desktop {
                                 });
                         });
                     }
+                    if self.migration_count > 0
+                        && secondary(ui, self.connected && self.busy.is_none(), "迁移旧版修改…")
+                            .clicked()
+                    {
+                        self.open_migration();
+                    }
                 });
                 ui.add_space(4.);
                 tool_section(ui, "工作区", |ui| {
+                    if secondary(ui, self.data_path.is_some(), "打开数据目录").clicked() {
+                        self.open_data_folder(".gui");
+                    }
                     let can_edit = self.loaded && self.healthy() && !self.write_busy();
                     let response = egui::Frame::new()
                         .fill(Color32::WHITE)
@@ -680,10 +793,8 @@ impl Desktop {
                             match std::fs::create_dir_all(&self.output_dir) {
                                 Ok(()) => Self::open_folder(&self.output_dir),
                                 Err(error) => {
-                                    self.error = Some(format!(
-                                        "无法创建输出目录 {}：{error}",
-                                        self.output_dir.display()
-                                    ))
+                                    let output = self.output_dir.clone();
+                                    self.report_file_error("open_directory", &output, error.into());
                                 }
                             }
                         }

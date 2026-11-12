@@ -12,11 +12,13 @@ pub const ROW_HEIGHT: f32 = 40.;
 const DISABLED_FILL: Color32 = Color32::from_rgb(232, 237, 243);
 const DISABLED_TEXT: Color32 = Color32::from_rgb(83, 100, 122);
 
-pub fn install(ctx: &egui::Context) {
+pub fn install(ctx: &egui::Context) -> bool {
     let root = std::env::var_os("SystemRoot")
         .or_else(|| std::env::var_os("WINDIR"))
         .map(std::path::PathBuf::from);
-    let (fonts, _) = crate::fonts::definitions(root.as_deref());
+    let Some(fonts) = crate::fonts::definitions(root.as_deref()) else {
+        return false;
+    };
     ctx.set_fonts(fonts);
     let mut style = (*ctx.style_of(egui::Theme::Light)).clone();
     style.visuals = egui::Visuals::light();
@@ -99,6 +101,7 @@ pub fn install(ctx: &egui::Context) {
         .insert(egui::TextStyle::Monospace, FontId::monospace(14.));
     ctx.set_theme(egui::ThemePreference::Light);
     ctx.set_style_of(egui::Theme::Light, style);
+    true
 }
 
 pub fn tool_section(ui: &mut egui::Ui, title: &str, content: impl FnOnce(&mut egui::Ui)) {

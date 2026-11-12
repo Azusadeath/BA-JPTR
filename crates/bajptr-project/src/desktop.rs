@@ -1,6 +1,6 @@
 //! Desktop's existing action contract; all project mutation stays on its worker.
 use crate::{
-    Control, Result, baseline, invalid,
+    Control, Result, baseline, invalid, migration,
     model::{self, Edit},
     service::{self, Config, Engine, PatchJob},
     sources::{self, Inventory, Notice, Sources},
@@ -13,6 +13,7 @@ use bajptr_core::{
 };
 use serde_json::{Value, json};
 use std::{
+    cell::RefCell,
     collections::{BTreeSet, VecDeque},
     fs,
     path::{Path, PathBuf},
@@ -47,13 +48,16 @@ pub struct Project {
     pub revision: u64,
     errors: Value,
     messages: Vec<String>,
+    settings_warning: Option<String>,
     undo: Vec<Document>,
     redo: Vec<Document>,
     pub search: Value,
     searches: VecDeque<Value>,
+    search_display: RefCell<Option<(u64, Value)>>,
     preview: Value,
     text_draft: Value,
     batch_draft: Value,
+    migration_draft: Value,
     pub version: Option<String>,
     tables: Value,
     pub application: String,
@@ -75,13 +79,16 @@ impl Project {
             revision: 0,
             errors: json!({}),
             messages: vec![],
+            settings_warning: None,
             undo: vec![],
             redo: vec![],
             search: Value::Null,
             searches: VecDeque::new(),
+            search_display: RefCell::new(None),
             preview: Value::Null,
             text_draft: Value::Null,
             batch_draft: Value::Null,
+            migration_draft: Value::Null,
             version: None,
             tables: json!([]),
             application: "应用状态待核对，先预览".into(),
@@ -98,6 +105,8 @@ impl Project {
     }
     fn load(&mut self, control: &Control<'_>) -> Result<Value> {
         control.check()?;
+        storage::validate_data_dir(&self.data)?;
+        storage::recover_sources(&self.store.root)?;
         let settings = self.store.root.join("settings.json");
         if settings.exists() {
             match fs::read(&settings)
@@ -112,13 +121,17 @@ impl Project {
                     self.game = v["game"].as_str().unwrap_or("").into();
                     self.skip = v["skip_kana"].as_bool().unwrap_or(true);
                 }
-                result => self.messages.push(format!(
-                    "设置读取失败，使用默认设置：{}",
-                    result
-                        .err()
-                        .map(|e| e.to_string())
-                        .unwrap_or("格式无效".into())
-                )),
+                result => {
+                    let warning = format!(
+                        "设置读取失败，使用默认设置：{}",
+                        result
+                            .err()
+                            .map(|e| e.to_string())
+                            .unwrap_or("格式无效".into())
+                    );
+                    self.messages.push(warning.clone());
+                    self.settings_warning = Some(warning);
+                }
             }
         }
         control.check()?;
@@ -143,12 +156,23 @@ impl Project {
             Err(e) => self.errors["source-history.json"] = json!(e.to_string()),
         }
         control.check()?;
+        if let Err(error) =
+            self.store
+                .load("application-state.json", service::parse_receipts, json!({}))
+        {
+            self.errors["application-state.json"] = json!(error.to_string());
+        }
         self.state()
     }
     fn require(&self, revision: Option<&Value>) -> Result<()> {
+        if self.store.root.join("sources-transaction.json").exists() {
+            return Err(invalid(
+                "来源表保存尚未完成，请重新打开工具恢复后再修改或替换。",
+            ));
+        }
         if self.errors.as_object().is_some_and(|o| !o.is_empty()) {
             return Err(invalid(
-                "修改记录未能完整读取，已停止保存和替换。原文件已保留，请修复后重新打开工具。",
+                "记录文件未能完整读取，已停止保存和替换。原文件已保留，请修复后重新打开工具。",
             ));
         }
         if revision
@@ -160,6 +184,7 @@ impl Project {
         Ok(())
     }
     fn changed(&mut self) {
+        self.migration_draft = Value::Null;
         self.engine.invalidate_prepared();
         self.revision += 1;
         self.preview = Value::Null;
@@ -337,15 +362,16 @@ impl Project {
                 storage::atomic_write(&recovery, &bytes, Some(&None))?;
             }
             self.store
-                .save("rules.tsv", &model::rules_bytes(&values)?)?;
+                .save_sources(&model::rules_bytes(&values)?, &serde_json::to_vec(&next)?)?;
             self.rules = values;
             // Migration is a compatibility conversion, not an undoable rule edit.
             self.undo.clear();
             self.redo.clear();
             self.changed();
+        } else {
+            self.store
+                .save("source-history.json", &serde_json::to_vec(&next)?)?;
         }
-        self.store
-            .save("source-history.json", &serde_json::to_vec(&next)?)?;
         self.source_history = next;
         self.source_current = Some(names.clone());
         self.tables = json!(names);
@@ -372,11 +398,28 @@ impl Project {
         if self.search.is_null() || self.search["game"] != model::game_key(&self.game)? {
             return Ok(Value::Null);
         }
+        let mut cache = self.search_display.borrow_mut();
+        if cache.as_ref().is_some_and(|(revision, value)| {
+            *revision != self.revision || value["nonce"] != self.search["nonce"]
+        }) {
+            *cache = None;
+        }
+        let mut rendered = cache
+            .as_ref()
+            .map(|(_, value)| value["rows"].as_array().cloned().unwrap_or_default())
+            .unwrap_or_default();
         let rules = Rules::new(self.rules.clone())?;
         let key = model::game_key(&self.game)?;
         let version = text(&self.search, "version")?;
-        let rows: Vec<TextRow> = serde_json::from_value(self.search["rows"].clone())?;
+        let rows: Vec<TextRow> = self.search["rows"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .skip(rendered.len())
+            .map(|row| Ok(serde_json::from_value(row.clone())?))
+            .collect::<Result<_>>()?;
         let rows=rows.into_iter().map(|r|{let (value,explicit)=model::effective(&r,&self.edits,&key,version,&rules,self.skip)?;Ok(json!({"table":r.0,"label":model::title(&r.0),"row_id":r.1,"slot":r.2,"original":r.3,"state":if explicit{"定点修改"}else if value!=r.3{"词表替换"}else{"原文"},"text":value}))}).collect::<Result<Vec<_>>>()?;
+        rendered.extend(rows);
         let source_tables: Vec<_> = self.search["matching_tables"]
             .as_array()
             .into_iter()
@@ -384,9 +427,9 @@ impl Project {
             .filter_map(Value::as_str)
             .map(model::table_info)
             .collect();
-        Ok(
-            json!({"rows":rows,"source_tables":source_tables,"keyword":self.search["keyword"],"source":self.search["source"],"total":self.search["total"],"version":version,"nonce":self.search["nonce"]}),
-        )
+        let value = json!({"rows":rendered,"source_tables":source_tables,"keyword":self.search["keyword"],"source":self.search["source"],"total":self.search["total"],"version":version,"nonce":self.search["nonce"]});
+        *cache = Some((self.revision, value.clone()));
+        Ok(value)
     }
     fn batch_entries(&self, id: &str) -> Result<Vec<Edit>> {
         let game = model::game_key(&self.game)?;
@@ -433,7 +476,7 @@ impl Project {
             }
         }
         Ok(
-            json!({"game":self.game,"skip_kana":self.skip,"revision":self.revision,"rules":rules,"edits":edits,"batches":batches,"errors":self.errors,"messages":self.messages,"can_undo":!self.undo.is_empty(),"can_redo":!self.redo.is_empty(),"templates":templates::metadata(),"search":self.search_state()?,"application":self.application,"source_notices":self.source_notices()?}),
+            json!({"game":self.game,"skip_kana":self.skip,"revision":self.revision,"rules":rules,"edits":edits,"batches":batches,"errors":self.errors,"messages":self.messages,"settings_warning":self.settings_warning,"can_undo":!self.undo.is_empty(),"can_redo":!self.redo.is_empty(),"templates":templates::metadata(),"search":self.search_state()?,"application":self.application,"source_notices":self.source_notices()?}),
         )
     }
     // Only read-operation state is rolled back by cancellation. Persisted edits are never rolled back.
@@ -441,6 +484,7 @@ impl Project {
         json!({"search":self.search,"preview":self.preview,"tables":self.tables,"version":self.version,"application":self.application})
     }
     pub fn restore_snapshot(&mut self, v: &Value) {
+        self.search_display.get_mut().take();
         self.search = v["search"].clone();
         self.preview = v["preview"].clone();
         self.tables = v["tables"].clone();
@@ -449,8 +493,12 @@ impl Project {
     }
     fn find_search(&self, p: &Value) -> Result<Value> {
         let nonce = text(p, "search_nonce")?;
+        if self.search["nonce"] == nonce && self.search["game"] == model::game_key(&self.game)? {
+            return Ok(self.search.clone());
+        }
         self.searches
             .iter()
+            .rev()
             .find(|s| {
                 s["nonce"] == nonce && s["game"] == model::game_key(&self.game).unwrap_or_default()
             })
@@ -464,6 +512,7 @@ impl Project {
                 | "scope_sources"
                 | "sources"
                 | "search"
+                | "search_more"
                 | "text_open"
                 | "text_save"
                 | "batch_preview"
@@ -473,6 +522,9 @@ impl Project {
                 | "prepare_patch"
                 | "apply"
                 | "baseline"
+                | "migration_preview"
+                | "migration_start"
+                | "migration_commit"
                 | "restore"
                 | "export_text"
         ) {
@@ -489,6 +541,63 @@ impl Project {
             }
         }
         match action {
+            "baseline_rebuild_preview" => {
+                self.engine
+                    .rebuild_baseline(&self.game, &self.data.join("backup"), None, control)
+            }
+            "baseline_rebuild_commit" => {
+                let token = p
+                    .get("token")
+                    .filter(|v| v.is_object())
+                    .ok_or_else(|| invalid("请先尝试重建并确认。"))?;
+                let result = self.engine.rebuild_baseline(
+                    &self.game,
+                    &self.data.join("backup"),
+                    Some(token),
+                    control,
+                )?;
+                self.version = result["version_id"].as_str().map(str::to_string);
+                self.search = Value::Null;
+                self.searches.clear();
+                self.search_display.get_mut().take();
+                self.preview = Value::Null;
+                self.batch_draft = Value::Null;
+                self.text_draft = Value::Null;
+                self.migration_draft = Value::Null;
+                self.tables = json!([]);
+                self.source_current = None;
+                Ok(result)
+            }
+            "reset_record" => {
+                if self.store.root.join("sources-transaction.json").exists() {
+                    return Err(invalid("请先重新打开工具恢复来源表保存，再处理损坏记录。"));
+                }
+                if p["revision"].as_u64() != Some(self.revision) {
+                    return Err(invalid("修改记录已变化，请重新检查后重置。"));
+                }
+                let name = text(p, "name")?;
+                if self.errors.get(name).is_none() {
+                    return Err(invalid("这份记录没有读取错误。"));
+                }
+                let archived = self.store.archive_failed(name)?;
+                match name {
+                    "rules.tsv" => self.rules.clear(),
+                    "text-edits.json" => self.edits.clear(),
+                    "source-history.json" => {
+                        self.source_history = Sources::default();
+                        self.source_current = None;
+                    }
+                    _ => unreachable!(),
+                }
+                self.errors.as_object_mut().unwrap().remove(name);
+                self.undo.clear();
+                self.redo.clear();
+                self.text_draft = Value::Null;
+                self.search = Value::Null;
+                self.searches.clear();
+                self.changed();
+                Ok(json!({"state":self.state()?,"archived":archived}))
+            }
             "load" => {
                 let mut loaded = Self::new(self.data.clone());
                 let state = loaded.load(control)?;
@@ -509,6 +618,7 @@ impl Project {
                     &serde_json::to_vec(&json!({"format":2,"game":game,"skip_kana":skip}))?,
                     None,
                 )?;
+                self.settings_warning = None;
                 if (self.game.as_str(), self.skip) != (game.as_str(), skip) {
                     if self.game != game {
                         self.engine.close();
@@ -533,10 +643,10 @@ impl Project {
                 self.version = status["baseline"]["version_id"]
                     .as_str()
                     .map(str::to_string);
-                self.application = service::status(&self.game, &self.data, &self.config())
-                    .unwrap_or("应用状态待核对，先预览".into());
+                self.application = service::status(&self.game, &self.data, &self.config())?;
+                let key = model::game_key(&self.game)?;
                 Ok(
-                    json!({"connected":status["state"] == "ready","application":self.application,"baseline_status":status}),
+                    json!({"connected":status["state"] == "ready","application":self.application,"baseline_status":status,"migration_count":self.edits.iter().filter(|e|e.game==key && self.version.as_ref().is_some_and(|v|v!=&e.version)).count()}),
                 )
             }
             "baseline_commit" => {
@@ -557,10 +667,122 @@ impl Project {
                 self.preview = Value::Null;
                 self.batch_draft = Value::Null;
                 self.text_draft = Value::Null;
+                self.migration_draft = Value::Null;
                 self.tables = json!([]);
                 self.source_current = None;
                 self.application = "底稿已保存，请重新预览".into();
                 baseline::info(&original)
+            }
+            "migration_preview" | "migration_start" => {
+                self.require(p.get("revision"))?;
+                let version = self.current_version(control)?;
+                let game = model::game_key(&self.game)?;
+                let before = self.engine.baseline_status(
+                    &self.game,
+                    &self.data.join("backup"),
+                    &self.data,
+                    control,
+                )?;
+                let edits: Vec<_> = self
+                    .edits
+                    .iter()
+                    .filter(|e| e.game == game && e.version != version)
+                    .cloned()
+                    .collect();
+                let located = self.engine.migration_candidates(
+                    &self.game,
+                    &self.data.join("backup"),
+                    &edits,
+                    control,
+                )?;
+                let status = self.engine.baseline_status(
+                    &self.game,
+                    &self.data.join("backup"),
+                    &self.data,
+                    control,
+                )?;
+                if status["state"] != "ready"
+                    || status["token"] != before["token"]
+                    || status["token"]["version"] != version
+                {
+                    return Err(invalid("底稿已变化，请重新检查后核对迁移。"));
+                }
+                let items = migration::plan(&self.edits, &game, &version, &located);
+                let draft = json!({"nonce":nonce(),"revision":self.revision,"token":status["token"],"game":game,"version":version,"items":items});
+                control.check()?;
+                self.migration_draft = draft.clone();
+                if action == "migration_preview" {
+                    return Ok(draft);
+                }
+                let automatic = migration::automatic_choices(&items);
+                // Once automatic migrations are saved, a late cancel must report that success.
+                control.check()?;
+                let commit = control.uncancellable();
+                let mut backup = Value::Null;
+                if !automatic.is_empty() {
+                    backup=self.dispatch("migration_commit",&json!({"nonce":draft["nonce"],"revision":self.revision,"choices":automatic}),&commit)?["backup"].clone();
+                }
+                let remaining = migration::plan(&self.edits, &game, &version, &located);
+                let unavailable = remaining
+                    .iter()
+                    .filter(|item| item.kind == "unavailable")
+                    .count();
+                let review: Vec<_> = remaining
+                    .into_iter()
+                    .filter(|item| matches!(item.kind.as_str(), "relocated" | "ambiguous"))
+                    .collect();
+                let draft = json!({"nonce":nonce(),"revision":self.revision,"token":status["token"],"game":game,"version":version,"items":review});
+                self.migration_draft = draft.clone();
+                Ok(
+                    json!({"state":self.state()?,"plan":draft,"automatic_count":automatic.len(),"unavailable_count":unavailable,"backup":backup}),
+                )
+            }
+            "migration_commit" => {
+                self.require(p.get("revision"))?;
+                let draft = self.migration_draft.clone();
+                if draft.is_null()
+                    || p["nonce"] != draft["nonce"]
+                    || draft["revision"] != self.revision
+                    || draft["game"] != model::game_key(&self.game)?
+                {
+                    return Err(invalid("迁移核对已失效，请重新打开。"));
+                }
+                let status = self.engine.baseline_status(
+                    &self.game,
+                    &self.data.join("backup"),
+                    &self.data,
+                    control,
+                )?;
+                if status["state"] != "ready" || status["token"] != draft["token"] {
+                    return Err(invalid("底稿或游戏资源已变化，请重新核对迁移。"));
+                }
+                let items = serde_json::from_value::<Vec<migration::Item>>(draft["items"].clone())?;
+                let choices =
+                    serde_json::from_value::<Vec<migration::Choice>>(p["choices"].clone())?;
+                let edits = migration::apply(
+                    &self.edits,
+                    &items,
+                    &choices,
+                    text(&draft, "game")?,
+                    text(&draft, "version")?,
+                )?;
+                self.store.check("text-edits.json")?;
+                let bytes = fs::read(self.store.root.join("text-edits.json"))?;
+                let backup = self.store.root.join(format!(
+                    "text-edits-before-migration-{}.json",
+                    &storage::digest(&bytes)[..16]
+                ));
+                control.check()?;
+                let commit = control.uncancellable();
+                if backup.exists() {
+                    if fs::read(&backup)? != bytes {
+                        return Err(invalid("迁移备份与原记录不一致，未保存。"));
+                    }
+                } else {
+                    storage::atomic_write(&backup, &bytes, Some(&None))?;
+                }
+                self.commit_controlled(Document::Edits(edits), true, &commit)?;
+                Ok(json!({"state":self.state()?,"count":choices.len(),"backup":backup}))
             }
             "sources" => self.synchronize_sources(control),
             "scope_sources" => self.engine.scope_sources(
@@ -690,9 +912,19 @@ impl Project {
                 )
             }
             "search" | "search_more" => {
-                let keyword = text(p, "keyword")?;
+                let keyword = text(p, "keyword")?.trim();
                 let source = p.get("source").and_then(Value::as_str).unwrap_or("");
                 let offset = p.get("offset").and_then(Value::as_u64).unwrap_or(0) as usize;
+                if action == "search_more"
+                    && (self.search.is_null()
+                        || self.search["keyword"] != keyword
+                        || self.search["source"] != source
+                        || self.search["rows"].as_array().map(Vec::len) != Some(offset)
+                        || p.get("search_nonce")
+                            .is_some_and(|nonce| nonce != &self.search["nonce"]))
+                {
+                    return Err(invalid("搜索结果已变化，请重新查找后加载更多。"));
+                }
                 let (result, version) = self.engine.scan(
                     &self.game,
                     &self.data.join("backup"),
@@ -718,6 +950,8 @@ impl Project {
                     self.search = json!({"game":model::game_key(&self.game)?,"version":version,"rows":result["rows"],"total":result["total"],"nonce":nonce(),"keyword":keyword,"source":source});
                 }
                 self.search["matching_tables"] = result["matching_tables"].clone();
+                self.searches
+                    .retain(|search| search["nonce"] != self.search["nonce"]);
                 if self.searches.len() >= 4 {
                     self.searches.pop_front();
                 }

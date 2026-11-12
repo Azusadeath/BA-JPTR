@@ -10,7 +10,7 @@ use rusqlite::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs::File,
     io::{BufWriter, Write},
     path::{Path, PathBuf},
@@ -837,6 +837,71 @@ pub fn patch_database(
 
 pub type TextRow = (String, RowId, usize, String);
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct LocatedText {
+    pub row: TextRow,
+    pub context: String,
+}
+
+/// Stream candidate tables once; retain only exact originals needed for migration.
+pub fn locate_originals(
+    con: &Connection,
+    edits: &[TextEdit],
+    control: &Control<'_>,
+) -> Result<Vec<LocatedText>> {
+    let mut wanted = std::collections::BTreeMap::<&str, HashSet<&str>>::new();
+    for edit in edits {
+        wanted
+            .entry(&edit.table)
+            .or_default()
+            .insert(&edit.original);
+    }
+    let available = tables(con, ".*")?;
+    let mut found = Vec::new();
+    let mut bytes = 0;
+    let mut diagnostics = Stats::default();
+    for (table, originals) in wanted {
+        control.log(&format!("核对旧版修改：{table}"))?;
+        if !available.iter().any(|name| name == table) {
+            continue;
+        }
+        let key = key_name(con, table)?;
+        let mut query = con.prepare(&format!(
+            "SELECT {key},Bytes FROM {} ORDER BY 1",
+            quote(table)
+        ))?;
+        let mut rows = query.query([])?;
+        while let Some(row) = rows.next()? {
+            control.check()?;
+            let rid = RowId::from_sql(row.get_ref(0)?)?;
+            let Ok(blob) = row.get_ref(1)?.as_blob() else {
+                continue;
+            };
+            let Some(fields) = read_fields(blob, table, &rid, &mut diagnostics, control)? else {
+                continue;
+            };
+            for field in fields.iter().filter(|f| originals.contains(f.text)) {
+                let context = fields
+                    .iter()
+                    .filter(|f| f.slot != field.slot)
+                    .map(|f| f.text)
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                bytes += field.text.len() + context.len();
+                if found.len() >= 50000 || bytes > 64 * 1024 * 1024 {
+                    return Err(invalid("对应文本过多，请先清理不再需要的旧版修改后重试。"));
+                }
+                found.push(LocatedText {
+                    row: (table.into(), rid.clone(), field.slot, field.text.into()),
+                    context,
+                });
+            }
+        }
+    }
+    report_skips(&diagnostics, control)?;
+    Ok(found)
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SourceRuleMatch {
     pub table: String,
@@ -1041,6 +1106,106 @@ pub fn scan_page_with_sources(
     control: &Control<'_>,
 ) -> Result<ScanPage> {
     let mut found = Vec::new();
+    let mut seen = 0;
+    let sources = visit_matches(con, pattern, keyword, skip_kana, control, |row| {
+        seen += 1;
+        if seen > offset && found.len() < limit {
+            found.push(row);
+        }
+        Ok(())
+    })?;
+    Ok(ScanPage {
+        rows: found,
+        total: sources.iter().map(|(_, count)| count).sum(),
+        matching_tables: sources.into_iter().map(|(table, _)| table).collect(),
+    })
+}
+
+/// Keep the active search on disk so pagination never re-parses source blobs.
+pub struct SearchIndex {
+    con: Connection,
+    sources: Vec<(String, u64)>,
+}
+impl SearchIndex {
+    pub fn build(
+        source: &Connection,
+        pattern: &str,
+        keyword: &str,
+        skip_kana: bool,
+        control: &Control<'_>,
+    ) -> Result<Self> {
+        let mut con = Connection::open("")?;
+        con.execute_batch(
+            "PRAGMA cache_size=-4096;
+             CREATE TABLE matches(seq INTEGER PRIMARY KEY, source TEXT NOT NULL, row TEXT NOT NULL);
+             CREATE INDEX matches_source ON matches(source, seq)",
+        )?;
+        let transaction = con.transaction()?;
+        let sources = {
+            let mut insert = transaction.prepare("INSERT INTO matches(source,row) VALUES (?,?)")?;
+            visit_matches(source, pattern, keyword, skip_kana, control, |row| {
+                insert.execute(rusqlite::params![row.0, serde_json::to_string(&row)?])?;
+                Ok(())
+            })?
+        };
+        control.check()?;
+        transaction.commit()?;
+        Ok(Self { con, sources })
+    }
+
+    pub fn page(
+        &self,
+        source: &str,
+        limit: usize,
+        offset: usize,
+        control: &Control<'_>,
+    ) -> Result<ScanPage> {
+        control.check()?;
+        let (sql, mut args) = if source.is_empty() {
+            (
+                "SELECT row FROM matches ORDER BY seq LIMIT ? OFFSET ?",
+                vec![],
+            )
+        } else {
+            (
+                "SELECT row FROM matches WHERE source=? ORDER BY seq LIMIT ? OFFSET ?",
+                vec![Value::Text(source.into())],
+            )
+        };
+        args.push(Value::Integer(i64::try_from(limit).unwrap_or(i64::MAX)));
+        args.push(Value::Integer(i64::try_from(offset).unwrap_or(i64::MAX)));
+        let mut query = self.con.prepare(sql)?;
+        let mut cursor = query.query(rusqlite::params_from_iter(args))?;
+        let mut rows = Vec::new();
+        while let Some(row) = cursor.next()? {
+            control.check()?;
+            rows.push(serde_json::from_str(&row.get::<_, String>(0)?)?);
+        }
+        Ok(ScanPage {
+            rows,
+            total: self
+                .sources
+                .iter()
+                .filter(|(table, _)| source.is_empty() || table == source)
+                .map(|(_, count)| count)
+                .sum(),
+            matching_tables: self
+                .sources
+                .iter()
+                .map(|(table, _)| table.clone())
+                .collect(),
+        })
+    }
+}
+
+fn visit_matches(
+    con: &Connection,
+    pattern: &str,
+    keyword: &str,
+    skip_kana: bool,
+    control: &Control<'_>,
+    mut visit: impl FnMut(TextRow) -> Result<()>,
+) -> Result<Vec<(String, u64)>> {
     let mut total = 0;
     let mut matching_tables = Vec::new();
     let mut diagnostics = Stats::default();
@@ -1089,22 +1254,16 @@ pub fn scan_page_with_sources(
             for field in fields {
                 if field.text.contains(keyword) && !(skip_kana && fields::has_kana(field.text)) {
                     total += 1;
-                    if total as usize > offset && found.len() < limit {
-                        found.push((table.clone(), rid.clone(), field.slot, field.text.into()));
-                    }
+                    visit((table.clone(), rid.clone(), field.slot, field.text.into()))?;
                 }
             }
         }
         if total > before {
-            matching_tables.push(table);
+            matching_tables.push((table, total - before));
         }
     }
     report_skips(&diagnostics, control)?;
-    Ok(ScanPage {
-        rows: found,
-        total,
-        matching_tables,
-    })
+    Ok(matching_tables)
 }
 
 pub fn export(

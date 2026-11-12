@@ -26,7 +26,10 @@ fn main() {
         !cancelled.load(Ordering::Relaxed)
     };
     if let Err(error) = commands::run(&Control::new(&callback)) {
-        eprintln!("错误：{error}");
+        eprintln!(
+            "错误：{}\n详细原因：{error}",
+            bajptr_project::diagnostics::user_message("", &error)
+        );
         std::process::exit(if matches!(error, bajptr_core::Error::Cancelled) {
             130
         } else {
@@ -41,8 +44,13 @@ fn desktop_stdio(args: &[String]) {
         .and_then(|i| args.get(i + 1))
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::env::current_dir().unwrap());
-    let worker =
-        bajptr_project::worker::Worker::start(data, Arc::new(|| {})).expect("启动项目服务失败");
+    let worker = match bajptr_project::worker::Worker::start(data, Arc::new(|| {})) {
+        Ok(worker) => worker,
+        Err(error) => {
+            eprintln!("启动项目服务失败：{error}");
+            std::process::exit(1);
+        }
+    };
     let send = worker.client();
     std::thread::spawn(move || {
         for line in io::stdin().lock().lines().map_while(Result::ok) {
