@@ -76,7 +76,21 @@ pub struct Templates {
     revision: Option<String>,
     data: Value,
 }
+pub(crate) fn parse_document(bytes: &[u8]) -> Result<Value> {
+    let value: Value = serde_json::from_slice(bytes)?;
+    if value["format"] != 2 || !value["drafts"].is_object() {
+        return Err(invalid("模板表单文件格式无效。"));
+    }
+    Ok(value["drafts"].clone())
+}
 impl Templates {
+    pub(crate) fn from_bytes(path: PathBuf, bytes: &[u8]) -> Result<Self> {
+        Ok(Self {
+            path,
+            revision: Some(storage::digest(bytes)),
+            data: parse_document(bytes)?,
+        })
+    }
     pub fn new(path: PathBuf) -> Self {
         let revision = storage::revision(&path).unwrap_or(None);
         let data = std::fs::read(&path)

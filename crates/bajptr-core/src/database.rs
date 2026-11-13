@@ -837,6 +837,40 @@ pub fn patch_database(
 
 pub type TextRow = (String, RowId, usize, String);
 
+/// Visit every readable text field in one table, refusing incomplete coverage.
+pub fn visit_table(
+    con: &Connection,
+    table: &str,
+    control: &Control<'_>,
+    mut visit: impl FnMut(TextRow) -> Result<()>,
+) -> Result<()> {
+    let key = key_name(con, table)?;
+    let mut query = con.prepare(&format!(
+        "SELECT {key},Bytes FROM {} ORDER BY 1",
+        quote(table)
+    ))?;
+    let mut rows = query.query([])?;
+    while let Some(row) = rows.next()? {
+        control.check()?;
+        let rid = RowId::from_sql(row.get_ref(0)?)?;
+        let blob = row
+            .get_ref(1)?
+            .as_blob()
+            .map_err(|_| invalid(format!("来源表 {table} 存在非文本记录，无法完整核对范围。")))?;
+        let parsed = fields::parse_with_issues(blob, true)
+            .map_err(|error| record_error(table, &rid, error))?;
+        if parsed.skipped > 0 {
+            return Err(invalid(format!(
+                "来源表 {table} 存在异常字段，无法完整核对批量修改范围。"
+            )));
+        }
+        for field in parsed.fields {
+            visit((table.into(), rid.clone(), field.slot, field.text.into()))?;
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LocatedText {
     pub row: TextRow,
@@ -1198,7 +1232,7 @@ impl SearchIndex {
     }
 }
 
-fn visit_matches(
+pub fn visit_matches(
     con: &Connection,
     pattern: &str,
     keyword: &str,

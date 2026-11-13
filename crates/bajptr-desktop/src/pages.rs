@@ -117,11 +117,25 @@ impl Desktop {
         let state = self.state.clone();
         let rules = slice(&state, "rules");
         let batches = slice(&state, "batches");
-        let selected_rule = self.rule_selection.filter(|i| *i < rules.len());
+        let display_rows = replacement_rows(&state);
+        let selected = self
+            .rule_selection
+            .and_then(|index| display_rows.get(index));
+        let selected_rule = match selected {
+            Some(ReplacementRow::Rule(index)) => Some(*index),
+            _ => None,
+        };
         let selected_batch = self
             .rule_selection
-            .and_then(|i| i.checked_sub(rules.len()))
-            .and_then(|i| batches.get(i));
+            .and_then(|i| display_rows.get(i))
+            .and_then(|row| match row {
+                ReplacementRow::Batch(index) => batches.get(*index),
+                _ => None,
+            });
+        let selected_combined = match selected {
+            Some(ReplacementRow::Combined { rules: indices, .. }) => rules.get(indices[0]),
+            _ => None,
+        };
         let can_edit = self.loaded && self.healthy() && !self.write_busy();
         ui.horizontal_wrapped(|ui| {
             if ui
@@ -152,13 +166,15 @@ impl Desktop {
             if ui
                 .add_enabled(
                     can_edit
-                        && (selected_rule.is_some()
+                        && (selected_combined.is_some() || selected_rule.is_some()
                             || selected_batch.is_some_and(|entry| entry["active"] == true)),
                     ToolButton::new("编辑"),
                 )
                 .clicked()
             {
-                if let Some(i) = selected_rule {
+                if let Some(entry) = selected_combined {
+                    self.open_combined(&entry["rule"]);
+                } else if let Some(i) = selected_rule {
                     self.rule_form = Some(RuleForm::new(Some(i), self.revision(), rules.get(i)));
                 } else if let Some(entry) = selected_batch {
                     self.open_batch(entry);
@@ -166,12 +182,18 @@ impl Desktop {
             }
             if ui
                 .add_enabled(
-                    can_edit && (selected_rule.is_some() || selected_batch.is_some()),
+                    can_edit && (selected_combined.is_some() || selected_rule.is_some() || selected_batch.is_some()),
                     ToolButton::new("移除"),
                 )
                 .clicked()
             {
-                if let Some(i) = selected_rule {
+                if let Some(entry) = selected_combined {
+                    self.submit(
+                        "combined_remove",
+                        json!({"revision":self.revision(),"old":entry["rule"]["old"],"new":entry["rule"]["new"]}),
+                        "正在移除整表与指定文本替换…",
+                    );
+                } else if let Some(i) = selected_rule {
                     self.submit(
                         "remove_rule",
                         json!({"index":i,"revision":self.revision()}),
@@ -206,6 +228,14 @@ impl Desktop {
             {
                 self.show_edits = true;
             }
+            let can_promote = can_edit && self.connected && self.sources_ready
+                && !self.path_dirty && self.busy.is_none()
+                && batches.iter().any(|batch| batch["active"] == true && batch["id"].is_string());
+            if ui.add_enabled(can_promote,ToolButton::new("整理批量修改"))
+                .on_hover_text("将完整覆盖且结果一致的批量范围改为整表规则；保存前备份，可撤销。")
+                .clicked() {
+                self.submit("promotion_start",json!({"revision":self.revision()}),"正在核对并整理批量修改…");
+            }
         });
         ui.add_space(6.);
         egui::Panel::bottom("replace-actions")
@@ -227,10 +257,10 @@ impl Desktop {
                 });
             });
         let width = ui.available_width() - 12.;
-        let widths = [(width - 350.) * 0.5, (width - 350.) * 0.5, 110., 170., 70.];
+        let widths = [(width - 420.) * 0.5, (width - 420.) * 0.5, 110., 240., 70.];
         table_header(
             ui,
-            &["原文字", "替换为", "匹配方式", "来源表", "命中"],
+            &["原文字", "替换为", "匹配方式", "生效范围", "命中"],
             &widths,
         );
         egui::Frame::new()
@@ -252,21 +282,48 @@ impl Desktop {
                             } else if !self.healthy() {
                                 "记录文件读取失败，请修复损坏文件后重新打开工具。"
                             } else if self.write_busy() {
-                                "正在处理当前任务，完成后可添加或导入词条。"
+                                "正在处理当前任务，完成后可添加词条或恢复备份。"
                             } else {
-                                "点击「添加词条」开始，或导入已有词表。"
+                                "点击「添加词条」开始，或恢复已有备份。"
                             };
                             ui.colored_label(MUTED, message);
                         },
                     );
                 } else {
-                    egui::ScrollArea::vertical()
+                    let mut scroll = egui::ScrollArea::vertical()
                         .id_salt("replacement-rows")
-                        .auto_shrink([false, false])
-                        .show_rows(ui, ROW_HEIGHT, rules.len() + batches.len(), |ui, range| {
+                        .auto_shrink([false, false]);
+                    if let Some(index) = self.reveal_rule.take() {
+                        scroll = scroll.vertical_scroll_offset(index as f32 * (ROW_HEIGHT + ui.spacing().item_spacing.y));
+                    }
+                    scroll.show_rows(ui, ROW_HEIGHT, display_rows.len(), |ui, range| {
                             for i in range {
-                                if i >= rules.len() {
-                                    let entry = &batches[i - rules.len()];
+                                if let ReplacementRow::Combined { rules: indices, batches: batch_indices } = &display_rows[i] {
+                                    let rule = &rules[indices[0]]["rule"];
+                                    let tables = indices.iter().flat_map(|&index| {
+                                        bajptr_project::model::scopes(&text(&rules[index]["rule"], "table"))
+                                            .ok().flatten().unwrap_or_default()
+                                    }).collect::<std::collections::BTreeSet<_>>();
+                                    let members = batch_indices.iter().map(|&index| count(&batches[index], "count")).sum::<u64>();
+                                    let hits = self.combined_hits.iter()
+                                        .find(|hit| hit["old"] == rule["old"] && hit["new"] == rule["new"])
+                                        .map(|hit| count(hit, "count").to_string())
+                                        .unwrap_or_else(|| "—".into());
+                                    let values = [
+                                        text(rule, "old"),
+                                        if text(rule, "new").is_empty() { "（删除匹配文字）".into() } else { text(rule, "new") },
+                                        "包含文字".into(),
+                                        format!("整表 {} · 指定文本 {} 条", tables.len(), members),
+                                        hits,
+                                    ];
+                                    let response = data_row(ui, i, self.rule_selection == Some(i), &values, &widths)
+                                        .on_hover_text("双击统一编辑替换内容、整表范围和指定文本。实际变化请查看预览。");
+                                    if response.clicked() { self.rule_selection = Some(i); }
+                                    if response.double_clicked() && can_edit { self.open_combined(rule); }
+                                    continue;
+                                }
+                                if let ReplacementRow::Batch(index) = display_rows[i] {
+                                    let entry = &batches[index];
                                     let replacement = text(entry, "new");
                                     let grouped = entry["id"].is_string();
                                     let values = [
@@ -322,7 +379,8 @@ impl Desktop {
                                     }
                                     continue;
                                 }
-                                let row = &rules[i];
+                                let ReplacementRow::Rule(index)=display_rows[i] else {unreachable!()};
+                                let row = &rules[index];
                                 let new = text(row, "display_new");
                                 let values = [
                                     text(row, "display_old"),
@@ -337,7 +395,7 @@ impl Desktop {
                                         mode_name(&text(&row["rule"], "mode")).into()
                                     },
                                     text(row, "scope"),
-                                    self.hits.get(i).map(u64::to_string).unwrap_or("—".into()),
+                                    self.hits.get(index).map(u64::to_string).unwrap_or("—".into()),
                                 ];
                                 let response = data_row(
                                     ui,
@@ -351,7 +409,7 @@ impl Desktop {
                                 }
                                 if response.double_clicked() && can_edit {
                                     self.rule_form =
-                                        Some(RuleForm::new(Some(i), self.revision(), Some(row)));
+                                        Some(RuleForm::new(Some(index), self.revision(), Some(row)));
                                 }
                             }
                         });
@@ -629,11 +687,25 @@ impl Desktop {
                     self.directory_controls(ui);
                     ui.horizontal_wrapped(|ui| {
                         ui.colored_label(MUTED, "初始底稿");
-                        if !self.baseline.is_null() {
-                            ui.colored_label(Color32::from_rgb(37, 107, 78), "已验证");
-                            if secondary(ui, true, "打开底稿位置").clicked() {
-                                Self::open_folder(&PathBuf::from(text(&self.baseline, "folder")));
-                            }
+                        let verified = !self.baseline.is_null();
+                        let (rect, response) =
+                            ui.allocate_exact_size(egui::vec2(14., 20.), egui::Sense::hover());
+                        ui.painter().circle_filled(
+                            rect.center(),
+                            5.,
+                            if verified {
+                                Color32::from_rgb(37, 147, 91)
+                            } else {
+                                Color32::from_rgb(160, 169, 181)
+                            },
+                        );
+                        response.on_hover_text(if verified {
+                            "底稿已验证"
+                        } else {
+                            "尚无已验证的初始底稿"
+                        });
+                        if verified && secondary(ui, true, "打开底稿位置").clicked() {
+                            Self::open_folder(&PathBuf::from(text(&self.baseline, "folder")));
                         }
                         self.check_button(ui);
                         if !self.baseline.is_null()
@@ -700,26 +772,29 @@ impl Desktop {
                         self.save_settings();
                     }
                     ui.horizontal_wrapped(|ui| {
-                        ui.colored_label(MUTED, "词表");
-                        if secondary(ui, can_edit, "导入词表").clicked()
+                        ui.colored_label(MUTED, "数据");
+                        if secondary(ui, can_edit && !self.path_dirty, "导出备份").clicked()
                             && let Some(path) = rfd::FileDialog::new()
-                                .add_filter("替换词表", &["tsv", "txt"])
-                                .pick_file()
-                        {
-                            self.submit("import_read", json!({"path":path}), "正在读取词表…");
-                        }
-                        if secondary(
-                            ui,
-                            can_edit && !slice(&self.state, "rules").is_empty(),
-                            "导出词表",
-                        )
-                        .clicked()
-                            && let Some(path) = rfd::FileDialog::new()
-                                .add_filter("替换词表", &["tsv"])
-                                .set_file_name("我的译名.tsv")
+                                .add_filter("BA-JPTR 备份", &["json"])
+                                .set_file_name("BA-JPTR备份.json")
                                 .save_file()
                         {
-                            self.submit("export_rules", json!({"path":path}), "正在导出词表…");
+                            self.submit(
+                                "backup_create",
+                                json!({"path":path,"revision":self.revision()}),
+                                "正在保存备份…",
+                            );
+                        }
+                        if secondary(ui, self.loaded && !self.write_busy(), "恢复备份").clicked()
+                            && let Some(path) = rfd::FileDialog::new()
+                                .add_filter("BA-JPTR 备份", &["json"])
+                                .pick_file()
+                        {
+                            self.submit(
+                                "backup_read",
+                                json!({"path":path,"revision":self.revision()}),
+                                "正在读取备份…",
+                            );
                         }
                     });
                 });

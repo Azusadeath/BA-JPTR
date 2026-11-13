@@ -207,19 +207,19 @@ struct SourceWrite {
     before: Option<Vec<u8>>,
     after: Vec<u8>,
 }
-fn source_locks(root: &Path) -> Result<Vec<Lock>> {
-    ["rules.tsv", "source-history.json"]
+fn document_locks(root: &Path, names: &[&str]) -> Result<Vec<Lock>> {
+    names
         .iter()
         .map(|name| Lock::acquire(&root.join(name)))
         .collect()
 }
-fn rollback_sources(root: &Path, writes: &[SourceWrite]) -> Result<()> {
+fn rollback_documents(root: &Path, journal: &str, writes: &[SourceWrite]) -> Result<()> {
     for write in writes {
         let current = revision(&root.join(&write.name))?;
         let before = write.before.as_deref().map(digest);
         if current != before && current != Some(digest(&write.after)) {
             return Err(invalid(
-                "来源表保存中断后文件又被修改，请保留 sources-transaction.json 并检查数据目录，未覆盖文件。",
+                "成组保存中断后文件又被修改，请保留事务记录并检查数据目录，未覆盖文件。",
             ));
         }
     }
@@ -239,22 +239,48 @@ fn rollback_sources(root: &Path, writes: &[SourceWrite]) -> Result<()> {
             fs::rename(&path, archived)?;
         }
     }
-    fs::remove_file(root.join(SOURCES_TRANSACTION))?;
+    fs::remove_file(root.join(journal))?;
     Ok(())
 }
 pub fn recover_sources(root: &Path) -> Result<()> {
-    let _locks = source_locks(root)?;
-    let bytes = match fs::read(root.join(SOURCES_TRANSACTION)) {
+    recover_documents(
+        root,
+        SOURCES_TRANSACTION,
+        &["rules.tsv", "source-history.json"],
+    )?;
+    recover_documents(
+        root,
+        "replacements-transaction.json",
+        &["rules.tsv", "text-edits.json"],
+    )?;
+    recover_documents(root, "workspace-transaction.json", &crate::backup::FILES)
+}
+pub fn pending_transaction(root: &Path) -> bool {
+    [
+        SOURCES_TRANSACTION,
+        "replacements-transaction.json",
+        "workspace-transaction.json",
+    ]
+    .iter()
+    .any(|name| root.join(name).exists())
+}
+fn recover_documents(root: &Path, journal: &str, names: &[&str]) -> Result<()> {
+    let _locks = document_locks(root, names)?;
+    let bytes = match fs::read(root.join(journal)) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(error.into()),
     };
     let writes: Vec<SourceWrite> = serde_json::from_slice(&bytes)?;
-    if writes.len() != 2 || writes[0].name != "rules.tsv" || writes[1].name != "source-history.json"
+    if writes.len() != names.len()
+        || writes
+            .iter()
+            .zip(names)
+            .any(|(write, name)| write.name != *name)
     {
-        return Err(invalid("来源表事务记录格式无效，未覆盖原文件。"));
+        return Err(invalid("成组保存的事务记录格式无效，未覆盖原文件。"));
     }
-    rollback_sources(root, &writes)
+    rollback_documents(root, journal, &writes)
 }
 impl Store {
     pub fn new(root: PathBuf) -> Self {
@@ -308,18 +334,73 @@ impl Store {
         )
     }
     pub fn save_sources(&mut self, rules: &[u8], history: &[u8]) -> Result<()> {
-        let _locks = source_locks(&self.root)?;
-        if self.root.join(SOURCES_TRANSACTION).exists() {
+        self.save_documents(
+            &[("rules.tsv", rules), ("source-history.json", history)],
+            SOURCES_TRANSACTION,
+        )
+    }
+    pub fn save_replacements(&mut self, rules: &[u8], edits: &[u8]) -> Result<()> {
+        self.save_documents(
+            &[("rules.tsv", rules), ("text-edits.json", edits)],
+            "replacements-transaction.json",
+        )
+    }
+    fn save_documents(&mut self, documents: &[(&str, &[u8])], journal: &str) -> Result<()> {
+        let mut expected = HashMap::new();
+        for (name, _) in documents {
+            if self.failed.iter().any(|failed| failed == name) {
+                return Err(invalid("记录文件读取失败，未保存任何变更。"));
+            }
+            expected.insert(
+                (*name).to_string(),
+                self.revisions
+                    .get(*name)
+                    .ok_or_else(|| invalid("修改记录尚未读取。"))?
+                    .clone(),
+            );
+        }
+        self.save_checked(documents, journal, &expected)
+    }
+    pub fn restore_workspace(
+        &mut self,
+        documents: &std::collections::BTreeMap<String, Vec<u8>>,
+        expected: &HashMap<String, Option<String>>,
+    ) -> Result<()> {
+        let documents = crate::backup::FILES
+            .iter()
+            .map(|name| {
+                documents
+                    .get(*name)
+                    .map(|bytes| (*name, bytes.as_slice()))
+                    .ok_or_else(|| invalid("备份缺少工作区记录，未恢复。"))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        self.save_checked(&documents, "workspace-transaction.json", expected)?;
+        self.failed
+            .retain(|name| !crate::backup::FILES.contains(&name.as_str()));
+        Ok(())
+    }
+    fn save_checked(
+        &mut self,
+        documents: &[(&str, &[u8])],
+        journal: &str,
+        expected: &HashMap<String, Option<String>>,
+    ) -> Result<()> {
+        let names = documents.iter().map(|(name, _)| *name).collect::<Vec<_>>();
+        let _locks = document_locks(&self.root, &names)?;
+        if pending_transaction(&self.root) {
             return Err(invalid(
-                "来源表存在未完成的保存，请重新打开工具恢复后重试。",
+                "记录存在未完成的成组保存，请重新打开工具恢复后重试。",
             ));
         }
         let mut writes = Vec::new();
-        for (name, bytes) in [("rules.tsv", rules), ("source-history.json", history)] {
-            if self.failed.iter().any(|failed| failed == name) {
-                return Err(invalid("来源表记录读取失败，未保存任何变更。"));
-            }
-            self.check(name)?;
+        for &(name, bytes) in documents {
+            check_revision(
+                &self.root.join(name),
+                expected
+                    .get(name)
+                    .ok_or_else(|| invalid("缺少恢复前的文件修订，未保存。"))?,
+            )?;
             let before = match fs::read(self.root.join(name)) {
                 Ok(bytes) => Some(bytes),
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
@@ -331,24 +412,24 @@ impl Store {
                 after: bytes.to_vec(),
             });
         }
-        write_locked(
-            &self.root.join(SOURCES_TRANSACTION),
-            &serde_json::to_vec(&writes)?,
-        )?;
+        write_locked(&self.root.join(journal), &serde_json::to_vec(&writes)?)?;
         let result = (|| -> Result<()> {
             for write in &writes {
                 write_locked(&self.root.join(&write.name), &write.after)?;
             }
-            fs::remove_file(self.root.join(SOURCES_TRANSACTION))?;
+            fs::remove_file(self.root.join(journal))?;
             Ok(())
         })();
         if let Err(error) = result {
-            if let Err(rollback) = rollback_sources(&self.root, &writes) {
+            if let Err(rollback) = rollback_documents(&self.root, journal, &writes) {
                 self.failed
                     .extend(writes.iter().map(|write| write.name.clone()));
-                return Err(invalid(format!(
-                    "来源表保存失败：{error}；回滚未完成：{rollback}。请重新打开工具恢复。"
-                )));
+                return Err(crate::Error::Context {
+                    message:
+                        "成组保存失败，原记录尚未完整恢复。请重新打开工具恢复；详细原因见日志。"
+                            .into(),
+                    source: Box::new(invalid(format!("保存：{error}；回滚：{rollback}"))),
+                });
             }
             return Err(error);
         }

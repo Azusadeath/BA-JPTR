@@ -24,7 +24,7 @@ function Set-CleanEnvironment($Start){
 }
 $startupReport=Join-Path $testRoot 'gui-startup.json'
 $start=[Diagnostics.ProcessStartInfo]::new()
-$start.FileName=Join-Path $copy 'bajptr.exe'
+$start.FileName=Join-Path $copy 'BA-JPTR.exe'
 $start.WorkingDirectory=$foreign
 $start.UseShellExecute=$false
 $start.WindowStyle=[Diagnostics.ProcessWindowStyle]::Hidden

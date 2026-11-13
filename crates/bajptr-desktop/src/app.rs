@@ -38,6 +38,7 @@ pub struct Desktop {
     pub settings_warning: Option<String>,
     pub confirm_record_reset: Option<String>,
     pub rule_selection: Option<usize>,
+    pub reveal_rule: Option<usize>,
     pub search: Arc<Value>,
     pub keyword: String,
     pub search_input: SearchInput,
@@ -52,6 +53,7 @@ pub struct Desktop {
     pub template_changed: Option<Instant>,
     pub text_form: Option<TextForm>,
     pub batch_form: Option<BatchForm>,
+    pub combined_form: Option<CombinedForm>,
     pub batch_scope: Option<BatchScopeForm>,
     pub preview: Option<Arc<Value>>,
     pub preview_row: Option<usize>,
@@ -59,7 +61,7 @@ pub struct Desktop {
     pub edit_view: EditView,
     pub show_logs: bool,
     pub show_about: bool,
-    pub confirm_import: Option<Value>,
+    pub confirm_backup: Option<Value>,
     pub confirm_restore: bool,
     pub confirm_baseline: Option<Value>,
     pub migration_notice: bool,
@@ -70,6 +72,7 @@ pub struct Desktop {
     pub baseline: Value,
     pub output_dir: PathBuf,
     pub hits: Vec<u64>,
+    pub combined_hits: Vec<Value>,
     pub table_detail: Option<Value>,
     pub startup_probe: Option<crate::startup::Probe>,
 }
@@ -108,7 +111,7 @@ impl Desktop {
         }
         app
     }
-    fn initial() -> Self {
+    pub(crate) fn initial() -> Self {
         Self {
             backend: None,
             data_path: None,
@@ -130,6 +133,7 @@ impl Desktop {
             settings_warning: None,
             confirm_record_reset: None,
             rule_selection: None,
+            reveal_rule: None,
             search: Value::Null.into(),
             keyword: String::new(),
             search_input: SearchInput::default(),
@@ -144,6 +148,7 @@ impl Desktop {
             template_changed: None,
             text_form: None,
             batch_form: None,
+            combined_form: None,
             batch_scope: None,
             preview: None,
             preview_row: None,
@@ -151,7 +156,7 @@ impl Desktop {
             edit_view: EditView::default(),
             show_logs: false,
             show_about: false,
-            confirm_import: None,
+            confirm_backup: None,
             confirm_restore: false,
             confirm_baseline: None,
             migration_notice: false,
@@ -162,6 +167,7 @@ impl Desktop {
             baseline: Value::Null,
             output_dir: PathBuf::from("output"),
             hits: Vec::new(),
+            combined_hits: Vec::new(),
             table_detail: None,
             startup_probe: crate::startup::Probe::from_environment(),
         }
@@ -221,6 +227,7 @@ impl Desktop {
         self.baseline = Value::Null;
         self.preview = None;
         self.hits.clear();
+        self.combined_hits.clear();
         self.search_input_changed();
         if self.busy.as_ref().is_some_and(|busy| {
             self.pending.get(&busy.id).is_some_and(|action| {
@@ -282,10 +289,11 @@ impl Desktop {
             || self.template_form.is_some()
             || self.text_form.is_some()
             || self.batch_form.is_some()
+            || self.combined_form.is_some()
             || self.batch_scope.is_some()
             || self.preview.is_some()
             || self.show_edits
-            || self.confirm_import.is_some()
+            || self.confirm_backup.is_some()
             || self.confirm_restore
             || self.confirm_baseline.is_some()
             || self.migration_notice
@@ -350,12 +358,13 @@ impl Desktop {
         self.preview = None;
         self.preview_row = None;
         self.hits.clear();
+        self.combined_hits.clear();
         self.tables.clear();
         self.baseline = Value::Null;
         self.baseline_check = Value::Null;
         self.confirm_baseline = None;
         self.confirm_restore = false;
-        self.confirm_import = None;
+        self.confirm_backup = None;
         self.confirm_record_reset = None;
         self.show_source_notices = false;
         if let Some(form) = &mut self.scope_form {
@@ -383,6 +392,7 @@ impl Desktop {
                 self.template_changed = None;
                 self.text_form = None;
                 self.batch_form = None;
+                self.combined_form = None;
                 self.batch_scope = None;
                 self.show_edits = false;
                 self.table_detail = None;
@@ -470,7 +480,8 @@ impl Desktop {
         if value["settings_warning"] != self.state["settings_warning"] {
             self.settings_warning = value["settings_warning"].as_str().map(str::to_string);
         }
-        let changed = count(&value, "revision") != self.revision();
+        let changed = count(&value, "revision") != self.revision()
+            || value["version"] != self.state["version"];
         let game_changed = text(&value, "game") != text(&self.state, "game");
         if !self.path_dirty {
             self.game = text(&value, "game");
@@ -482,8 +493,10 @@ impl Desktop {
         if changed {
             self.edit_view.selected = None;
             self.hits.clear();
+            self.combined_hits.clear();
             self.preview = None;
             self.rule_selection = None;
+            self.reveal_rule = None;
             if let Some(form) = &mut self.batch_scope {
                 form.selected = None;
                 form.error.clear();
@@ -496,6 +509,7 @@ impl Desktop {
             self.batch_scope = None;
             self.search_source.clear();
             self.rule_selection = None;
+            self.reveal_rule = None;
             self.search = Value::Null.into();
             self.selection.clear();
             self.tables.clear();
@@ -554,6 +568,13 @@ impl Desktop {
             },
             json!({"id":entry["id"],"edit_index":entry["index"]}),
             "正在读取批量修改…",
+        );
+    }
+    pub fn open_combined(&mut self, rule: &Value) {
+        self.submit(
+            "combined_open",
+            json!({"old":rule["old"],"new":rule["new"],"revision":self.revision()}),
+            "正在读取替换内容与范围…",
         );
     }
     pub fn open_batch_scope(&mut self, id: &str) {
@@ -672,6 +693,11 @@ impl Desktop {
                 );
                 self.status = message.clone();
                 match action.as_str() {
+                    "combined_save" => {
+                        if let Some(form) = &mut self.combined_form {
+                            form.error = message;
+                        }
+                    }
                     "settings" => {
                         self.path_dirty = self.game != text(&self.state, "game");
                         self.error = Some(message);
@@ -762,6 +788,40 @@ impl Desktop {
             }
             let data = event.get("data").cloned().unwrap_or(Value::Null);
             match action.as_str() {
+                "promotion_start" => {
+                    self.apply_state(data["state"].clone());
+                    self.status = if count(&data, "count") > 0 {
+                        format!(
+                            "已整理 {} 个整表范围，另有 {} 个范围保留指定文本。",
+                            count(&data, "count"),
+                            count(&data, "retained")
+                        )
+                    } else {
+                        "没有可转换的整表范围，现有批量修改已保留。".into()
+                    };
+                    if data["backup"].is_string() {
+                        self.log(
+                            format!("整理前的记录已备份：{}", text(&data, "backup")),
+                            None,
+                        );
+                    }
+                    for item in slice(&data, "retained_items") {
+                        self.log(
+                            format!(
+                                "保留批量修改：{} · {} → {}：{}",
+                                text(item, "label"),
+                                text(item, "old"),
+                                text(item, "new"),
+                                text(item, "reason")
+                            ),
+                            None,
+                        );
+                    }
+                }
+                "combined_open" => {
+                    self.combined_form = Some(CombinedForm::new(data));
+                    self.status = "正在编辑替换。".into();
+                }
                 "load" => {
                     self.apply_state(data);
                     self.loaded = true;
@@ -772,8 +832,19 @@ impl Desktop {
                         self.log(message.into(), Some(crate::logging::Level::Warning));
                     }
                     if !self.healthy() {
+                        let errors = self.state["errors"]
+                            .as_object()
+                            .into_iter()
+                            .flatten()
+                            .map(|(name, error)| {
+                                format!("{name}：{}", error.as_str().unwrap_or(""))
+                            })
+                            .collect::<Vec<_>>();
+                        for error in errors {
+                            self.log(error, Some(crate::logging::Level::Error));
+                        }
                         self.show_recovery_error(
-                            "记录文件读取失败，原文件已保留。请打开数据目录检查；损坏的词表和修改记录可归档并重置。".into(),
+                            "部分记录无法读取，原文件已保留。".into(),
                             ErrorRecovery::Records,
                         );
                         self.connected = false;
@@ -781,7 +852,7 @@ impl Desktop {
                     } else if !self.game.is_empty() {
                         self.submit("check", json!({}), "正在检查游戏目录…");
                     } else {
-                        self.status = "先选择游戏目录，再添加或导入词条。".into();
+                        self.status = "请选择游戏目录，或恢复已有备份。".into();
                     }
                 }
                 "settings" => {
@@ -810,7 +881,7 @@ impl Desktop {
                             {
                                 self.migration_notice = true;
                             }
-                            self.status = "底稿已就绪。修改自动保存，预览后应用。".into();
+                            self.status = "底稿已就绪。".into();
                             self.background_tables();
                         }
                         "blocked" => {
@@ -849,6 +920,7 @@ impl Desktop {
                     self.selection.clear();
                     self.preview = None;
                     self.hits.clear();
+                    self.combined_hits.clear();
                     self.tables.clear();
                     self.submit("check", json!({}), "底稿已保存，正在核对…");
                 }
@@ -860,7 +932,7 @@ impl Desktop {
                         format!("损坏记录已归档：{}", text(&data, "archived")),
                         Some(crate::logging::Level::Warning),
                     );
-                    self.status = "损坏记录已归档并重置。".into();
+                    self.status = "记录已清空，原文件已保留。".into();
                     if self.healthy() && !self.game.is_empty() && !self.path_dirty {
                         self.submit("check", json!({}), "记录已重置，正在重新核对底稿…");
                     } else if !self.healthy() {
@@ -880,10 +952,7 @@ impl Desktop {
                     self.migration_form =
                         (!review.is_empty()).then(|| MigrationForm::new(data["plan"].clone()));
                     self.status = if review.is_empty() {
-                        format!(
-                            "已自动迁移 {} 段，预览后应用到游戏。",
-                            count(&data, "automatic_count")
-                        )
+                        format!("已自动迁移 {} 段。", count(&data, "automatic_count"))
                     } else {
                         format!(
                             "已自动迁移 {} 段，{} 段待核对。",
@@ -914,10 +983,7 @@ impl Desktop {
                         .iter()
                         .filter(|e| e["active"] == false)
                         .count();
-                    self.status = format!(
-                        "已迁移 {} 段文本，预览后应用到游戏。",
-                        count(&data, "count")
-                    );
+                    self.status = format!("已迁移 {} 段文本。", count(&data, "count"));
                     self.log(
                         format!("迁移前的修改记录已备份：{}", text(&data, "backup")),
                         None,
@@ -981,7 +1047,13 @@ impl Desktop {
                     if action == "batch_save" {
                         self.batch_form = None;
                     }
-                    self.status = "修改已保存，预览后应用到游戏。".into();
+                    self.status = "修改已保存。".into();
+                }
+                "combined_save" | "combined_remove" => {
+                    self.apply_state(data);
+                    self.combined_form = None;
+                    self.rule_selection = None;
+                    self.status = "修改已保存。".into();
                 }
                 "search" => {
                     self.search = data.into();
@@ -994,20 +1066,11 @@ impl Desktop {
                     self.restore_context_status();
                 }
                 "text_open" => {
-                    self.status = "编辑完整文本，保存后预览并应用。".into();
-                    self.text_form = Some(TextForm {
-                        nonce: text(&data, "nonce"),
-                        label: text(&data, "label"),
-                        original: text(&data, "original"),
-                        value: text(&data, "text"),
-                        has_batch: data["has_batch"] == true,
-                        show_original: false,
-                        error: String::new(),
-                        notice: String::new(),
-                    });
+                    self.status = "正在编辑文本。".into();
+                    self.text_form = Some(TextForm::new(data));
                 }
                 "batch_open" => {
-                    self.status = "编辑批量修改，保存后预览并应用。".into();
+                    self.status = "正在编辑批量修改。".into();
                     self.batch_form = Some(BatchForm {
                         group_id: text(&data, "id"),
                         indices: (0..count(&data, "count") as usize).collect(),
@@ -1053,6 +1116,10 @@ impl Desktop {
                     self.restore_context_status();
                 }
                 "preview" => {
+                    if let Some(application) = data["application"].as_str() {
+                        self.application = application.into();
+                    }
+                    self.combined_hits = list(&data["stats"], "combined_hits");
                     self.hits = list(&data["stats"], "rule_hits")
                         .iter()
                         .map(|r| {
@@ -1073,11 +1140,7 @@ impl Desktop {
                     let nonce = text(&data, "nonce");
                     self.preview = Some(data.into());
                     if can_prepare {
-                        self.submit(
-                            "prepare_patch",
-                            json!({"nonce":nonce}),
-                            "预览已就绪，正在后台准备补丁…",
-                        );
+                        self.submit("prepare_patch", json!({"nonce":nonce}), "正在准备应用…");
                     }
                 }
                 "prepare_patch" => {
@@ -1089,20 +1152,62 @@ impl Desktop {
                         preview["preparation_error"] = json!("");
                         preview["prepared_reused"] = data["reused"].clone();
                     }
-                    self.status = "补丁已准备，可在预览界面确认应用。".into();
+                    self.status = "已准备就绪。".into();
                 }
                 "baseline" => {
                     self.set_baseline(data);
                     self.status = "初始底稿已检查。".into();
                 }
-                "import_read" => {
-                    if list(&self.state, "rules").is_empty() {
-                        self.submit("import_commit", data, "正在导入词表…");
-                    } else {
-                        self.confirm_import = Some(data);
+                "backup_read" => {
+                    self.confirm_backup = Some(data);
+                }
+                "backup_restore" => {
+                    self.path_dirty = false;
+                    self.apply_state(data["state"].clone());
+                    self.connected = false;
+                    self.sources_ready = false;
+                    self.tables.clear();
+                    self.baseline = Value::Null;
+                    self.baseline_check = Value::Null;
+                    self.confirm_baseline = None;
+                    self.confirm_backup = None;
+                    self.error = None;
+                    self.error_recovery = None;
+                    self.confirm_record_reset = None;
+                    self.rule_selection = None;
+                    self.edit_view = EditView::default();
+                    self.selection.clear();
+                    self.search = Value::Null.into();
+                    self.preview = None;
+                    self.rule_form = None;
+                    self.text_form = None;
+                    self.batch_form = None;
+                    self.combined_form = None;
+                    self.batch_scope = None;
+                    self.scope_form = None;
+                    self.table_detail = None;
+                    self.show_source_notices = false;
+                    self.template_form = None;
+                    self.template_changed = None;
+                    self.show_edits = false;
+                    self.migration_form = None;
+                    self.migration_notice = false;
+                    self.migration_prompted.clear();
+                    self.log(
+                        format!("恢复备份前的数据已保留：{}", text(&data, "recovery")),
+                        None,
+                    );
+                    self.status = "备份已恢复，请检查游戏目录。".into();
+                    if !self.healthy() {
+                        self.show_recovery_error(
+                            "备份已恢复，但应用状态记录仍有读取错误，请查看日志并修复。".into(),
+                            ErrorRecovery::Records,
+                        );
+                    } else if !self.game.is_empty() {
+                        self.submit("check", json!({}), "备份已恢复，正在检查游戏目录…");
                     }
                 }
-                "apply" | "restore" | "export_text" | "export_rules" => {
+                "apply" | "restore" | "export_text" | "export_rules" | "backup_create" => {
                     self.status = text(&data, "message");
                     let warning = text(&data, "warning");
                     if !warning.is_empty() {
@@ -1526,7 +1631,7 @@ mod view_tests {
                 labels = draw(&mut app, vec![]);
             }
             assert!(labels.iter().any(|(text, _)| text == "关闭警告"));
-            for label in ["打开数据目录", "归档并重置…", "打开备份位置", "尝试重建"]
+            for label in ["打开数据目录", "清空记录…", "打开备份位置", "尝试重建"]
             {
                 assert!(
                     !labels.iter().any(|(text, _)| text == label),
@@ -1563,10 +1668,11 @@ mod view_tests {
                 labels = draw(&mut app, vec![]);
             }
             assert!(labels.iter().any(|(text, _)| text == "打开数据目录"));
+            assert!(labels.iter().any(|(text, _)| text == "单条与批量修改"));
             assert!(!labels.iter().any(|(text, _)| text == "尝试重建"));
             let position = labels
                 .iter()
-                .find(|(text, _)| text == "归档并重置…")
+                .find(|(text, _)| text == "清空记录…")
                 .unwrap()
                 .1
                 .center();
@@ -1575,6 +1681,11 @@ mod view_tests {
             }
             assert_eq!(app.confirm_record_reset.as_deref(), Some("text-edits.json"));
             assert!(app.pending.is_empty(), "reset requires confirmation");
+            for _ in 0..3 {
+                labels = draw(&mut app, vec![]);
+            }
+            assert!(labels.iter().any(|(text, _)| text == "清空单条与批量修改"));
+            assert!(labels.iter().any(|(text, _)| text == "确认清空"));
             app.confirm_record_reset = None;
             app.apply_state(
                 json!({"game":"test-game","revision":1,"errors":{},"settings_warning":null}),
@@ -1634,7 +1745,7 @@ mod view_tests {
         }
         let save = labels
             .iter()
-            .find(|(t, ..)| t == "保存迁移（0 段）")
+            .find(|(t, ..)| t == "保存已确认（0 段）")
             .unwrap()
             .1;
         let footer = labels
@@ -1675,7 +1786,7 @@ mod view_tests {
         labels = draw(&mut app, vec![]);
         let position = labels
             .iter()
-            .find(|(t, ..)| t == "确认 1 处并继续")
+            .find(|(t, ..)| t == "确认本组（1 处）")
             .unwrap()
             .1
             .center();
@@ -1728,10 +1839,10 @@ mod view_tests {
             }
         }
         assert_eq!(app.migration_form.as_ref().unwrap().confirmed_count(), 1);
-        assert!(labels.iter().any(|(t, ..)| t == "保存迁移（1 段）"));
+        assert!(labels.iter().any(|(t, ..)| t == "保存已确认（1 段）"));
         let position = labels
             .iter()
-            .find(|(t, ..)| t == "已确认 1")
+            .find(|(t, ..)| t == "已确认 1 组")
             .unwrap()
             .1
             .center();
@@ -2436,7 +2547,7 @@ mod view_tests {
             .map(|i| format!("detail-{i:03}\n"))
             .collect::<String>();
         let changes: Vec<_> = (0..80)
-            .map(|i| json!({"kind":"新增","table":"test","original":original,"before":format!("row-{i:03}"),"after":format!("result-{i:03}")}))
+            .map(|i| json!({"kind":"新增","table":"test","original":original,"before":format!("row-{i:03}\n{original}"),"after":format!("result-{i:03}")}))
             .collect();
         app.preview = Some(Arc::new(
             json!({"total_changes":80,"prepared":true,"stats":{"added":80,"changes":changes}}),
@@ -2474,10 +2585,14 @@ mod view_tests {
         for _ in 0..6 {
             baseline = draw(vec![]);
         }
-        let table = baseline.iter().find(|v| v.0 == "row-000").unwrap().2;
+        let table = baseline
+            .iter()
+            .find(|v| v.0.starts_with("row-000 "))
+            .unwrap()
+            .2;
         let detail = baseline
             .iter()
-            .find(|v| v.0.starts_with("底稿原文：detail-"))
+            .find(|v| v.0.starts_with("row-000\n"))
             .unwrap()
             .clone();
         let wheel = |position| {
@@ -2500,7 +2615,7 @@ mod view_tests {
         let visible_rows = |shapes: &[(String, egui::Pos2, egui::Rect)]| {
             shapes
                 .iter()
-                .filter(|v| v.0.starts_with("row-"))
+                .filter(|v| v.0.starts_with("row-") && !v.0.contains('\n'))
                 .map(|v| v.0.clone())
                 .collect::<Vec<_>>()
         };
@@ -2511,7 +2626,7 @@ mod view_tests {
         );
         let detail_after_table = after_table
             .iter()
-            .find(|v| v.0.starts_with("底稿原文：detail-"))
+            .find(|v| v.0.starts_with("row-000\n"))
             .unwrap();
         assert!(
             (detail_after_table.1.y - detail.1.y).abs() < 1.,
@@ -2534,7 +2649,7 @@ mod view_tests {
         );
         let detail_after = after_detail
             .iter()
-            .find(|v| v.0.starts_with("底稿原文：detail-"))
+            .find(|v| v.0.starts_with("row-000\n"))
             .unwrap();
         assert!(
             detail_after.1.y < detail_after_table.1.y - 20.,
@@ -2747,4 +2862,79 @@ mod view_tests {
         );
         assert!(draw(click(1, egui::Modifiers::NONE), egui::Modifiers::NONE, 3.1).2);
     }
+}
+#[test]
+fn backup_controls_and_restore_summary_remain_visible_at_minimum_size() {
+    let ctx = egui::Context::default();
+    crate::theme::install(&ctx);
+    let mut app = Desktop::initial();
+    app.loaded = true;
+    app.state = json!({"errors":{"rules.tsv":"损坏"}}).into();
+    let mut frame = 0;
+    let mut draw = |app: &mut Desktop, dialog: bool| {
+        frame += 1;
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(900., 620.),
+                )),
+                time: Some(f64::from(frame) / 60.),
+                ..Default::default()
+            },
+            |ui| {
+                if dialog {
+                    app.dialogs(ui.ctx());
+                } else {
+                    app.tools_page(ui);
+                }
+            },
+        );
+        output.textures_delta.clear();
+        output
+            .shapes
+            .into_iter()
+            .filter_map(|shape| match shape.shape {
+                egui::Shape::Text(text) => Some((
+                    text.galley.text().to_string(),
+                    egui::Rect::from_min_size(text.pos, text.galley.size()),
+                    shape.clip_rect,
+                )),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    let mut labels = vec![];
+    for _ in 0..3 {
+        labels = draw(&mut app, false);
+    }
+    for label in ["导出备份", "恢复备份"] {
+        let (_, rect, clip) = labels.iter().find(|(text, _, _)| text == label).unwrap();
+        assert!(clip.contains_rect(*rect));
+    }
+    assert!(
+        !labels
+            .iter()
+            .any(|(text, _, _)| text == "导入词表" || text == "导出词表")
+    );
+    app.confirm_backup = Some(
+        json!({"nonce":"test","rule_count":12,"edit_count":34,"game":"D:/日服游戏","skip_kana":false}),
+    );
+    for _ in 0..3 {
+        labels = draw(&mut app, true);
+    }
+    for label in [
+        "词条 12 条 · 指定文本修改 34 条",
+        "游戏目录：D:/日服游戏",
+        "跳过含日文假名的文本：未勾选",
+        "取消",
+    ] {
+        let (_, rect, clip) = labels.iter().find(|(text, _, _)| text == label).unwrap();
+        assert!(
+            clip.contains_rect(*rect) && rect.bottom() < 620.,
+            "{label} is clipped"
+        );
+    }
+    assert!(app.confirm_backup.is_some());
+    assert!(app.pending.is_empty());
 }

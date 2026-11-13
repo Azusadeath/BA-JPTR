@@ -36,6 +36,7 @@ fn index(value: &Value, key: &str) -> Result<usize> {
 enum Document {
     Rules(Vec<Rule>),
     Edits(Vec<Edit>),
+    Replacements(Vec<Rule>, Vec<Edit>),
 }
 pub struct Project {
     pub data: PathBuf,
@@ -57,6 +58,9 @@ pub struct Project {
     preview: Value,
     text_draft: Value,
     batch_draft: Value,
+    combined_draft: Value,
+    promotion_draft: Value,
+    backup_draft: Value,
     migration_draft: Value,
     pub version: Option<String>,
     tables: Value,
@@ -88,6 +92,9 @@ impl Project {
             preview: Value::Null,
             text_draft: Value::Null,
             batch_draft: Value::Null,
+            combined_draft: Value::Null,
+            promotion_draft: Value::Null,
+            backup_draft: Value::Null,
             migration_draft: Value::Null,
             version: None,
             tables: json!([]),
@@ -165,9 +172,9 @@ impl Project {
         self.state()
     }
     fn require(&self, revision: Option<&Value>) -> Result<()> {
-        if self.store.root.join("sources-transaction.json").exists() {
+        if storage::pending_transaction(&self.store.root) {
             return Err(invalid(
-                "来源表保存尚未完成，请重新打开工具恢复后再修改或替换。",
+                "记录保存尚未完成，请重新打开工具恢复后再修改或替换。",
             ));
         }
         if self.errors.as_object().is_some_and(|o| !o.is_empty()) {
@@ -189,6 +196,9 @@ impl Project {
         self.revision += 1;
         self.preview = Value::Null;
         self.batch_draft = Value::Null;
+        self.combined_draft = Value::Null;
+        self.promotion_draft = Value::Null;
+        self.backup_draft = Value::Null;
         self.application = "词表已保存，尚未应用".into();
     }
     fn commit(&mut self, document: Document, record: bool) -> Result<()> {
@@ -202,6 +212,20 @@ impl Project {
     ) -> Result<()> {
         self.require(None)?;
         let previous = match document {
+            Document::Replacements(rules, edits) => {
+                let rules = model::normalize(rules)?;
+                let rule_bytes = model::rules_bytes(&rules)?;
+                let edit_bytes = model::edits_bytes(&edits)?;
+                if rules == self.rules && edits == self.edits {
+                    return Ok(());
+                }
+                control.check()?;
+                self.store.save_replacements(&rule_bytes, &edit_bytes)?;
+                Document::Replacements(
+                    std::mem::replace(&mut self.rules, rules),
+                    std::mem::replace(&mut self.edits, edits),
+                )
+            }
             Document::Rules(values) => {
                 let values = if let Some(names) = &self.source_current {
                     sources::freeze(&values, &names.iter().cloned().collect())?
@@ -469,14 +493,14 @@ impl Project {
                     row["active"] = json!(row["active"] == true && active);
                 } else {
                     positions.insert(operation.id.clone(), batches.len());
-                    batches.push(json!({"id":operation.id,"old":operation.old,"new":operation.new,"count":1,"active":active}));
+                    batches.push(json!({"id":operation.id,"old":operation.old,"new":operation.new,"count":1,"active":active,"version":edit.version}));
                 }
             } else {
                 batches.push(json!({"index":index,"old":edit.original,"new":edit.replacement,"count":1,"active":active,"label":model::title(&edit.table)}));
             }
         }
         Ok(
-            json!({"game":self.game,"skip_kana":self.skip,"revision":self.revision,"rules":rules,"edits":edits,"batches":batches,"errors":self.errors,"messages":self.messages,"settings_warning":self.settings_warning,"can_undo":!self.undo.is_empty(),"can_redo":!self.redo.is_empty(),"templates":templates::metadata(),"search":self.search_state()?,"application":self.application,"source_notices":self.source_notices()?}),
+            json!({"game":self.game,"version":self.version,"skip_kana":self.skip,"revision":self.revision,"rules":rules,"edits":edits,"batches":batches,"errors":self.errors,"messages":self.messages,"settings_warning":self.settings_warning,"can_undo":!self.undo.is_empty(),"can_redo":!self.redo.is_empty(),"templates":templates::metadata(),"search":self.search_state()?,"application":self.application,"source_notices":self.source_notices()?}),
         )
     }
     // Only read-operation state is rolled back by cancellation. Persisted edits are never rolled back.
@@ -517,6 +541,12 @@ impl Project {
                 | "text_save"
                 | "batch_preview"
                 | "batch_open"
+                | "combined_open"
+                | "combined_save"
+                | "combined_remove"
+                | "promotion_preview"
+                | "promotion_start"
+                | "promotion_commit"
                 | "batch_save"
                 | "preview"
                 | "prepare_patch"
@@ -541,6 +571,288 @@ impl Project {
             }
         }
         match action {
+            "backup_create" => {
+                self.require(p.get("revision"))?;
+                let snapshot = crate::backup::capture(&self.store.root, control)?;
+                for name in ["rules.tsv", "text-edits.json", "source-history.json"] {
+                    self.store.check(name)?;
+                }
+                let bundle = snapshot.bundle()?;
+                let decoded = bundle.decode()?;
+                if decoded.settings["game"].as_str().unwrap_or("") != self.game
+                    || decoded.settings["skip_kana"].as_bool().unwrap_or(true) != self.skip
+                {
+                    return Err(invalid("设置已被其他窗口修改，请重新打开工具后备份。"));
+                }
+                bundle.write(Path::new(text(p, "path")?), &self.store.root, control)?;
+                Ok(json!({"message":"备份已保存，包含词表、指定文本修改、游戏目录和选项。"}))
+            }
+            "backup_read" => {
+                if storage::pending_transaction(&self.store.root) {
+                    return Err(invalid(
+                        "记录保存尚未完成，请重新打开工具恢复后再恢复备份。",
+                    ));
+                }
+                if p.get("revision")
+                    .is_some_and(|value| value.as_u64() != Some(self.revision))
+                {
+                    return Err(invalid("当前记录已变化，请重新选择备份。"));
+                }
+                self.backup_draft = Value::Null;
+                control.check()?;
+                let bundle = crate::backup::Bundle::read(Path::new(text(p, "path")?))?;
+                let decoded = bundle.decode()?;
+                let snapshot = crate::backup::capture(&self.store.root, control)?;
+                let nonce = nonce();
+                self.backup_draft = json!({"nonce":nonce,"revision":self.revision,"bundle":bundle,"expected":snapshot.revisions()});
+                Ok(
+                    json!({"nonce":nonce,"rule_count":decoded.rules.len(),"edit_count":decoded.edits.len(),"game":decoded.settings["game"].as_str().unwrap_or(""),"skip_kana":decoded.settings["skip_kana"].as_bool().unwrap_or(true)}),
+                )
+            }
+            "backup_restore" => {
+                let draft = self.backup_draft.clone();
+                if storage::pending_transaction(&self.store.root)
+                    || draft.is_null()
+                    || draft["nonce"] != p["nonce"]
+                    || draft["revision"] != self.revision
+                {
+                    return Err(invalid("恢复备份的上下文已失效，请重新选择备份。"));
+                }
+                let bundle: crate::backup::Bundle =
+                    serde_json::from_value(draft["bundle"].clone())?;
+                let decoded = bundle.decode()?;
+                let documents = bundle.documents();
+                let templates = Templates::from_bytes(
+                    self.store.root.join("template-drafts.json"),
+                    &documents["template-drafts.json"],
+                )?;
+                let expected = serde_json::from_value(draft["expected"].clone())?;
+                let current = crate::backup::capture(&self.store.root, control)?;
+                if current.revisions() != expected {
+                    return Err(invalid("当前数据在选择备份后发生变化，请重新选择备份。"));
+                }
+                control.check()?;
+                let commit = control.uncancellable();
+                let recovery = current.archive(&self.store.root, &commit)?;
+                self.store.restore_workspace(&documents, &expected)?;
+                self.engine.close();
+                self.rules = decoded.rules;
+                self.edits = decoded.edits;
+                self.game = decoded.settings["game"].as_str().unwrap_or("").into();
+                self.skip = decoded.settings["skip_kana"].as_bool().unwrap_or(true);
+                self.source_history = decoded.sources;
+                self.templates = templates;
+                self.settings_warning = None;
+                for name in crate::backup::FILES {
+                    self.errors.as_object_mut().unwrap().remove(name);
+                }
+                self.undo.clear();
+                self.redo.clear();
+                self.search = Value::Null;
+                self.searches.clear();
+                self.text_draft = Value::Null;
+                self.tables = json!([]);
+                self.version = None;
+                self.source_current = None;
+                self.changed();
+                self.application = "备份已恢复，请检查游戏目录并预览。".into();
+                Ok(json!({"state":self.state()?,"recovery":recovery}))
+            }
+            "promotion_start" => {
+                let plan = self.dispatch("promotion_preview", p, control)?;
+                let retained = plan["items"].as_array().unwrap().len() as u64
+                    - plan["count"].as_u64().unwrap();
+                let mut result = if plan["count"] == 0 {
+                    json!({"state":self.state()?,"count":0,"backup":null})
+                } else {
+                    self.dispatch("promotion_commit", &json!({"nonce":plan["nonce"]}), control)?
+                };
+                result["retained"] = json!(retained);
+                result["retained_items"] = json!(
+                    plan["items"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .filter(|item| item["reason"]
+                            .as_str()
+                            .is_some_and(|reason| !reason.is_empty()))
+                        .collect::<Vec<_>>()
+                );
+                Ok(result)
+            }
+            "promotion_preview" => {
+                self.require(p.get("revision"))?;
+                self.promotion_draft = Value::Null;
+                let status = self.engine.baseline_status(
+                    &self.game,
+                    &self.data.join("backup"),
+                    &self.data,
+                    control,
+                )?;
+                let version = self.current_version(control)?;
+                let plan =
+                    self.engine
+                        .promotion_plan(&self.game, &self.data, &self.config(), control)?;
+                let current = self.engine.baseline_status(
+                    &self.game,
+                    &self.data.join("backup"),
+                    &self.data,
+                    control,
+                )?;
+                if current["state"] != "ready" || current["token"] != status["token"] {
+                    return Err(invalid("底稿或游戏资源在核对期间变化，请重新整理。"));
+                }
+                let count = plan
+                    .items
+                    .iter()
+                    .filter(|item| item.reason.is_empty())
+                    .count();
+                let nonce = nonce();
+                self.promotion_draft = json!({"nonce":nonce,"revision":self.revision,"version":version,"game":model::game_key(&self.game)?,"skip":self.skip,"token":status["token"],"rules":plan.rules,"edits":plan.edits,"count":count});
+                Ok(json!({"nonce":nonce,"items":plan.items,"count":count}))
+            }
+            "promotion_commit" => {
+                let draft = self.promotion_draft.clone();
+                if draft.is_null()
+                    || draft["nonce"] != p["nonce"]
+                    || draft["count"] == 0
+                    || draft["game"] != model::game_key(&self.game)?
+                    || draft["skip"] != self.skip
+                {
+                    return Err(invalid("整理结果已失效，请重新核对。"));
+                }
+                self.context(text(&draft, "version")?, &draft["revision"], control)?;
+                let status = self.engine.baseline_status(
+                    &self.game,
+                    &self.data.join("backup"),
+                    &self.data,
+                    control,
+                )?;
+                if status["state"] != "ready" || status["token"] != draft["token"] {
+                    return Err(invalid("底稿或游戏资源已变化，请重新整理。"));
+                }
+                let rules = serde_json::from_value(draft["rules"].clone())?;
+                let edits = serde_json::from_value(draft["edits"].clone())?;
+                let mut originals = Vec::new();
+                for name in ["rules.tsv", "text-edits.json"] {
+                    self.store.check(name)?;
+                    let bytes = match fs::read(self.store.root.join(name)) {
+                        Ok(bytes) => Some(bytes),
+                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                        Err(error) => return Err(error.into()),
+                    };
+                    originals.push((name, bytes));
+                }
+                control.check()?;
+                let commit = control.uncancellable();
+                let backup = self
+                    .store
+                    .root
+                    .join("recovery")
+                    .join(format!("batch-promotion-{}", nonce()));
+                fs::create_dir_all(&backup)?;
+                for (name, bytes) in &originals {
+                    if let Some(bytes) = bytes {
+                        storage::atomic_write(&backup.join(name), bytes, Some(&None))?;
+                    }
+                }
+                storage::atomic_write(
+                    &backup.join("info.json"),
+                    &serde_json::to_vec_pretty(
+                        &json!({"format":1,"game":draft["game"],"version":draft["version"],"files":originals.iter().map(|(name,bytes)|json!({"name":name,"existed":bytes.is_some()})).collect::<Vec<_>>()}),
+                    )?,
+                    Some(&None),
+                )?;
+                self.commit_controlled(Document::Replacements(rules, edits), true, &commit)?;
+                self.promotion_draft = Value::Null;
+                Ok(json!({"state":self.state()?,"count":draft["count"],"backup":backup}))
+            }
+            "combined_open" => {
+                self.require(p.get("revision"))?;
+                let old = text(p, "old")?;
+                let new = text(p, "new")?;
+                let version = self.current_version(control)?;
+                let game = model::game_key(&self.game)?;
+                let rules = self
+                    .rules
+                    .iter()
+                    .filter(|rule| crate::combined::rule_matches(rule, old, new))
+                    .collect::<Vec<_>>();
+                let tables = rules
+                    .iter()
+                    .map(|rule| model::scopes(&rule.table))
+                    .collect::<Result<Vec<_>>>()?
+                    .into_iter()
+                    .flatten()
+                    .flatten()
+                    .collect::<BTreeSet<_>>();
+                let members=self.edits.iter().enumerate().filter(|(_,edit)|crate::combined::batch_matches(edit,&game,&version,old,new)).map(|(index,edit)|json!({"index":index,"edit":edit,"label":model::title(&edit.table)})).collect::<Vec<_>>();
+                if rules.is_empty() || members.is_empty() {
+                    return Err(invalid("合并替换已变化，请重新打开。"));
+                }
+                let nonce = nonce();
+                self.combined_draft = json!({"nonce":nonce,"old":old,"new":new,"version":version,"revision":self.revision});
+                Ok(json!({"nonce":nonce,"old":old,"new":new,"tables":tables,"members":members}))
+            }
+            "combined_save" => {
+                let draft = self.combined_draft.clone();
+                if draft.is_null() || p["nonce"] != draft["nonce"] {
+                    return Err(invalid("合并编辑上下文已失效，请重新打开。"));
+                }
+                let version = text(&draft, "version")?;
+                self.context(version, &draft["revision"], control)?;
+                let tables: BTreeSet<String> = serde_json::from_value(p["tables"].clone())?;
+                let available: Vec<String> = serde_json::from_value(self.engine.tables(
+                    &self.game,
+                    &self.data.join("backup"),
+                    control,
+                )?)?;
+                if tables.iter().any(|table| !available.contains(table)) {
+                    return Err(invalid("整表范围包含不存在的来源表，请重新选择。"));
+                }
+                let removed = serde_json::from_value(p["removed"].clone())?;
+                let (rules, edits) = crate::combined::update(
+                    &self.rules,
+                    &self.edits,
+                    crate::combined::Change {
+                        game: &model::game_key(&self.game)?,
+                        version,
+                        old: text(&draft, "old")?,
+                        new: text(&draft, "new")?,
+                        next_old: text(p, "old")?,
+                        next_new: text(p, "new")?,
+                        tables,
+                        removed,
+                    },
+                )?;
+                self.commit_controlled(Document::Replacements(rules, edits), true, control)?;
+                self.combined_draft = Value::Null;
+                self.state()
+            }
+            "combined_remove" => {
+                self.require(p.get("revision"))?;
+                let version = self.current_version(control)?;
+                let game = model::game_key(&self.game)?;
+                let old = text(p, "old")?;
+                let new = text(p, "new")?;
+                let rules = self
+                    .rules
+                    .iter()
+                    .filter(|rule| !crate::combined::rule_matches(rule, old, new))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                let edits = self
+                    .edits
+                    .iter()
+                    .filter(|edit| !crate::combined::batch_matches(edit, &game, &version, old, new))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                if rules.len() == self.rules.len() || edits.len() == self.edits.len() {
+                    return Err(invalid("合并替换已变化，请重新选择。"));
+                }
+                self.commit_controlled(Document::Replacements(rules, edits), true, control)?;
+                self.state()
+            }
             "baseline_rebuild_preview" => {
                 self.engine
                     .rebuild_baseline(&self.game, &self.data.join("backup"), None, control)
@@ -569,8 +881,10 @@ impl Project {
                 Ok(result)
             }
             "reset_record" => {
-                if self.store.root.join("sources-transaction.json").exists() {
-                    return Err(invalid("请先重新打开工具恢复来源表保存，再处理损坏记录。"));
+                if storage::pending_transaction(&self.store.root) {
+                    return Err(invalid(
+                        "请先重新打开工具恢复未完成的保存，再处理损坏记录。",
+                    ));
                 }
                 if p["revision"].as_u64() != Some(self.revision) {
                     return Err(invalid("修改记录已变化，请重新检查后重置。"));
@@ -606,6 +920,11 @@ impl Project {
                 Ok(state)
             }
             "settings" => {
+                if storage::pending_transaction(&self.store.root) {
+                    return Err(invalid(
+                        "记录保存尚未完成，请重新打开工具恢复后再保存设置。",
+                    ));
+                }
                 if p["revision"].as_u64() != Some(self.revision) {
                     return Err(invalid("设置已变化，请重试。"));
                 }
@@ -866,6 +1185,9 @@ impl Project {
                     let current = match &value {
                         Document::Rules(_) => Document::Rules(self.rules.clone()),
                         Document::Edits(_) => Document::Edits(self.edits.clone()),
+                        Document::Replacements(..) => {
+                            Document::Replacements(self.rules.clone(), self.edits.clone())
+                        }
                     };
                     self.commit(value, false)?;
                     if undo {
@@ -1022,7 +1344,7 @@ impl Project {
                 let nonce = nonce();
                 self.text_draft = json!({"nonce":nonce,"row":row,"version":version,"revision":self.revision,"initial":value,"batch":batch});
                 Ok(
-                    json!({"nonce":nonce,"original":row.3,"text":value,"label":model::title(&row.0),"row_id":row.1,"slot":row.2,"has_batch":!batch && grouped_batch.is_some()}),
+                    json!({"nonce":nonce,"original":row.3,"text":value,"label":model::title(&row.0),"row_id":row.1,"slot":row.2,"has_batch":!batch && grouped_batch.is_some(),"batch_operation":if batch {None}else{grouped_batch.and_then(|edit|edit.batch_operation.as_ref()).map(|operation|json!({"old":operation.old,"new":operation.new}))}}),
                 )
             }
             "text_save" => {
@@ -1293,9 +1615,19 @@ impl Project {
                 let stats = self
                     .engine
                     .preview(&self.game, &self.data, &self.config(), control)?;
+                self.application = if stats["parse_failed"] != 0 {
+                    "预览存在错误，无法核对应用状态"
+                } else if service::total(&stats) == 0 {
+                    "当前游戏文字与词表一致"
+                } else {
+                    "词表已保存，尚未应用"
+                }
+                .into();
                 let nonce = nonce();
                 self.preview = json!({"nonce":nonce,"stats":stats,"revision":self.revision});
-                Ok(json!({"nonce":nonce,"total_changes":service::total(&stats),"stats":stats}))
+                Ok(
+                    json!({"nonce":nonce,"total_changes":service::total(&stats),"stats":stats,"application":self.application}),
+                )
             }
             "prepare_patch" | "apply" => {
                 self.require(None)?;

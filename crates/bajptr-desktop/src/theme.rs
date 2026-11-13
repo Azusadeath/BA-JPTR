@@ -130,6 +130,13 @@ pub enum Icon {
     Text,
     Preview,
     Apply,
+    Save,
+    Confirm,
+    Insert,
+    MoveOut,
+    Merge,
+    Locate,
+    Tables,
     Folder,
     Refresh,
     Search,
@@ -144,17 +151,28 @@ impl Icon {
         Some(match label {
             "添加词条" | "用此表添加词条" => Self::Add,
             "编辑" | "编辑文本" => Self::Edit,
-            "移除" | "移除单条修改" => Self::Remove,
+            "移除" => Self::Remove,
             "撤销" => Self::Undo,
             "重做" => Self::Redo,
-            "导入词表" => Self::Import,
-            "导出词表" | "导出底稿文本" | "导出日志" => Self::Export,
+            "恢复备份" => Self::Import,
+            "导出备份" | "导出底稿文本" | "导出日志" => Self::Export,
             "预览替换" | "预览选中" | "预览并应用" => Self::Preview,
-            "应用到游戏" | "保存词条" | "保存修改" | "填入词条" | "确定" => {
-                Self::Apply
+            "应用到游戏" => Self::Apply,
+            "保存词条" | "保存修改" => Self::Save,
+            "填入词条" => Self::Insert,
+            "确定" => Self::Confirm,
+            "填回原文" => Self::Restore,
+            "整理批量修改" => Self::Merge,
+            "从本批移除此段" => Self::MoveOut,
+            "定位词条" => Self::Locate,
+            "选择来源表…" => Self::Tables,
+            "清空记录…" | "确认清空" => Self::Remove,
+            "选择文件夹" | "打开输出目录" | "打开底稿位置" | "打开数据目录" | "打开备份位置" => {
+                Self::Folder
             }
-            "选择文件夹" | "打开输出目录" | "打开底稿位置" => Self::Folder,
-            "检查底稿" | "刷新" | "查看最新版本" => Self::Refresh,
+            "检查底稿" | "刷新" | "查看最新版本" | "重试" | "继续准备" | "尝试重建" => {
+                Self::Refresh
+            }
             "查找" => Self::Search,
             "查看日志" | "来源表详情" | "关于 BA-JPTR" | "使用说明" => Self::Info,
             "取消任务" => Self::Close,
@@ -162,6 +180,9 @@ impl Icon {
             "恢复底稿" | "恢复初始底稿" | "恢复" => Self::Restore,
             "工具" => Self::Tools,
             _ if label.starts_with("单条修改") => Self::Text,
+            _ if label.starts_with("移出所选") => Self::MoveOut,
+            _ if label.starts_with("保存已确认") => Self::Save,
+            _ if label.starts_with("确认本组") => Self::Confirm,
             _ => return None,
         })
     }
@@ -194,7 +215,58 @@ pub fn paint_icon(painter: &egui::Painter, origin: egui::Pos2, icon: Icon, color
             line((3., 3.), (13., 13.));
             line((3., 13.), (13., 3.));
         }
-        Icon::Apply => path(&[(2., 8.), (6., 12.), (14., 4.)]),
+        Icon::Confirm => path(&[(2., 8.), (6., 12.), (14., 4.)]),
+        Icon::Save => {
+            path(&[
+                (2., 1.),
+                (12., 1.),
+                (15., 4.),
+                (15., 15.),
+                (2., 15.),
+                (2., 1.),
+            ]);
+            path(&[(5., 1.), (5., 6.), (11., 6.), (11., 1.)]);
+            path(&[(5., 15.), (5., 10.), (12., 10.), (12., 15.)]);
+        }
+        Icon::Apply => {
+            path(&[(1., 2.), (8., 2.), (8., 5.)]);
+            path(&[(1., 2.), (1., 14.), (8., 14.), (8., 11.)]);
+            line((5., 8.), (15., 8.));
+            path(&[(11., 4.), (15., 8.), (11., 12.)]);
+        }
+        Icon::Insert => {
+            path(&[(9., 2.), (15., 2.), (15., 14.), (9., 14.)]);
+            line((1., 8.), (11., 8.));
+            path(&[(7., 4.), (11., 8.), (7., 12.)]);
+        }
+        Icon::MoveOut => {
+            path(&[(8., 2.), (2., 2.), (2., 14.), (8., 14.)]);
+            line((6., 8.), (15., 8.));
+            path(&[(12., 5.), (15., 8.), (12., 11.)]);
+        }
+        Icon::Merge => {
+            path(&[(2., 2.), (5., 2.), (9., 8.), (15., 8.)]);
+            path(&[(2., 14.), (5., 14.), (9., 8.)]);
+            path(&[(12., 5.), (15., 8.), (12., 11.)]);
+        }
+        Icon::Locate => {
+            painter.circle_stroke(p(8., 8.), 4.5, stroke);
+            painter.circle_filled(p(8., 8.), 1.5, color);
+            for (a, b) in [
+                ((8., 0.), (8., 3.)),
+                ((8., 13.), (8., 16.)),
+                ((0., 8.), (3., 8.)),
+                ((13., 8.), (16., 8.)),
+            ] {
+                line(a, b);
+            }
+        }
+        Icon::Tables => {
+            path(&[(1., 2.), (15., 2.), (15., 14.), (1., 14.), (1., 2.)]);
+            line((1., 6.), (15., 6.));
+            line((1., 10.), (15., 10.));
+            line((6., 2.), (6., 14.));
+        }
         Icon::Edit => {
             path(&[
                 (3., 10.),
@@ -302,6 +374,7 @@ pub enum ButtonKind {
     Primary,
     Soft,
     Quiet,
+    Danger,
 }
 pub fn action_width(ui: &egui::Ui, label: &str) -> f32 {
     ui.painter()
@@ -320,7 +393,7 @@ pub fn action(ui: &mut egui::Ui, enabled: bool, label: &str, kind: ButtonKind) -
     let active = enabled && ui.is_enabled();
     let color = if active {
         match kind {
-            ButtonKind::Primary => Color32::WHITE,
+            ButtonKind::Primary | ButtonKind::Danger => Color32::WHITE,
             ButtonKind::Soft => BLUE,
             _ => TEXT,
         }
@@ -335,6 +408,7 @@ pub fn action(ui: &mut egui::Ui, enabled: bool, label: &str, kind: ButtonKind) -
     if active {
         match kind {
             ButtonKind::Primary => button = button.fill(BLUE).stroke(Stroke::NONE),
+            ButtonKind::Danger => button = button.fill(RED).stroke(Stroke::NONE),
             ButtonKind::Soft => button = button.fill(SOFT_BLUE).stroke(Stroke::NONE),
             ButtonKind::Quiet => button = button.frame(false),
             _ => {}

@@ -99,6 +99,671 @@ fn oracle() -> Value {
     serde_json::from_str(include_str!("fixtures/v1/oracle.json")).unwrap()
 }
 
+fn combined_fixture() -> (Fixture, Project) {
+    let mut f = Fixture::new();
+    add_new_source(&mut f, false);
+    fs::write(
+        f.data.join(".gui/rules.tsv"),
+        "任务\t委托\tsub\t保留备注\tLocalizeSkillDBSchema\n",
+    )
+    .unwrap();
+    let mut p = f.ready_project();
+    let search = call(
+        &mut p,
+        "search",
+        json!({"keyword":"任务","source":"LocalizeDBSchema"}),
+    );
+    let draft = call(
+        &mut p,
+        "batch_preview",
+        json!({"search_nonce":search["nonce"],"indices":[0],"old":"任务","new":"委托"}),
+    );
+    call(&mut p, "batch_save", json!({"nonce":draft["nonce"]}));
+    (f, p)
+}
+
+#[test]
+fn workspace_backup_restores_rules_text_edits_paths_options_and_source_metadata() {
+    let (f, mut p) = combined_fixture();
+    call(&mut p, "sources", json!({}));
+    let revision = p.revision;
+    call(
+        &mut p,
+        "settings",
+        json!({"revision":revision,"game":f.game,"skip_kana":false}),
+    );
+    let rules = p.rules.clone();
+    let edits = p.edits.clone();
+    let source = fs::read(f.data.join(".gui/source-history.json")).unwrap();
+    let templates=br#"{"format":2,"drafts":{"saved-form":{"key":"number","values":["level","rank"],"sample":"level12"}}}"#;
+    fs::write(f.data.join(".gui/template-drafts.json"), templates).unwrap();
+    let path = f.root.join("我的工作区备份.json");
+    call(&mut p, "backup_create", json!({"path":path}));
+    let revision = p.revision;
+    call(
+        &mut p,
+        "combined_remove",
+        json!({"revision":revision,"old":"任务","new":"委托"}),
+    );
+    let revision = p.revision;
+    call(
+        &mut p,
+        "settings",
+        json!({"revision":revision,"game":f.root.join("其他位置"),"skip_kana":true}),
+    );
+    let previous_settings = fs::read(f.data.join(".gui/settings.json")).unwrap();
+    fs::write(
+        f.data.join(".gui/template-drafts.json"),
+        br#"{"format":2,"drafts":{}}"#,
+    )
+    .unwrap();
+    let preview = call(&mut p, "backup_read", json!({"path":path}));
+    assert_eq!(preview["rule_count"], rules.len());
+    assert_eq!(preview["edit_count"], edits.len());
+    assert_eq!(preview["game"], f.game.to_str().unwrap());
+    assert_eq!(preview["skip_kana"], false);
+    assert!(p.rules.is_empty());
+    let saved = call(&mut p, "backup_restore", json!({"nonce":preview["nonce"]}));
+    assert_eq!(p.rules, rules);
+    assert_eq!(p.edits, edits);
+    assert_eq!(p.game, f.game.to_str().unwrap());
+    assert!(!p.skip);
+    assert_eq!(
+        fs::read(f.data.join(".gui/source-history.json")).unwrap(),
+        source
+    );
+    assert_eq!(
+        fs::read(f.data.join(".gui/template-drafts.json")).unwrap(),
+        templates
+    );
+    let recovery = Path::new(saved["recovery"].as_str().unwrap());
+    assert_eq!(
+        fs::read(recovery.join("settings.json")).unwrap(),
+        previous_settings
+    );
+    let reopened = f.project();
+    assert_eq!(reopened.rules, rules);
+    assert_eq!(reopened.edits, edits);
+    assert_eq!(reopened.game, p.game);
+    assert!(!reopened.skip);
+    f.unchanged();
+}
+
+#[cfg(windows)]
+#[test]
+fn workspace_backup_restore_rolls_back_all_files_when_settings_publication_is_locked() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let (f, mut p) = combined_fixture();
+    let path = f.root.join("完整备份.json");
+    call(&mut p, "backup_create", json!({"path":path}));
+    let revision = p.revision;
+    call(
+        &mut p,
+        "combined_remove",
+        json!({"revision":revision,"old":"任务","new":"委托"}),
+    );
+    let names = [
+        "rules.tsv",
+        "text-edits.json",
+        "settings.json",
+        "source-history.json",
+        "template-drafts.json",
+    ];
+    let before = names.map(|name| fs::read(f.data.join(".gui").join(name)).ok());
+    let preview = call(&mut p, "backup_read", json!({"path":path}));
+    let held = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(1 | 2)
+        .open(f.data.join(".gui/settings.json"))
+        .unwrap();
+    assert!(
+        p.dispatch(
+            "backup_restore",
+            &json!({"nonce":preview["nonce"]}),
+            &control()
+        )
+        .is_err()
+    );
+    assert_eq!(
+        names.map(|name| fs::read(f.data.join(".gui").join(name)).ok()),
+        before
+    );
+    assert!(p.rules.is_empty());
+    assert!(p.edits.is_empty());
+    assert!(!f.data.join(".gui/workspace-transaction.json").exists());
+    drop(held);
+    call(&mut p, "backup_restore", json!({"nonce":preview["nonce"]}));
+    assert_eq!(p.rules.len(), 1);
+    assert_eq!(p.edits.len(), 1);
+    f.unchanged();
+}
+
+#[test]
+fn workspace_backup_rejects_invalid_cancelled_and_stale_restore_requests() {
+    let (f, mut p) = combined_fixture();
+    let path = f.root.join("备份.json");
+    call(&mut p, "backup_create", json!({"path":path}));
+    let bytes = fs::read(&path).unwrap();
+    let rules = fs::read(f.data.join(".gui/rules.tsv")).unwrap();
+    for bad in [
+        json!({"format":2}),
+        {
+            let mut value: Value = serde_json::from_slice(&bytes).unwrap();
+            value["files"]["settings.json"] = json!("{broken");
+            value
+        },
+        {
+            let mut value: Value = serde_json::from_slice(&bytes).unwrap();
+            value["files"]["../settings.json"] = json!("{}");
+            value
+        },
+    ] {
+        fs::write(&path, serde_json::to_vec(&bad).unwrap()).unwrap();
+        assert!(
+            p.dispatch("backup_read", &json!({"path":path}), &control())
+                .is_err()
+        );
+    }
+    fs::write(&path, bytes).unwrap();
+    let preview = call(&mut p, "backup_read", json!({"path":path}));
+    assert!(
+        p.dispatch(
+            "backup_restore",
+            &json!({"nonce":preview["nonce"]}),
+            &Control::new(&|_| false)
+        )
+        .is_err()
+    );
+    assert!(!f.data.join(".gui/recovery").exists());
+    fs::write(
+        f.data.join(".gui/template-drafts.json"),
+        br#"{"format":2,"drafts":{}}"#,
+    )
+    .unwrap();
+    assert!(
+        p.dispatch(
+            "backup_restore",
+            &json!({"nonce":preview["nonce"]}),
+            &control()
+        )
+        .is_err()
+    );
+    assert!(!f.data.join(".gui/recovery").exists());
+    assert_eq!(fs::read(f.data.join(".gui/rules.tsv")).unwrap(), rules);
+    f.unchanged();
+}
+
+#[test]
+fn workspace_backup_can_restore_damaged_records_and_empty_workspaces_can_be_backed_up() {
+    let (f, mut p) = combined_fixture();
+    let path = f.root.join("有效备份.json");
+    call(&mut p, "backup_create", json!({"path":path}));
+    let expected = p.rules.clone();
+    fs::write(f.data.join(".gui/rules.tsv"), [255, 0, 1]).unwrap();
+    let mut broken = f.project();
+    let preview = call(&mut broken, "backup_read", json!({"path":path}));
+    call(
+        &mut broken,
+        "backup_restore",
+        json!({"nonce":preview["nonce"]}),
+    );
+    assert_eq!(broken.rules, expected);
+    assert_eq!(call(&mut broken, "load", json!({}))["errors"], json!({}));
+    let empty = f.root.join("空工作区");
+    let mut clean = Project::new(empty.clone());
+    call(&mut clean, "load", json!({}));
+    let path = f.root.join("空备份.json");
+    call(&mut clean, "backup_create", json!({"path":path}));
+    let preview = call(&mut clean, "backup_read", json!({"path":path}));
+    assert_eq!(preview["rule_count"], 0);
+    assert_eq!(preview["edit_count"], 0);
+    assert_eq!(preview["skip_kana"], true);
+    assert!(
+        clean
+            .dispatch(
+                "backup_create",
+                &json!({"path":empty.join(".gui/settings.json")}),
+                &control()
+            )
+            .is_err()
+    );
+    f.unchanged();
+}
+
+#[test]
+fn workspace_backup_interrupted_restore_recovers_all_five_documents_on_restart() {
+    let (f, p) = combined_fixture();
+    let root = f.data.join(".gui");
+    let mut writes = vec![];
+    for name in [
+        "rules.tsv",
+        "text-edits.json",
+        "settings.json",
+        "source-history.json",
+        "template-drafts.json",
+    ] {
+        let before = fs::read(root.join(name)).ok();
+        let after = match name {
+            "rules.tsv" => b"".to_vec(),
+            "text-edits.json" => bajptr_project::model::edits_bytes(&[]).unwrap(),
+            "settings.json" => br#"{"format":2,"game":"elsewhere","skip_kana":false}"#.to_vec(),
+            "source-history.json" => br#"{"format":1,"games":{}}"#.to_vec(),
+            _ => br#"{"format":2,"drafts":{}}"#.to_vec(),
+        };
+        if writes.len() < 3 {
+            fs::write(root.join(name), &after).unwrap();
+        }
+        writes.push(json!({"name":name,"before":before,"after":after}));
+    }
+    fs::write(
+        root.join("workspace-transaction.json"),
+        serde_json::to_vec(&writes).unwrap(),
+    )
+    .unwrap();
+    let reopened = f.project();
+    assert_eq!(reopened.rules, p.rules);
+    assert_eq!(reopened.edits, p.edits);
+    assert_eq!(reopened.game, p.game);
+    assert_eq!(reopened.skip, p.skip);
+    assert!(!root.join("workspace-transaction.json").exists());
+    f.unchanged();
+}
+
+#[test]
+fn batch_promotion_preserves_results_backs_up_both_documents_and_undoes_together() {
+    let (f, mut p) = combined_fixture();
+    let rules = p.rules.clone();
+    let edits = p.edits.clone();
+    let rule_bytes = fs::read(f.data.join(".gui/rules.tsv")).unwrap();
+    let edit_bytes = fs::read(f.data.join(".gui/text-edits.json")).unwrap();
+    let before = call(&mut p, "search", json!({"keyword":"任务"}));
+    let plan = call(&mut p, "promotion_preview", json!({}));
+    assert_eq!(plan["count"], 1);
+    assert_eq!(p.rules, rules);
+    assert_eq!(p.edits, edits);
+    let saved = call(&mut p, "promotion_start", json!({}));
+    assert!(p.edits.is_empty());
+    assert_eq!(p.rules.len(), 1);
+    assert_eq!(p.rules[0].source, "保留备注");
+    assert_eq!(
+        bajptr_project::model::scopes(&p.rules[0].table)
+            .unwrap()
+            .unwrap()
+            .len(),
+        2
+    );
+    let after = call(&mut p, "search", json!({"keyword":"任务"}));
+    assert_eq!(
+        before["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| &row["text"])
+            .collect::<Vec<_>>(),
+        after["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| &row["text"])
+            .collect::<Vec<_>>()
+    );
+    let backup = Path::new(saved["backup"].as_str().unwrap());
+    assert_eq!(fs::read(backup.join("rules.tsv")).unwrap(), rule_bytes);
+    assert_eq!(
+        fs::read(backup.join("text-edits.json")).unwrap(),
+        edit_bytes
+    );
+    let revision = p.revision;
+    let repeated = call(&mut p, "promotion_start", json!({}));
+    assert_eq!(repeated["count"], 0);
+    assert!(repeated["backup"].is_null());
+    assert_eq!(p.revision, revision);
+    call(&mut p, "history", json!({"undo":true}));
+    assert_eq!(p.rules, rules);
+    assert_eq!(p.edits, edits);
+    call(&mut p, "history", json!({"undo":false}));
+    let reopened = f.project();
+    assert_eq!(reopened.rules, p.rules);
+    assert_eq!(reopened.edits, p.edits);
+    f.unchanged();
+}
+
+#[cfg(windows)]
+#[test]
+fn batch_promotion_rejects_cancelled_stale_and_failed_saves_without_losing_records() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let (f, mut p) = combined_fixture();
+    let rules = p.rules.clone();
+    let edits = p.edits.clone();
+    let plan = call(&mut p, "promotion_preview", json!({}));
+    let payload = json!({"nonce":plan["nonce"]});
+    assert!(
+        p.dispatch("promotion_commit", &payload, &Control::new(&|_| false))
+            .is_err()
+    );
+    assert!(!f.data.join(".gui/recovery").exists());
+    let held = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(1 | 2)
+        .open(f.data.join(".gui/text-edits.json"))
+        .unwrap();
+    assert!(
+        p.dispatch("promotion_commit", &payload, &control())
+            .is_err()
+    );
+    assert_eq!(p.rules, rules);
+    assert_eq!(p.edits, edits);
+    assert_eq!(
+        bajptr_project::model::parse_rules(&fs::read(f.data.join(".gui/rules.tsv")).unwrap())
+            .unwrap(),
+        rules
+    );
+    assert_eq!(
+        bajptr_project::model::parse_edits(&fs::read(f.data.join(".gui/text-edits.json")).unwrap())
+            .unwrap(),
+        edits
+    );
+    drop(held);
+    let revision = p.revision;
+    call(
+        &mut p,
+        "save_rule",
+        json!({"revision":revision,"index":0,"rule":{"old":"任务","new":"别的","mode":"sub","source":"备注","table":"LocalizeSkillDBSchema"}}),
+    );
+    assert!(
+        p.dispatch("promotion_commit", &payload, &control())
+            .is_err()
+    );
+    call(&mut p, "history", json!({"undo":true}));
+    let plan = call(&mut p, "promotion_preview", json!({}));
+    call(&mut p, "promotion_commit", json!({"nonce":plan["nonce"]}));
+    assert!(p.edits.is_empty());
+    f.unchanged();
+}
+
+#[test]
+fn combined_replacement_saves_both_scopes_and_undoes_as_one_operation() {
+    let (f, mut p) = combined_fixture();
+    let original_rules = p.rules.clone();
+    let original_edits = p.edits.clone();
+    let revision = p.revision;
+    let opened = call(
+        &mut p,
+        "combined_open",
+        json!({"old":"任务","new":"委托","revision":revision}),
+    );
+    assert_eq!(opened["tables"], json!(["LocalizeSkillDBSchema"]));
+    assert_eq!(opened["members"].as_array().unwrap().len(), 1);
+    call(
+        &mut p,
+        "combined_save",
+        json!({"nonce":opened["nonce"],"old":"任务","new":"差事","tables":opened["tables"],"removed":[]}),
+    );
+    assert_eq!(p.revision, revision + 1);
+    assert_eq!(p.rules[0].new, "差事");
+    assert_eq!(p.rules[0].source, "保留备注");
+    assert_eq!(p.edits[0].batch_operation.as_ref().unwrap().new, "差事");
+    assert_eq!(
+        p.edits[0].batch_operation.as_ref().unwrap().before,
+        original_edits[0].batch_operation.as_ref().unwrap().before
+    );
+    let search = call(&mut p, "search", json!({"keyword":"任务"}));
+    assert!(
+        search["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|row| row["text"].as_str().unwrap().contains("差事"))
+    );
+    let preview = call(&mut p, "preview", json!({}));
+    assert_eq!(preview["stats"]["combined_hits"][0]["count"], 2);
+    let saved_rules = p.rules.clone();
+    let saved_edits = p.edits.clone();
+    call(&mut p, "history", json!({"undo":true}));
+    assert_eq!(p.rules, original_rules);
+    assert_eq!(p.edits, original_edits);
+    call(&mut p, "history", json!({"undo":false}));
+    assert_eq!(p.rules, saved_rules);
+    assert_eq!(p.edits, saved_edits);
+    let reopened = f.project();
+    assert_eq!(reopened.rules, saved_rules);
+    assert_eq!(reopened.edits, saved_edits);
+    f.unchanged();
+}
+
+#[test]
+fn combined_scopes_overlap_without_counting_a_text_twice_or_replaying_replacement() {
+    let (f, mut p) = combined_fixture();
+    let opened = call(&mut p, "combined_open", json!({"old":"任务","new":"委托"}));
+    call(
+        &mut p,
+        "combined_save",
+        json!({"nonce":opened["nonce"],"old":"任务","new":"任务任务","tables":["LocalizeDBSchema","LocalizeSkillDBSchema"],"removed":[]}),
+    );
+    let search = call(&mut p, "search", json!({"keyword":"任务"}));
+    for row in search["rows"].as_array().unwrap() {
+        assert_eq!(
+            row["text"].as_str().unwrap(),
+            row["original"]
+                .as_str()
+                .unwrap()
+                .replace("任务", "任务任务")
+        );
+    }
+    assert_eq!(
+        call(&mut p, "preview", json!({}))["stats"]["combined_hits"][0]["count"],
+        2
+    );
+    f.unchanged();
+}
+
+#[test]
+fn combined_range_removal_and_whole_group_removal_keep_single_and_old_version_records() {
+    let (f, mut p) = combined_fixture();
+    let search = call(
+        &mut p,
+        "search",
+        json!({"keyword":"任务","source":"LocalizeDBSchema"}),
+    );
+    let single = call(
+        &mut p,
+        "text_open",
+        json!({"search_nonce":search["nonce"],"index":0}),
+    );
+    call(
+        &mut p,
+        "text_save",
+        json!({"nonce":single["nonce"],"text":"任务【单条】"}),
+    );
+    let mut prior = p.edits[0].clone();
+    prior.version = "a".repeat(64);
+    prior.batch_operation.as_mut().unwrap().id = "b".repeat(32);
+    p.edits.push(prior.clone());
+    fs::write(
+        f.data.join(".gui/text-edits.json"),
+        bajptr_project::model::edits_bytes(&p.edits).unwrap(),
+    )
+    .unwrap();
+    let mut p = f.ready_project();
+    let opened = call(&mut p, "combined_open", json!({"old":"任务","new":"委托"}));
+    let index = opened["members"][0]["index"].as_u64().unwrap();
+    call(
+        &mut p,
+        "combined_save",
+        json!({"nonce":opened["nonce"],"old":"任务","new":"新委托","tables":opened["tables"],"removed":[index]}),
+    );
+    assert_eq!(p.edits.len(), 2);
+    assert!(p.edits.contains(&prior));
+    assert!(
+        p.edits
+            .iter()
+            .any(|edit| !edit.batch && edit.replacement == "任务【单条】")
+    );
+    call(&mut p, "history", json!({"undo":true}));
+    let revision = p.revision;
+    call(
+        &mut p,
+        "combined_remove",
+        json!({"old":"任务","new":"委托","revision":revision}),
+    );
+    assert!(p.rules.is_empty());
+    assert_eq!(p.edits.len(), 2);
+    assert!(p.edits.contains(&prior));
+    call(&mut p, "history", json!({"undo":true}));
+    assert_eq!(p.rules.len(), 1);
+    assert_eq!(p.edits.len(), 3);
+    f.unchanged();
+}
+
+#[test]
+fn combined_save_rejects_stale_cancelled_and_invalid_contexts_without_writing() {
+    let (f, mut p) = combined_fixture();
+    let rules = fs::read(f.data.join(".gui/rules.tsv")).unwrap();
+    let edits = fs::read(f.data.join(".gui/text-edits.json")).unwrap();
+    let opened = call(&mut p, "combined_open", json!({"old":"任务","new":"委托"}));
+    let payload = json!({"nonce":opened["nonce"],"old":"任务","new":"差事","tables":opened["tables"],"removed":[]});
+    assert!(
+        p.dispatch("combined_save", &payload, &Control::new(&|_| false))
+            .is_err()
+    );
+    let mut invalid = payload.clone();
+    invalid["removed"] = json!([999]);
+    assert!(p.dispatch("combined_save", &invalid, &control()).is_err());
+    invalid = payload.clone();
+    invalid["tables"] = json!(["missing"]);
+    assert!(p.dispatch("combined_save", &invalid, &control()).is_err());
+    let revision = p.revision;
+    call(
+        &mut p,
+        "save_rule",
+        json!({"revision":revision,"index":0,"rule":{"old":"任务","new":"其他","mode":"sub","source":"备注","table":"LocalizeSkillDBSchema"}}),
+    );
+    assert!(p.dispatch("combined_save", &payload, &control()).is_err());
+    call(&mut p, "history", json!({"undo":true}));
+    assert_eq!(fs::read(f.data.join(".gui/rules.tsv")).unwrap(), rules);
+    assert_eq!(
+        fs::read(f.data.join(".gui/text-edits.json")).unwrap(),
+        edits
+    );
+    f.unchanged();
+}
+
+#[cfg(windows)]
+#[test]
+fn combined_save_rolls_back_both_files_when_the_edit_document_is_locked() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let (f, mut p) = combined_fixture();
+    let rules = p.rules.clone();
+    let edits = p.edits.clone();
+    let revision = p.revision;
+    let rules_bytes = fs::read(f.data.join(".gui/rules.tsv")).unwrap();
+    let edit_bytes = fs::read(f.data.join(".gui/text-edits.json")).unwrap();
+    let opened = call(&mut p, "combined_open", json!({"old":"任务","new":"委托"}));
+    let held = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(1 | 2)
+        .open(f.data.join(".gui/text-edits.json"))
+        .unwrap();
+    let payload = json!({"nonce":opened["nonce"],"old":"任务","new":"差事","tables":opened["tables"],"removed":[]});
+    assert!(p.dispatch("combined_save", &payload, &control()).is_err());
+    assert_eq!(p.rules, rules);
+    assert_eq!(p.edits, edits);
+    assert_eq!(p.revision, revision);
+    assert_eq!(
+        fs::read(f.data.join(".gui/rules.tsv")).unwrap(),
+        rules_bytes
+    );
+    assert_eq!(
+        fs::read(f.data.join(".gui/text-edits.json")).unwrap(),
+        edit_bytes
+    );
+    assert!(!f.data.join(".gui/replacements-transaction.json").exists());
+    drop(held);
+    call(&mut p, "combined_save", payload);
+    let saved_rules = p.rules.clone();
+    let saved_edits = p.edits.clone();
+    let held = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(1 | 2)
+        .open(f.data.join(".gui/text-edits.json"))
+        .unwrap();
+    assert!(
+        p.dispatch("history", &json!({"undo":true}), &control())
+            .is_err()
+    );
+    assert_eq!(p.rules, saved_rules);
+    assert_eq!(p.edits, saved_edits);
+    drop(held);
+    call(&mut p, "history", json!({"undo":true}));
+    assert_eq!(p.rules, rules);
+    assert_eq!(p.edits, edits);
+    f.unchanged();
+}
+
+#[test]
+fn interrupted_combined_save_recovers_both_documents_on_restart() {
+    let (f, p) = combined_fixture();
+    let root = f.data.join(".gui");
+    let rules = fs::read(root.join("rules.tsv")).unwrap();
+    let edits = fs::read(root.join("text-edits.json")).unwrap();
+    let mut changed_rules = p.rules.clone();
+    changed_rules[0].new = "中断后的内容".into();
+    let after = bajptr_project::model::rules_bytes(&changed_rules).unwrap();
+    fs::write(root.join("rules.tsv"), &after).unwrap();
+    fs::write(root.join("replacements-transaction.json"),serde_json::to_vec(&json!([
+        {"name":"rules.tsv","before":rules,"after":after},
+        {"name":"text-edits.json","before":edits,"after":bajptr_project::model::edits_bytes(&[]).unwrap()}
+    ])).unwrap()).unwrap();
+    let reopened = f.project();
+    assert_eq!(reopened.rules, p.rules);
+    assert_eq!(reopened.edits, p.edits);
+    assert_eq!(fs::read(root.join("rules.tsv")).unwrap(), rules);
+    assert_eq!(fs::read(root.join("text-edits.json")).unwrap(), edits);
+    assert!(!root.join("replacements-transaction.json").exists());
+    f.unchanged();
+}
+
+#[test]
+fn combined_editor_can_leave_only_one_scope_type_and_noop_save_does_not_add_history() {
+    for keep_tables in [false, true] {
+        let (f, mut p) = combined_fixture();
+        let rules = p.rules.clone();
+        let edits = p.edits.clone();
+        let revision = p.revision;
+        let opened = call(&mut p, "combined_open", json!({"old":"任务","new":"委托"}));
+        call(
+            &mut p,
+            "combined_save",
+            json!({"nonce":opened["nonce"],"old":"任务","new":"委托","tables":opened["tables"],"removed":[]}),
+        );
+        assert_eq!(p.revision, revision);
+        assert_eq!(p.rules, rules);
+        assert_eq!(p.edits, edits);
+        let opened = call(&mut p, "combined_open", json!({"old":"任务","new":"委托"}));
+        let tables = if keep_tables {
+            opened["tables"].clone()
+        } else {
+            json!([])
+        };
+        let removed = if keep_tables {
+            json!([opened["members"][0]["index"]])
+        } else {
+            json!([])
+        };
+        call(
+            &mut p,
+            "combined_save",
+            json!({"nonce":opened["nonce"],"old":"任务","new":"委托","tables":tables,"removed":removed}),
+        );
+        assert_eq!(p.rules.is_empty(), !keep_tables);
+        assert_eq!(p.edits.is_empty(), keep_tables);
+        call(&mut p, "history", json!({"undo":true}));
+        assert_eq!(p.rules, rules);
+        assert_eq!(p.edits, edits);
+        f.unchanged();
+    }
+}
+
 #[test]
 fn cancellation_preserves_import_and_export_files_and_allows_retry() {
     let f = Fixture::new();
@@ -1918,7 +2583,10 @@ fn whole_wordlist_regenerates_from_one_immutable_baseline_and_restore_preserves_
     assert_eq!(applied["installed"], true);
     assert!(!f.data.join("output").exists());
     assert_ne!(fs::read(f.game.join(region::CATALOG)).unwrap(), f.before);
-    assert_eq!(call(&mut p, "preview", json!({}))["total_changes"], 0);
+    let unchanged = call(&mut p, "preview", json!({}));
+    assert_eq!(unchanged["total_changes"], 0);
+    assert_eq!(unchanged["application"], "当前游戏文字与词表一致");
+    assert_eq!(p.application, "当前游戏文字与词表一致");
     let revision = p.revision;
     call(
         &mut p,
@@ -1927,6 +2595,7 @@ fn whole_wordlist_regenerates_from_one_immutable_baseline_and_restore_preserves_
     );
     let preview = call(&mut p, "preview", json!({}));
     assert_eq!(preview["stats"]["updated"], 1);
+    assert_eq!(preview["application"], "词表已保存，尚未应用");
     call(&mut p, "apply", json!({"nonce":preview["nonce"]}));
     let state = call(&mut p, "check", json!({}));
     assert_eq!(state["application"], "已应用，与当前词表一致");
@@ -2009,6 +2678,10 @@ fn batch_preserves_the_single_edit_and_removing_batch_restores_it() {
     let opened = call(&mut p, "text_open", json!({"edit_index":single_index}));
     assert_eq!(opened["text"], single);
     assert_eq!(opened["has_batch"], true);
+    assert_eq!(
+        opened["batch_operation"],
+        json!({"old":"委托","new":"神秘"})
+    );
     call(
         &mut p,
         "text_save",

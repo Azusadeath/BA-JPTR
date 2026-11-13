@@ -1,11 +1,17 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod app;
+mod combined_ui;
+#[cfg(test)]
+mod combined_ui_tests;
+#[cfg(test)]
+mod compact_dialog_tests;
 mod dialogs;
 mod fonts;
 mod logging;
 mod migration_review;
 mod migration_ui;
 mod pages;
+mod preview_ui;
 mod startup;
 mod state;
 mod theme;

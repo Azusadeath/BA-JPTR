@@ -444,6 +444,26 @@ impl Engine {
         }
         Ok((value, original.version))
     }
+    pub(crate) fn promotion_plan(
+        &mut self,
+        game: &str,
+        data: &Path,
+        config: &Config,
+        control: &Control<'_>,
+    ) -> Result<crate::promotion::Plan> {
+        config.check_documents()?;
+        let original = self.baseline(game, &data.join("backup"), control)?;
+        self.open(&original, control)?;
+        crate::promotion::plan(
+            &self.session.database.as_ref().unwrap().con,
+            &config.rules,
+            &config.edits,
+            &storage::identity(&region::locate(game)?.dir)?,
+            &original.version,
+            config.skip_kana,
+            control,
+        )
+    }
     pub fn export(
         &mut self,
         game: &str,
@@ -500,6 +520,17 @@ impl Engine {
                 control,
             )?;
             value["comparison_identity"] = identity.clone();
+            if value["parse_failed"] == 0 {
+                value["combined_hits"] = crate::combined::hits(
+                    &self.session.database.as_ref().unwrap().con,
+                    &config.rules,
+                    &config.edits,
+                    &storage::identity(&live.dir)?,
+                    &original.version,
+                    config.skip_kana,
+                    control,
+                )?;
+            }
             value["rule_hits"] = json!(
                 config
                     .rules

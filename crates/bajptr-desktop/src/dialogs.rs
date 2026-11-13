@@ -1,7 +1,20 @@
 use crate::{app::*, state::*};
 use eframe::egui::{self, RichText};
 use serde_json::{Value, json};
-use std::time::{Duration, Instant};
+use std::{
+    collections::BTreeSet,
+    time::{Duration, Instant},
+};
+
+fn record_name(name: &str) -> &str {
+    match name {
+        "rules.tsv" => "替换词表",
+        "text-edits.json" => "单条与批量修改",
+        "source-history.json" => "来源表记录",
+        "application-state.json" => "应用状态记录",
+        _ => name,
+    }
+}
 
 pub(crate) fn window<'a>(title: &'a str, ctx: &egui::Context, width: f32) -> egui::Window<'a> {
     egui::Window::new(title)
@@ -40,7 +53,12 @@ fn about_link(ui: &mut egui::Ui, label: &str, url: &str) {
 
 // Share text filtering and full-text presentation without forcing both managers
 // to use the same list/detail layout.
-fn record_filter(ui: &mut egui::Ui, id: &str, filter: &mut String, selected: &mut Option<usize>) {
+pub(crate) fn record_filter(
+    ui: &mut egui::Ui,
+    id: &str,
+    filter: &mut String,
+    selected: &mut Option<usize>,
+) {
     ui.push_id((id, "filter"), |ui| {
         if ui
             .add(
@@ -55,154 +73,184 @@ fn record_filter(ui: &mut egui::Ui, id: &str, filter: &mut String, selected: &mu
     });
 }
 
-fn record_browser(
+pub(crate) struct ComparisonRow<'a> {
+    pub index: usize,
+    pub label: String,
+    pub original: &'a str,
+    pub before: &'a str,
+    pub after: &'a str,
+    pub active: bool,
+}
+
+pub(crate) fn comparison_browser(
+    ui: &mut egui::Ui,
+    id: &str,
+    rows: &[ComparisonRow<'_>],
+    selected: &mut Option<usize>,
+    labels: [&str; 2],
+    mut multi: Option<&mut Selection>,
+) {
+    ui.push_id(id, |ui| {
+        let visible = rows.iter().map(|row| row.index).collect::<Vec<_>>();
+        if let Some(multi) = multi.as_mut() {
+            let indices = visible.iter().copied().collect::<BTreeSet<_>>();
+            multi.rows.retain(|index| indices.contains(index));
+            if multi.anchor.is_some_and(|index| !indices.contains(&index)) {
+                multi.anchor = None;
+            }
+        }
+        if !rows.iter().any(|row| Some(row.index) == *selected) {
+            *selected = rows.first().map(|row| row.index);
+        }
+        if rows.is_empty() {
+            ui.colored_label(MUTED, "没有匹配文本。");
+            ui.take_available_space();
+            return;
+        }
+        egui::Panel::left("comparison-list")
+            .resizable(true)
+            .default_size(200.)
+            .size_range(150. ..=280.)
+            .show(ui, |ui| {
+                egui::ScrollArea::vertical()
+                    .id_salt("rows")
+                    .auto_shrink([false, false])
+                    .show_rows(ui, 56., rows.len(), |ui, range| {
+                        for i in range {
+                            let row = &rows[i];
+                            let is_selected = multi.as_ref().map_or_else(
+                                || *selected == Some(row.index),
+                                |multi| multi.rows.contains(&row.index),
+                            );
+                            let (rect, response) = ui.allocate_exact_size(
+                                egui::vec2(ui.available_width(), 56.),
+                                egui::Sense::click(),
+                            );
+                            if is_selected {
+                                ui.painter().rect_filled(rect, 6, SOFT_BLUE);
+                            } else if response.hovered() {
+                                ui.painter().rect_filled(rect, 6, BG);
+                            }
+                            response.widget_info(|| {
+                                egui::WidgetInfo::selected(
+                                    egui::Role::Button,
+                                    ui.is_enabled(),
+                                    is_selected,
+                                    format!("{}：{} → {}", row.label, row.before, row.after),
+                                )
+                            });
+                            for (offset, value, color) in
+                                [(6., row.before, TEXT), (30., row.after, BLUE)]
+                            {
+                                let mut line = ui.new_child(
+                                    egui::UiBuilder::new()
+                                        .max_rect(egui::Rect::from_min_size(
+                                            rect.min + egui::vec2(8., offset),
+                                            egui::vec2(rect.width() - 16., 20.),
+                                        ))
+                                        .layout(egui::Layout::left_to_right(egui::Align::Center)),
+                                );
+                                line.add(
+                                    egui::Label::new(
+                                        RichText::new(value.replace(['\r', '\n'], " "))
+                                            .color(color),
+                                    )
+                                    .selectable(false)
+                                    .truncate(),
+                                );
+                            }
+                            if response.clicked() {
+                                if let Some(multi) = multi.as_mut() {
+                                    let modifiers = ui.input(|input| input.modifiers);
+                                    multi.click_visible(
+                                        row.index,
+                                        &visible,
+                                        modifiers.ctrl || modifiers.command,
+                                        modifiers.shift,
+                                    );
+                                }
+                                *selected = Some(row.index);
+                            }
+                        }
+                    });
+            });
+        if let Some(row) = rows.iter().find(|row| Some(row.index) == *selected) {
+            ui.colored_label(MUTED, &row.label);
+            if !row.active {
+                ui.colored_label(RED, "版本失效：可查看或移除，不能继续编辑。");
+            }
+            if row.original != row.before {
+                egui::CollapsingHeader::new("底稿原文").show(ui, |ui| {
+                    egui::ScrollArea::vertical()
+                        .id_salt(("original", row.index))
+                        .min_scrolled_height(0.)
+                        .max_height(80.)
+                        .show(ui, |ui| {
+                            ui.add(egui::Label::new(row.original).wrap().selectable(true));
+                        });
+                });
+            }
+            let height = ui.available_height().max(0.);
+            ui.push_id(row.index, |ui| {
+                if ui.available_width() >= 680. {
+                    ui.columns(2, |columns| {
+                        full_text(&mut columns[0], "before", labels[0], row.before, height);
+                        full_text(&mut columns[1], "after", labels[1], row.after, height);
+                    });
+                } else {
+                    let half = (height - ui.spacing().item_spacing.y) * 0.5;
+                    full_text(ui, "before", labels[0], row.before, half);
+                    full_text(ui, "after", labels[1], row.after, half);
+                }
+            });
+        }
+    });
+}
+
+pub(crate) fn record_browser(
     ui: &mut egui::Ui,
     id: &str,
     entries: &[&Value],
     filter: &str,
     selected: &mut Option<usize>,
     batch: bool,
+    multi: Option<&mut Selection>,
 ) {
-    ui.push_id(id, |ui| {
-        let visible: Vec<_> = entries
-            .iter()
-            .copied()
-            .filter(|e| edit_matches(e, filter))
-            .collect();
-        if !visible
-            .iter()
-            .any(|e| Some(count(e, "index") as usize) == *selected)
-        {
-            *selected = None;
-        }
-        ui.colored_label(
-            MUTED,
-            format!("显示 {} / {} 段", visible.len(), entries.len()),
-        );
-        let body = ui.available_height();
-        egui::Panel::top("records")
-            .resizable(true)
-            .default_size(body * 0.48)
-            .size_range(100. ..=(body - if batch { 160. } else { 120. }).max(100.))
-            .show(ui, |ui| {
-                let text_width = (ui.available_width() - 145.) * 0.5;
-                let widths = [145., text_width, text_width];
-                table_header(
-                    ui,
-                    &[
-                        "来源表",
-                        "底稿原文",
-                        if batch {
-                            "本批替换后"
-                        } else {
-                            "单条修改后"
-                        },
-                    ],
-                    &widths,
-                );
-                egui::ScrollArea::vertical()
-                    .id_salt("rows")
-                    .auto_shrink([false, false])
-                    .show_rows(ui, ROW_HEIGHT, visible.len(), |ui, range| {
-                        for i in range {
-                            let entry = visible[i];
-                            let index = count(entry, "index") as usize;
-                            let label = if entry["active"] == false {
-                                format!("{}（版本失效）", text(entry, "label"))
-                            } else {
-                                text(entry, "label")
-                            };
-                            if data_row(
-                                ui,
-                                index,
-                                *selected == Some(index),
-                                &[
-                                    label,
-                                    text(&entry["edit"], "original").replace(['\r', '\n'], " "),
-                                    text(&entry["edit"], "replacement").replace(['\r', '\n'], " "),
-                                ],
-                                &widths,
-                            )
-                            .clicked()
-                            {
-                                *selected = Some(index);
-                            }
-                        }
-                    });
-            });
-        if let Some(entry) = visible
-            .iter()
-            .find(|e| Some(count(e, "index") as usize) == *selected)
-        {
-            if entry["active"] == false {
-                ui.colored_label(RED, "版本失效：可查看或移除，不能继续编辑。");
-            }
+    let rows = entries
+        .iter()
+        .filter(|entry| edit_matches(entry, filter))
+        .map(|entry| {
             let edit = &entry["edit"];
-            let before = if batch {
-                text(&edit["batch_operation"], "before")
-            } else {
-                text(edit, "original")
-            };
-            let original = text(edit, "original");
-            let after = text(edit, "replacement");
-            if batch && original == before {
-                egui::CollapsingHeader::new("底稿原文（与本批前相同）").show(ui, |ui| {
-                    egui::ScrollArea::vertical()
-                        .id_salt("original")
-                        .min_scrolled_height(0.)
-                        .max_height((ui.available_height() - 100.).clamp(22., 70.))
-                        .show(ui, |ui| {
-                            ui.add(egui::Label::new(&original).wrap().selectable(true));
-                        });
-                });
-            }
-            let height = ui.available_height().max(0.);
-            let mut comparisons = Vec::new();
-            if batch && original != before {
-                comparisons.push(("底稿原文", original.as_str()));
-            }
-            comparisons.push((
-                if batch {
-                    "本批替换前"
+            let original = edit["original"].as_str().unwrap_or("");
+            ComparisonRow {
+                index: count(entry, "index") as usize,
+                label: text(entry, "label"),
+                original,
+                before: if batch {
+                    edit["batch_operation"]["before"]
+                        .as_str()
+                        .unwrap_or(original)
                 } else {
-                    "底稿原文"
+                    original
                 },
-                before.as_str(),
-            ));
-            comparisons.push((
-                if batch {
-                    "本批替换后"
-                } else {
-                    "单条修改后"
-                },
-                after.as_str(),
-            ));
-            if ui.available_width() >= 660. {
-                ui.columns(comparisons.len(), |cols| {
-                    for (column, (label, value)) in cols.iter_mut().zip(&comparisons) {
-                        full_text(column, label, label, value, height);
-                    }
-                });
-            } else {
-                let text_height = (height
-                    - ui.spacing().item_spacing.y * (comparisons.len() - 1) as f32)
-                    / comparisons.len() as f32;
-                for (label, value) in comparisons {
-                    full_text(ui, label, label, value, text_height);
-                }
+                after: edit["replacement"].as_str().unwrap_or(""),
+                active: entry["active"] != false,
             }
+        })
+        .collect::<Vec<_>>();
+    ui.colored_label(MUTED, format!("显示 {} / {} 段", rows.len(), entries.len()));
+    comparison_browser(
+        ui,
+        id,
+        &rows,
+        selected,
+        if batch {
+            ["替换前", "替换后"]
         } else {
-            ui.colored_label(
-                MUTED,
-                if visible.is_empty() {
-                    "没有匹配文本。"
-                } else {
-                    "选择一段查看完整内容。"
-                },
-            );
-            ui.take_available_space();
-        }
-    });
+            ["底稿原文", "修改后"]
+        },
+        multi,
+    );
 }
 
 fn full_text(ui: &mut egui::Ui, id: &str, label: &str, value: &str, height: f32) {
@@ -298,7 +346,7 @@ fn single_edit_browser(
                     single_edit_text(
                         &mut columns[1],
                         "replacement",
-                        "单条修改后",
+                        "修改后",
                         &replacement,
                         height,
                     );
@@ -306,7 +354,7 @@ fn single_edit_browser(
             } else {
                 let half = (height - ui.spacing().item_spacing.y) * 0.5;
                 single_edit_text(ui, "original", "底稿原文", &original, half);
-                single_edit_text(ui, "replacement", "单条修改后", &replacement, half);
+                single_edit_text(ui, "replacement", "修改后", &replacement, half);
             }
         } else {
             ui.colored_label(MUTED, "没有匹配文本。");
@@ -320,10 +368,9 @@ impl Desktop {
             return;
         }
         let mut open = true;
-        window("关于", ctx, 700.)
-            .id(egui::Id::unique("about-product-information"))
-            .min_width(500.)
-            .default_height((ctx.content_rect().height() - 60.).min(600.))
+        window("关于", ctx, 520.)
+            .id(egui::Id::unique("about-product-information-compact"))
+            .min_width(400.)
             .open(&mut open)
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical()
@@ -415,6 +462,7 @@ impl Desktop {
             self.template_form.is_some(),
             self.text_form.is_some(),
             self.batch_form.is_some(),
+            self.combined_form.is_some(),
         ];
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) && !self.write_busy() {
             if self.table_detail.is_some() {
@@ -429,6 +477,8 @@ impl Desktop {
                 self.template_form = None;
             } else if self.scope_form.is_some() {
                 self.scope_form = None;
+            } else if self.combined_form.is_some() {
+                self.combined_form = None;
             } else if self.text_form.is_some() {
                 self.text_form = None;
             } else if self.batch_scope.is_some() {
@@ -439,8 +489,8 @@ impl Desktop {
                 self.preview = None;
             } else if self.rule_form.is_some() {
                 self.rule_form = None;
-            } else if self.confirm_import.is_some() {
-                self.confirm_import = None;
+            } else if self.confirm_backup.is_some() {
+                self.confirm_backup = None;
             } else if self.migration_form.as_ref().is_some_and(|form| form.open) {
                 if let Some(form) = &mut self.migration_form {
                     form.open = false;
@@ -459,6 +509,7 @@ impl Desktop {
             }
         }
         self.rule_dialog(ctx);
+        self.combined_dialog(ctx);
         self.scope_dialog(ctx);
         self.template_dialog(ctx);
         self.text_dialog(ctx);
@@ -580,71 +631,99 @@ impl Desktop {
             let mut open = true;
             let mut close = false;
             let mut reconnect = false;
-            window("未完成", ctx, 520.).open(&mut open).show(ctx, |ui| {
-                ui.add(egui::Label::new(message).wrap());
-                ui.add_space(12.);
-                match recovery {
-                    Some(ErrorRecovery::Baseline) => {
-                        ui.horizontal_wrapped(|ui| {
-                            if secondary(ui, self.data_path.is_some(), "打开备份位置").clicked()
-                            {
-                                self.open_data_folder("backup");
-                            }
-                            if secondary(
-                                ui,
-                                self.loaded
-                                    && self.busy.is_none()
-                                    && !self.path_dirty
-                                    && !self.game.is_empty(),
-                                "尝试重建",
-                            )
-                            .clicked()
-                            {
-                                self.submit(
-                                    "baseline_rebuild_preview",
-                                    json!({}),
-                                    "正在查找并校验可用于重建的原始资源…",
-                                );
-                                close = true;
-                            }
-                        });
-                    }
-                    Some(ErrorRecovery::Records) => {
-                        if secondary(ui, self.data_path.is_some(), "打开数据目录").clicked() {
-                            self.open_data_folder(".gui");
-                        }
-                        for (name, error) in &errors {
-                            ui.push_id(name, |ui| {
-                                ui.horizontal_wrapped(|ui| {
-                                    ui.label(name).on_hover_text(error);
-                                    if ["rules.tsv", "text-edits.json", "source-history.json"]
-                                        .contains(&name.as_str())
-                                        && secondary(
-                                            ui,
-                                            self.loaded && self.busy.is_none(),
-                                            "归档并重置…",
-                                        )
-                                        .clicked()
-                                    {
-                                        self.confirm_record_reset = Some(name.clone());
-                                        close = true;
-                                    }
-                                })
+            let title = match recovery {
+                Some(ErrorRecovery::Baseline) => "底稿异常",
+                Some(ErrorRecovery::Records) => "记录异常",
+                None => "操作失败",
+            };
+            window(title, ctx, 520.)
+                .id(egui::Id::unique("operation-error"))
+                .open(&mut open)
+                .show(ctx, |ui| {
+                    ui.add(egui::Label::new(message).wrap());
+                    ui.add_space(12.);
+                    match recovery {
+                        Some(ErrorRecovery::Baseline) => {
+                            ui.horizontal_wrapped(|ui| {
+                                if secondary(ui, self.data_path.is_some(), "打开备份位置").clicked()
+                                {
+                                    self.open_data_folder("backup");
+                                }
+                                if primary(
+                                    ui,
+                                    self.loaded
+                                        && self.busy.is_none()
+                                        && !self.path_dirty
+                                        && !self.game.is_empty(),
+                                    "尝试重建",
+                                )
+                                .clicked()
+                                {
+                                    self.submit(
+                                        "baseline_rebuild_preview",
+                                        json!({}),
+                                        "正在查找并校验可用于重建的原始资源…",
+                                    );
+                                    close = true;
+                                }
                             });
                         }
+                        Some(ErrorRecovery::Records) => {
+                            if secondary(ui, self.data_path.is_some(), "打开数据目录").clicked()
+                            {
+                                self.open_data_folder(".gui");
+                            }
+                            for (name, error) in &errors {
+                                ui.push_id(name, |ui| {
+                                    egui::Frame::group(ui.style()).show(ui, |ui| {
+                                        ui.horizontal_wrapped(|ui| {
+                                            ui.label(record_name(name))
+                                                .on_hover_text(format!("{name}\n{error}"));
+                                            if [
+                                                "rules.tsv",
+                                                "text-edits.json",
+                                                "source-history.json",
+                                            ]
+                                            .contains(&name.as_str())
+                                                && action(
+                                                    ui,
+                                                    self.loaded && self.busy.is_none(),
+                                                    "清空记录…",
+                                                    ButtonKind::Soft,
+                                                )
+                                                .clicked()
+                                            {
+                                                self.confirm_record_reset = Some(name.clone());
+                                                close = true;
+                                            }
+                                        })
+                                    })
+                                });
+                            }
+                        }
+                        None => {}
                     }
-                    None => {}
-                }
-                if self.backend.is_none() && primary(ui, true, "重新连接").clicked() {
-                    reconnect = true;
-                }
-                if primary(ui, true, "知道了").clicked() {
-                    close = true;
-                }
-                if ui.button("查看日志").clicked() {
-                    self.show_logs = true;
-                }
-            });
+                    if self.backend.is_none() && primary(ui, true, "重新连接").clicked() {
+                        reconnect = true;
+                    }
+                    if action(
+                        ui,
+                        true,
+                        "知道了",
+                        if recovery.is_some() || self.backend.is_none() {
+                            ButtonKind::Standard
+                        } else {
+                            ButtonKind::Primary
+                        },
+                    )
+                    .clicked()
+                    {
+                        close = true;
+                    }
+                    if ui.button("查看日志").clicked() {
+                        self.show_logs = true;
+                    }
+                });
             if !open || close {
                 self.error = None;
                 self.error_recovery = None;
@@ -658,6 +737,7 @@ impl Desktop {
             self.template_form.is_some(),
             self.text_form.is_some(),
             self.batch_form.is_some(),
+            self.combined_form.is_some(),
         ];
         if before
             .into_iter()
@@ -672,7 +752,6 @@ impl Desktop {
             return;
         };
         let mut open = true;
-        let mut close = false;
         let nested = self.scope_form.is_some()
             || self.template_form.is_some()
             || self.table_detail.is_some();
@@ -820,13 +899,10 @@ impl Desktop {
                     {
                         self.submit("save_rule", form.payload(), "正在保存词条…");
                     }
-                    if ui.button("取消").clicked() {
-                        close = true;
-                    }
                 });
             });
         });
-        if open && !close {
+        if open {
             self.rule_form = Some(form);
         }
     }
@@ -836,7 +912,9 @@ impl Desktop {
         };
         let mut open = true;
         let mut close = false;
-        window("选择来源表", ctx, 650.)
+        window("选择来源表", ctx, 480.)
+            .id(egui::Id::unique("source-picker-compact"))
+            .min_width(360.)
             .open(&mut open)
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
@@ -844,7 +922,7 @@ impl Desktop {
                         egui::TextEdit::singleline(&mut form.filter)
                             .font(egui::TextStyle::Body)
                             .hint_text("筛选中文名称或表名")
-                            .desired_width(330.),
+                            .desired_width((ui.available_width() - 85.).max(140.)),
                     );
                     if ui
                         .add_enabled(form.request.is_none(), egui::Button::new("刷新"))
@@ -878,6 +956,7 @@ impl Desktop {
                 let needle = form.filter.to_lowercase();
                 egui::ScrollArea::vertical()
                     .auto_shrink([false, true])
+                    .min_scrolled_height(0.)
                     .max_height((ctx.content_rect().height() - 350.).clamp(150., 320.))
                     .show(ui, |ui| {
                         if form.request.is_some() {
@@ -925,18 +1004,25 @@ impl Desktop {
                 }
                 ui.horizontal(|ui| {
                     if primary(ui, true, "确定").clicked() {
-                        match form.encode() {
+                        let scope = if self.combined_form.is_some()
+                            && self.rule_form.is_none()
+                            && form.checked.is_empty()
+                        {
+                            Ok("[]".into())
+                        } else {
+                            form.encode()
+                        };
+                        match scope {
                             Ok(scope) => {
                                 if let Some(rule) = &mut self.rule_form {
                                     rule.scope = scope;
+                                } else if let Some(combined) = &mut self.combined_form {
+                                    combined.scope = scope;
                                 }
                                 close = true;
                             }
                             Err(error) => form.error = error,
                         }
-                    }
-                    if ui.button("取消").clicked() {
-                        close = true;
                     }
                 });
             });
@@ -951,7 +1037,9 @@ impl Desktop {
         let mut open = true;
         let mut close = false;
         let mut changed = false;
-        window("正则模板", ctx, 680.)
+        window("正则模板", ctx, 560.)
+            .id(egui::Id::unique("regex-template-compact"))
+            .min_width(400.)
             .open(&mut open)
             .show(ctx, |ui| {
                 let templates = self.state["templates"].clone();
@@ -1029,9 +1117,6 @@ impl Desktop {
                         }
                         close = true;
                     }
-                    if ui.button("取消").clicked() {
-                        close = true;
-                    }
                 });
             });
         if self.template_changed.is_some() {
@@ -1046,85 +1131,96 @@ impl Desktop {
             return;
         };
         let mut open = true;
-        let mut close = false;
-        window("编辑文本", ctx, 780.)
+        window("编辑文本", ctx, 600.)
+            .id(egui::Id::unique("text-editor-compact"))
+            .min_width(400.)
             .open(&mut open)
             .resizable(true)
             .show(ctx, |ui| {
-                ui.label(&form.label);
-                if form.has_batch {
-                    ui.colored_label(
-                        MUTED,
-                        "此处编辑批量处理前的文本；保存后会再执行该条批量替换。",
-                    );
-                }
                 ui.add_enabled_ui(!self.write_busy(), |ui| {
                     egui::ScrollArea::vertical()
-                        .max_height(
-                            (ctx.content_rect().height()
-                                - 320.
-                                - if form.show_original { 110. } else { 0. })
-                            .clamp(120., 320.),
-                        )
+                        .id_salt("text-editor-body")
+                        .min_scrolled_height(0.)
+                        .max_height((ctx.content_rect().height() - 180.).clamp(160., 520.))
                         .show(ui, |ui| {
-                            if ui
-                                .add(
-                                    egui::TextEdit::multiline(&mut form.value)
-                                        .font(egui::TextStyle::Body)
-                                        .desired_width(f32::INFINITY)
-                                        .desired_rows(12),
-                                )
-                                .changed()
-                            {
-                                form.notice.clear();
-                            }
-                        });
-                    ui.horizontal(|ui| {
-                        if ui
-                            .button(if form.show_original {
-                                "收起底稿原文"
-                            } else {
-                                "查看底稿原文"
-                            })
-                            .clicked()
-                        {
-                            form.show_original = !form.show_original;
-                        }
-                        if ui.button("恢复此条原文").clicked() {
-                            form.value = form.original.clone();
-                            form.error.clear();
-                            form.notice = "已填回底稿原文，点击保存后生效。".into();
-                        }
-                    });
-                    if form.show_original {
-                        egui::ScrollArea::vertical()
-                            .max_height(100.)
-                            .show(ui, |ui| {
-                                ui.label(&form.original);
+                            ui.colored_label(MUTED, &form.label);
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new("编辑内容").strong());
+                                if form.value != form.initial {
+                                    ui.colored_label(ORANGE, "未保存");
+                                }
                             });
-                    }
-                    if !form.notice.is_empty() {
-                        ui.colored_label(MUTED, &form.notice);
-                    }
+                            egui::ScrollArea::vertical()
+                                .id_salt("text-editor-input")
+                                .min_scrolled_height(0.)
+                                .max_height(if form.batch.is_some() { 140. } else { 240. })
+                                .show(ui, |ui| {
+                                    ui.add(
+                                        egui::TextEdit::multiline(&mut form.value)
+                                            .font(egui::TextStyle::Body)
+                                            .desired_width(f32::INFINITY)
+                                            .desired_rows(2),
+                                    );
+                                });
+                            if let Some((old, new)) = &form.batch {
+                                ui.horizontal_wrapped(|ui| {
+                                    ui.colored_label(MUTED, "批量替换");
+                                    ui.label(old);
+                                    ui.colored_label(MUTED, "→");
+                                    ui.label(if new.is_empty() {
+                                        "（删除匹配文字）"
+                                    } else {
+                                        new
+                                    });
+                                });
+                                ui.label(RichText::new("替换后的文字").strong());
+                                egui::ScrollArea::vertical()
+                                    .id_salt("text-editor-result")
+                                    .min_scrolled_height(0.)
+                                    .max_height(120.)
+                                    .show(ui, |ui| {
+                                        ui.add(
+                                            egui::Label::new(form.final_text())
+                                                .wrap()
+                                                .selectable(true),
+                                        );
+                                    });
+                            }
+                            egui::CollapsingHeader::new("底稿原文").show(ui, |ui| {
+                                egui::ScrollArea::vertical()
+                                    .id_salt("text-editor-original")
+                                    .min_scrolled_height(0.)
+                                    .max_height(100.)
+                                    .show(ui, |ui| {
+                                        ui.add(
+                                            egui::Label::new(&form.original)
+                                                .wrap()
+                                                .selectable(true),
+                                        );
+                                    });
+                            });
+                        });
                     if !form.error.is_empty() {
                         ui.colored_label(RED, &form.error);
                     }
                     ui.horizontal(|ui| {
-                        if primary(ui, true, "保存修改").clicked() {
-                            self.submit(
-                                "text_save",
-                                json!({"nonce":form.nonce,"text":form.value}),
-                                "正在保存单条修改…",
-                            );
+                        if secondary(ui, form.value != form.original, "填回原文").clicked() {
+                            form.value = form.original.clone();
+                            form.error.clear();
                         }
-                        if ui.button("取消").clicked() {
-                            close = true;
-                        }
-                        ui.colored_label(MUTED, "保存后需预览、应用才会写入游戏。");
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if primary(ui, true, "保存修改").clicked() {
+                                self.submit(
+                                    "text_save",
+                                    json!({"nonce":form.nonce,"text":form.value}),
+                                    "正在保存单条修改…",
+                                );
+                            }
+                        });
                     });
                 });
             });
-        if open && !close {
+        if open {
             self.text_form = Some(form);
         }
     }
@@ -1134,15 +1230,49 @@ impl Desktop {
         };
         let mut open = true;
         let mut close = false;
-        window(if form.group_id.is_empty(){"替换选中文本"}else{"编辑批量修改"},ctx,820.).open(&mut open).show(ctx,|ui|{ui.label(format!("仅修改选中的 {} 条文本",form.indices.len()));if !form.group_id.is_empty() && ui.button("查看文本范围，移除误选段落…").clicked(){self.open_batch_scope(&form.group_id);close=true;}ui.add_enabled_ui(!self.write_busy(),|ui|{
-            ui.label("查找文字");let old=ui.add(egui::TextEdit::singleline(&mut form.old).font(egui::TextStyle::Body).desired_width(f32::INFINITY));ui.label("替换为");let new=ui.add(egui::TextEdit::singleline(&mut form.new).font(egui::TextStyle::Body).desired_width(f32::INFINITY));
-            if old.changed()||new.changed(){form.nonce.clear();form.changes.clear();form.error.clear();}
-            if ui.button("预览选中").clicked(){self.submit("batch_preview",json!({"group_id":form.group_id,"indices":form.indices,"search_nonce":text(&self.search,"nonce"),"old":form.old,"new":form.new}),"正在预览选中文本…");}
-            egui::ScrollArea::vertical().max_height(ctx.content_rect().height()*0.35).show(ui,|ui|{for change in &form.changes{ui.label(RichText::new(text(change,"label")).color(MUTED));ui.label(format!("当前：{}\n替换后：{}",text(change,"before"),text(change,"after")));ui.separator();}});
-            if form.new.is_empty() && !form.old.is_empty(){ui.colored_label(MUTED,"留空将删除选中文本中的匹配文字。");}
-            ui.colored_label(RED,&form.error);ui.horizontal(|ui|{if primary(ui,!form.nonce.is_empty()&&!form.changes.is_empty(),"保存修改").clicked(){self.submit("batch_save",json!({"nonce":form.nonce}),"正在保存选中文本修改…");}
-if ui.button("取消").clicked(){close=true;}});
-        });});
+        window(if form.group_id.is_empty(){"替换选中文本"}else{"编辑批量修改"},ctx,600.)
+            .id(egui::Id::unique("batch-editor-compact")).min_width(400.)
+            .open(&mut open).show(ctx,|ui| {
+                ui.label(format!("仅修改选中的 {} 条文本",form.indices.len()));
+                if !form.group_id.is_empty() && ui.button("管理所选文本…").clicked() {
+                    self.open_batch_scope(&form.group_id);
+                    close=true;
+                }
+                ui.add_enabled_ui(!self.write_busy(),|ui| {
+                    ui.label("查找文字");
+                    let old=ui.add(egui::TextEdit::singleline(&mut form.old)
+                        .font(egui::TextStyle::Body).desired_width(f32::INFINITY));
+                    ui.label("替换为");
+                    let new=ui.add(egui::TextEdit::singleline(&mut form.new)
+                        .font(egui::TextStyle::Body).desired_width(f32::INFINITY));
+                    if old.changed() || new.changed() {
+                        form.nonce.clear();form.changes.clear();form.error.clear();
+                    }
+                    if ui.button("预览选中").clicked() {
+                        self.submit("batch_preview",json!({"group_id":form.group_id,"indices":form.indices,"search_nonce":text(&self.search,"nonce"),"old":form.old,"new":form.new}),"正在预览选中文本…");
+                    }
+                    if !form.changes.is_empty() {
+                        egui::ScrollArea::vertical().id_salt("batch-preview-changes")
+                            .min_scrolled_height(0.).max_height(ctx.content_rect().height()*0.35)
+                            .show(ui,|ui| {
+                                for change in &form.changes {
+                                    ui.label(RichText::new(text(change,"label")).color(MUTED));
+                                    ui.label(format!("当前：{}\n替换后：{}",text(change,"before"),text(change,"after")));
+                                    ui.separator();
+                                }
+                            });
+                    }
+                    if form.new.is_empty() && !form.old.is_empty() {
+                        ui.colored_label(MUTED,"留空将删除选中文本中的匹配文字。");
+                    }
+                    if !form.error.is_empty() {ui.colored_label(RED,&form.error);}
+                    ui.horizontal(|ui| {
+                        if primary(ui,!form.nonce.is_empty() && !form.changes.is_empty(),"保存修改").clicked() {
+                            self.submit("batch_save",json!({"nonce":form.nonce}),"正在保存选中文本修改…");
+                        }
+                    });
+                });
+            });
         if open && !close {
             self.batch_form = Some(form);
         }
@@ -1157,29 +1287,88 @@ if ui.button("取消").clicked(){close=true;}});
             .filter(|e| form.contains(e))
             .collect();
         let mut open = true;
-        let mut close = false;
-        window("批量修改 · 文本范围",ctx,980.).open(&mut open).show(ctx,|ui| {
-            ui.set_height((ctx.content_rect().height()-140.).clamp(360.,620.));
-            if let Some(first)=members.first() {
-                ui.add(egui::Label::new(format!("{} → {} · 共 {} 段",text(&first["edit"]["batch_operation"],"old"),text(&first["edit"]["batch_operation"],"new"),members.len())).truncate());
-            } else {ui.label("此批已没有文本段。");}
-            record_filter(ui, "batch-scope", &mut form.filter, &mut form.selected);
-            egui::Panel::bottom("batch-scope-actions").show(ui,|ui| {
-                if !form.error.is_empty(){ui.colored_label(RED,&form.error);}
-                let selected=members.iter().find(|e|Some(count(e,"index") as usize)==form.selected);
-                ui.horizontal(|ui| {
-                    if secondary(ui, selected.is_some()&&!self.write_busy(),"从本批移除此段").clicked()
-                        && let Some(entry)=selected {
-                        self.submit("remove_batch_member",json!({"id":form.id,"index":entry["index"],"revision":self.revision()}),"正在从本批移除这段文本…");
-                    }
-                    if ui.button("关闭").clicked(){close=true;}
-                });
-                ui.colored_label(MUTED,"只取消该段的本批修改，保留已有单条修改。预览并应用后写入游戏。");
-                ui.colored_label(MUTED,"关闭后可用主界面的“撤销”恢复移除。");
+        let visible_count = members
+            .iter()
+            .filter(|entry| edit_matches(entry, &form.filter))
+            .count();
+        window(
+            "批量修改 · 文本范围",
+            ctx,
+            if visible_count <= 1 { 640. } else { 760. },
+        )
+        .id(egui::Id::unique("batch-scope-responsive"))
+        .min_width(if visible_count == 0 {
+            380.
+        } else if visible_count == 1 {
+            500.
+        } else {
+            620.
+        })
+        .max_width(if visible_count == 0 {
+            520.
+        } else if visible_count == 1 {
+            680.
+        } else {
+            (ctx.content_rect().width() - 32.).max(620.)
+        })
+        .open(&mut open)
+        .show(ctx, |ui| {
+            ui.set_height(if visible_count == 0 {
+                180.
+            } else {
+                (420. + (visible_count.saturating_sub(1).min(4) as f32) * 18.)
+                    .min(ctx.content_rect().height() - 130.)
             });
-            record_browser(ui,"batch-scope",&members,&form.filter,&mut form.selected,true);
+            if let Some(first) = members.first() {
+                ui.add(
+                    egui::Label::new(format!(
+                        "{} → {} · 共 {} 段",
+                        text(&first["edit"]["batch_operation"], "old"),
+                        text(&first["edit"]["batch_operation"], "new"),
+                        members.len()
+                    ))
+                    .truncate(),
+                );
+            } else {
+                ui.label("此批已没有文本段。");
+            }
+            record_filter(ui, "batch-scope", &mut form.filter, &mut form.selected);
+            egui::Panel::bottom("batch-scope-actions").show(ui, |ui| {
+                if !form.error.is_empty() {
+                    ui.colored_label(RED, &form.error);
+                }
+                let selected = members
+                    .iter()
+                    .find(|e| Some(count(e, "index") as usize) == form.selected);
+                ui.horizontal(|ui| {
+                    if secondary(
+                        ui,
+                        selected.is_some() && !self.write_busy(),
+                        "从本批移除此段",
+                    )
+                    .on_hover_text("保留这段文本已有的单条修改。")
+                    .clicked()
+                        && let Some(entry) = selected
+                    {
+                        self.submit(
+                            "remove_batch_member",
+                            json!({"id":form.id,"index":entry["index"],"revision":self.revision()}),
+                            "正在从本批移除这段文本…",
+                        );
+                    }
+                });
+            });
+            record_browser(
+                ui,
+                "batch-scope",
+                &members,
+                &form.filter,
+                &mut form.selected,
+                true,
+                None,
+            );
         });
-        if open && !close {
+        if open {
             self.batch_scope = Some(form);
         }
     }
@@ -1257,240 +1446,6 @@ if ui.button("取消").clicked(){close=true;}});
             self.show_source_notices = false;
         }
     }
-    fn preview_dialog(&mut self, ctx: &egui::Context) {
-        let Some(preview) = self.preview.clone() else {
-            return;
-        };
-        let mut open = true;
-        let mut close = false;
-        let stats = &preview["stats"];
-        let changes = slice(stats, "changes");
-        window("预览替换", ctx, 940.)
-            .open(&mut open)
-            .show(ctx, |ui| {
-                ui.label(format!(
-                    "本次 {} 处变化：新增 {}，调整 {}，撤销 {}",
-                    count(&preview, "total_changes"),
-                    count(stats, "added"),
-                    count(stats, "updated"),
-                    count(stats, "reverted")
-                ));
-                let widths = [
-                    55.,
-                    150.,
-                    (ui.available_width() - 260.) * 0.5,
-                    (ui.available_width() - 260.) * 0.5,
-                ];
-                table_header(
-                    ui,
-                    &["变化", "来源表", "当前游戏文字", "本次最终文字"],
-                    &widths,
-                );
-                egui::ScrollArea::vertical()
-                    .id_salt("preview-changes")
-                    .max_height(ctx.content_rect().height() * 0.33)
-                    .show_rows(ui, ROW_HEIGHT, changes.len(), |ui, range| {
-                        for i in range {
-                            let change = &changes[i];
-                            let table = text(change, "table");
-                            let label = self
-                                .tables
-                                .iter()
-                                .find(|v| text(v, "name") == table)
-                                .map(|v| text(v, "label"))
-                                .unwrap_or(table);
-                            if data_row(
-                                ui,
-                                i,
-                                self.preview_row == Some(i),
-                                &[
-                                    text(change, "kind"),
-                                    label,
-                                    text(change, "before").replace('\n', " [换行] "),
-                                    text(change, "after").replace('\n', " [换行] "),
-                                ],
-                                &widths,
-                            )
-                            .clicked()
-                            {
-                                self.preview_row = Some(i);
-                            }
-                        }
-                    });
-                if changes.is_empty() {
-                    ui.colored_label(MUTED, "当前游戏文字无需更改。");
-                }
-                if count(&preview, "total_changes") > changes.len() as u64 {
-                    ui.colored_label(
-                        MUTED,
-                        format!("显示前 {} 处，上方统计包含全部变化。", changes.len()),
-                    );
-                }
-                if let Some(row) = self.preview_row.and_then(|i| changes.get(i)) {
-                    egui::ScrollArea::vertical()
-                        .id_salt("preview-text-detail")
-                        .max_height(110.)
-                        .show(ui, |ui| {
-                            ui.label(format!(
-                                "底稿原文：{}\n当前游戏：{}\n本次结果：{}",
-                                text(row, "original"),
-                                text(row, "before"),
-                                text(row, "after")
-                            ));
-                        });
-                }
-                let misses = list(stats, "zero_reasons");
-                if !misses.is_empty() {
-                    egui::CollapsingHeader::new(format!("未命中词条（{}）", misses.len())).show(
-                        ui,
-                        |ui| {
-                            egui::ScrollArea::vertical()
-                                .id_salt("preview-missed-rules")
-                                .max_height(100.)
-                                .show(ui, |ui| {
-                                    for miss in misses {
-                                        let array = miss.as_array().cloned().unwrap_or_default();
-                                        ui.label(
-                                            if let Some(reason) =
-                                                array.get(1).and_then(Value::as_str)
-                                            {
-                                                format!(
-                                                    "第 {} 条：{}",
-                                                    array
-                                                        .first()
-                                                        .and_then(Value::as_u64)
-                                                        .unwrap_or(0)
-                                                        + 1,
-                                                    reason
-                                                )
-                                            } else {
-                                                text(&miss, "reason")
-                                            },
-                                        );
-                                    }
-                                });
-                        },
-                    );
-                }
-                let diagnostics = list(stats, "diagnostics");
-                if !diagnostics.is_empty() {
-                    if count(stats, "parse_failed") == 0 {
-                        let mut skipped = Vec::new();
-                        if count(stats, "tables_skipped") > 0 {
-                            skipped.push(format!("{} 张来源表", count(stats, "tables_skipped")));
-                        }
-                        if count(stats, "fields_skipped") > 0 {
-                            skipped.push(format!("{} 个异常字段", count(stats, "fields_skipped")));
-                        }
-                        if !skipped.is_empty() {
-                            ui.colored_label(
-                                egui::Color32::from_rgb(139, 91, 21),
-                                format!("已跳过{}，原始数据保留。", skipped.join("、")),
-                            );
-                        }
-                    }
-                    egui::CollapsingHeader::new(format!(
-                        "处理详情（{}项，最多显示20项）",
-                        diagnostics.len()
-                    ))
-                    .show(ui, |ui| {
-                        egui::ScrollArea::vertical()
-                            .id_salt("preview-diagnostics")
-                            .max_height(110.)
-                            .show(ui, |ui| {
-                                for diagnostic in &diagnostics {
-                                    let location =
-                                        bajptr_project::model::title(&text(diagnostic, "table"));
-                                    ui.add(
-                                        egui::Label::new(format!(
-                                            "{location}：{}",
-                                            text(diagnostic, "message")
-                                        ))
-                                        .wrap(),
-                                    );
-                                }
-                            });
-                    });
-                }
-                if count(stats, "parse_failed") > 0 {
-                    ui.colored_label(
-                        RED,
-                        "存在无法解析的记录，已禁止应用。展开“处理详情”查看来源与原因。",
-                    );
-                }
-                let preparing = self.busy.as_ref().is_some_and(|busy| {
-                    self.pending
-                        .get(&busy.id)
-                        .is_some_and(|action| action == "prepare_patch")
-                });
-                let ready = preview["prepared"] == true;
-                let preparation_error = text(&preview, "preparation_error");
-                if count(&preview, "total_changes") > 0 && count(stats, "parse_failed") == 0 {
-                    if preparing {
-                        ui.horizontal(|ui| {
-                            ui.spinner();
-                            ui.colored_label(
-                                MUTED,
-                                "正在后台准备补丁，可先核对预览；关闭窗口会保留本次准备。",
-                            );
-                        });
-                    } else if ready {
-                        ui.colored_label(
-                            MUTED,
-                            if preview["prepared_reused"] == true {
-                                "已复用准备好的补丁，确认后应用。"
-                            } else {
-                                "补丁已准备，确认后应用。"
-                            },
-                        );
-                    } else {
-                        if !preparation_error.is_empty() {
-                            ui.colored_label(RED, &preparation_error);
-                        }
-                        if secondary(ui, self.busy.is_none(), "重新准备补丁").clicked() {
-                            self.submit(
-                                "prepare_patch",
-                                json!({"nonce":text(&preview,"nonce")}),
-                                "正在后台准备补丁…",
-                            );
-                        }
-                    }
-                }
-                ui.horizontal(|ui| {
-                    if primary(
-                        ui,
-                        count(&preview, "total_changes") > 0
-                            && count(stats, "parse_failed") == 0
-                            && ready
-                            && self.busy.is_none(),
-                        "应用到游戏",
-                    )
-                    .clicked()
-                    {
-                        self.submit(
-                            "apply",
-                            json!({"nonce":text(&preview,"nonce"),"prepared":true}),
-                            "正在校验并应用准备好的补丁…",
-                        );
-                        close = true;
-                    }
-                    if ui
-                        .button(if count(&preview, "total_changes") > 0 {
-                            "取消"
-                        } else {
-                            "关闭"
-                        })
-                        .clicked()
-                    {
-                        close = true;
-                    }
-                    ui.colored_label(MUTED, "请先退出游戏。未保留的旧规则会撤销。");
-                });
-            });
-        if !open || close {
-            self.preview = None;
-        }
-    }
     fn edit_manager(&mut self, ctx: &egui::Context) {
         if !self.show_edits {
             return;
@@ -1515,25 +1470,47 @@ if ui.button("取消").clicked(){close=true;}});
         {
             self.edit_view.selected = visible.first().map(|entry| count(entry, "index") as usize);
         }
+        let long_text = visible.iter().any(|entry| {
+            ["original", "replacement"].iter().any(|key| {
+                entry["edit"][key]
+                    .as_str()
+                    .is_some_and(|value| value.contains('\n') || value.chars().count() > 80)
+            })
+        });
         window(
             "单条修改",
             ctx,
             if edits.is_empty() {
-                500.
+                440.
             } else if edits.len() > 1 {
-                980.
+                760.
+            } else if long_text {
+                680.
             } else {
-                780.
+                600.
             },
         )
-        .id(egui::Id::unique("single-edit-manager-toolbar"))
+        .id(egui::Id::unique("single-edit-manager-responsive"))
         .frame(
             egui::Frame::window(&ctx.style_of(egui::Theme::Light))
                 .fill(BG)
                 .corner_radius(12)
                 .inner_margin(18),
         )
-        .min_width(500.)
+        .min_width(if visible.is_empty() {
+            360.
+        } else if edits.len() > 1 {
+            620.
+        } else {
+            500.
+        })
+        .max_width(if visible.is_empty() {
+            520.
+        } else if visible.len() == 1 && !long_text {
+            640.
+        } else {
+            (ctx.content_rect().width() - 32.).max(620.)
+        })
         .open(&mut open)
         .show(ctx, |ui| {
             let side_by_side = ui.available_width() >= 560.;
@@ -1542,7 +1519,7 @@ if ui.button("取消").clicked(){close=true;}});
             } else {
                 ui.available_width() - 30.
             };
-            let text_height = edits
+            let text_height = visible
                 .first()
                 .map(|entry| {
                     ["original", "replacement"]
@@ -1567,10 +1544,11 @@ if ui.button("取消").clicked(){close=true;}});
                         })
                 })
                 .unwrap_or(0.);
-            let content_height = if edits.is_empty() {
-                50.
-            } else if edits.len() == 1 {
+            let content_height = if visible.is_empty() {
+                if edits.is_empty() { 50. } else { 110. }
+            } else if visible.len() == 1 {
                 (text_height + if side_by_side { 100. } else { 160. }).max(160.)
+                    + if edits.len() > 1 { 44. } else { 0. }
             } else {
                 430.
             };
@@ -1605,7 +1583,7 @@ if ui.button("取消").clicked(){close=true;}});
                                 "正在读取单条修改…",
                             );
                         }
-                        if secondary(ui, true, "移除单条修改").clicked() {
+                        if secondary(ui, true, "移除").clicked() {
                             self.submit(
                                 "remove_edit",
                                 json!({"index":entry["index"],"revision":self.revision()}),
@@ -1622,7 +1600,7 @@ if ui.button("取消").clicked(){close=true;}});
                         ui,
                         &visible,
                         &mut self.edit_view.selected,
-                        edits.len() > 1,
+                        visible.len() > 1,
                     );
                 }
             });
@@ -1633,17 +1611,29 @@ if ui.button("取消").clicked(){close=true;}});
         if let Some(name) = self.confirm_record_reset.clone() {
             let mut open = true;
             let mut close = false;
-            window("归档并重置损坏记录", ctx, 540.).open(&mut open).show(ctx, |ui| {
-                ui.label(format!("将 {name} 原文件完整移入数据目录下的 recovery 文件夹，并清空这一类记录。其他记录保持不变。"));
-                ui.colored_label(ORANGE, "如需抢救原有内容，请先打开数据目录检查文件。");
-                ui.horizontal(|ui| {
-                    if primary(ui, self.busy.is_none(), "归档并重置").clicked() {
-                        self.submit("reset_record", json!({"name":name,"revision":self.revision()}), "正在归档并重置损坏记录…");
-                        close = true;
-                    }
-                    if secondary(ui, !self.write_busy(), "取消").clicked() { close = true; }
+            window(&format!("清空{}", record_name(&name)), ctx, 540.)
+                .open(&mut open)
+                .show(ctx, |ui| {
+                    ui.label(format!(
+                        "将清空{}。原文件会保留在数据目录的 recovery 文件夹，其他记录保持不变。",
+                        record_name(&name)
+                    ));
+                    ui.colored_label(ORANGE, "如需抢救原有内容，请先打开数据目录检查文件。");
+                    ui.horizontal(|ui| {
+                        if action(ui, self.busy.is_none(), "确认清空", ButtonKind::Danger).clicked()
+                        {
+                            self.submit(
+                                "reset_record",
+                                json!({"name":name,"revision":self.revision()}),
+                                "正在清空有问题的记录…",
+                            );
+                            close = true;
+                        }
+                        if secondary(ui, !self.write_busy(), "取消").clicked() {
+                            close = true;
+                        }
+                    });
                 });
-            });
             if !open || close {
                 self.confirm_record_reset = None;
             }
@@ -1691,19 +1681,40 @@ if ui.button("取消").clicked(){close=true;}});
                 }
             }
         }
-        if let Some(import) = self.confirm_import.clone() {
+        if let Some(backup) = self.confirm_backup.clone() {
             let mut open = true;
             let mut close = false;
-            window("导入词表", ctx, 500.)
+            window("恢复备份", ctx, 560.)
                 .open(&mut open)
                 .show(ctx, |ui| {
+                    ui.label(
+                        "用备份替换当前词表、单条和批量修改、目录及选项？恢复前会保留当前数据。",
+                    );
                     ui.label(format!(
-                        "用 {} 条导入词条替换当前词表？",
-                        count(&import, "count")
+                        "词条 {} 条 · 指定文本修改 {} 条",
+                        count(&backup, "rule_count"),
+                        count(&backup, "edit_count")
+                    ));
+                    let game = text(&backup, "game");
+                    ui.label(format!(
+                        "游戏目录：{}",
+                        if game.is_empty() { "未设置" } else { &game }
+                    ));
+                    ui.label(format!(
+                        "跳过含日文假名的文本：{}",
+                        if backup["skip_kana"] == true {
+                            "勾选"
+                        } else {
+                            "未勾选"
+                        }
                     ));
                     ui.horizontal(|ui| {
-                        if primary(ui, !self.write_busy(), "导入替换").clicked() {
-                            self.submit("import_commit", import.clone(), "正在导入词表…");
+                        if primary(ui, !self.write_busy(), "恢复备份").clicked() {
+                            self.submit(
+                                "backup_restore",
+                                json!({"nonce":backup["nonce"]}),
+                                "正在恢复备份…",
+                            );
                             close = true;
                         }
                         if ui.button("取消").clicked() {
@@ -1712,7 +1723,7 @@ if ui.button("取消").clicked(){close=true;}});
                     });
                 });
             if !open || close {
-                self.confirm_import = None;
+                self.confirm_backup = None;
             }
         }
         if self.confirm_restore {
@@ -1745,6 +1756,94 @@ if ui.button("取消").clicked(){close=true;}});
 mod layout_tests {
     use super::*;
     #[test]
+    fn preview_hides_empty_comparison_but_keeps_errors_and_changed_texts_visible() {
+        for (total, failed) in [(0, 0), (0, 1), (1, 0)] {
+            let ctx = egui::Context::default();
+            crate::theme::install(&ctx);
+            let mut app = Desktop::initial();
+            app.preview = Some(std::sync::Arc::new(
+                json!({"total_changes":total,"prepared":true,"stats":{"added":total,"parse_failed":failed,"changes":if total>0 {json!([{"kind":"新增","table":"test","original":"恢复体力","before":"恢复体力","after":"补充行动力"}])}else{json!([])}}}),
+            ));
+            let mut labels = vec![];
+            for frame in 0..3 {
+                let mut output = ctx.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(
+                            egui::Pos2::ZERO,
+                            egui::vec2(900., 620.),
+                        )),
+                        time: Some(f64::from(frame)),
+                        ..Default::default()
+                    },
+                    |ui| app.preview_dialog(ui.ctx()),
+                );
+                output.textures_delta.clear();
+                labels = output
+                    .shapes
+                    .into_iter()
+                    .filter_map(|shape| match shape.shape {
+                        egui::Shape::Text(text) => Some(text.galley.text().to_string()),
+                        _ => None,
+                    })
+                    .collect();
+            }
+            for heading in ["当前游戏文字", "替换后的文字", "应用到游戏"] {
+                assert_eq!(
+                    labels.iter().any(|label| label == heading),
+                    total > 0,
+                    "{heading}"
+                );
+            }
+            assert!(!labels.iter().any(|label| label == "本次最终文字"));
+            if total == 0 {
+                assert!(!labels.iter().any(|label| label == "关闭"));
+                assert!(
+                    !labels
+                        .iter()
+                        .any(|label| label == "请先退出游戏。未保留的旧规则会撤销。")
+                );
+            }
+            if failed > 0 {
+                assert!(labels.iter().any(|label| label.contains("已禁止应用")));
+                assert!(
+                    !labels
+                        .iter()
+                        .any(|label| label.contains("已与替换结果一致"))
+                );
+            }
+        }
+    }
+    #[test]
+    fn baseline_status_uses_a_green_or_gray_circle() {
+        for verified in [false, true] {
+            let ctx = egui::Context::default();
+            crate::theme::install(&ctx);
+            let mut app = Desktop::initial();
+            app.loaded = true;
+            if verified {
+                app.baseline = json!({"version_id":"test","folder":"backup"});
+            }
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(900., 620.),
+                    )),
+                    ..Default::default()
+                },
+                |ui| app.tools_page(ui),
+            );
+            output.textures_delta.clear();
+            let expected = if verified {
+                egui::Color32::from_rgb(37, 147, 91)
+            } else {
+                egui::Color32::from_rgb(160, 169, 181)
+            };
+            assert!(output.shapes.iter().any(|shape|matches!(&shape.shape,egui::Shape::Circle(circle) if circle.fill==expected && circle.radius==5.)));
+            assert!(!output.shapes.iter().any(|shape|matches!(&shape.shape,egui::Shape::Text(text) if text.galley.text()=="已验证")));
+        }
+    }
+    #[test]
     fn selected_batch_details_stay_above_footer_at_minimum_size() {
         let ctx = egui::Context::default();
         crate::theme::install(&ctx);
@@ -1771,6 +1870,7 @@ mod layout_tests {
                         "",
                         &mut selected,
                         true,
+                        None,
                     );
                     assert!(
                         body.min_rect().bottom() <= area.bottom() + 1.,

@@ -1,9 +1,12 @@
+mod backup;
 pub mod baseline;
 pub mod cleanup;
+mod combined;
 pub mod desktop;
 pub mod diagnostics;
 pub mod migration;
 pub mod model;
+mod promotion;
 mod recovery;
 pub mod region;
 pub mod service;

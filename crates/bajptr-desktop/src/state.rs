@@ -38,6 +38,114 @@ pub fn mode_name(mode: &str) -> &'static str {
     }
 }
 
+#[derive(Clone)]
+pub enum ReplacementRow {
+    Rule(usize),
+    Batch(usize),
+    Combined {
+        rules: Vec<usize>,
+        batches: Vec<usize>,
+    },
+}
+pub fn replacement_rows(state: &Value) -> Vec<ReplacementRow> {
+    let rules = slice(state, "rules");
+    let batches = slice(state, "batches");
+    let mut used_rules = BTreeSet::<usize>::new();
+    let mut used_batches = BTreeSet::<usize>::new();
+    let mut rows = Vec::new();
+    for (index, entry) in rules.iter().enumerate() {
+        if used_rules.contains(&index) {
+            continue;
+        }
+        let rule = &entry["rule"];
+        let eligible = |rule: &Value| {
+            rule["mode"] == "sub"
+                && bajptr_project::model::scopes(&text(rule, "table"))
+                    .is_ok_and(|scope| scope.is_some_and(|tables| !tables.is_empty()))
+        };
+        let batch_indices = batches
+            .iter()
+            .enumerate()
+            .filter(|(_, batch)| {
+                eligible(rule)
+                    && batch["active"] == true
+                    && state["version"].is_string()
+                    && batch["version"] == state["version"]
+                    && batch["id"].is_string()
+                    && batch["old"] == rule["old"]
+                    && batch["new"] == rule["new"]
+            })
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        if batch_indices.is_empty() {
+            rows.push(ReplacementRow::Rule(index));
+            continue;
+        }
+        let rule_indices = rules
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| {
+                eligible(&entry["rule"])
+                    && entry["rule"]["old"] == rule["old"]
+                    && entry["rule"]["new"] == rule["new"]
+            })
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        used_rules.extend(&rule_indices);
+        used_batches.extend(&batch_indices);
+        rows.push(ReplacementRow::Combined {
+            rules: rule_indices,
+            batches: batch_indices,
+        });
+    }
+    rows.extend(
+        (0..batches.len())
+            .filter(|index| !used_batches.contains(index))
+            .map(ReplacementRow::Batch),
+    );
+    rows
+}
+
+pub struct CombinedForm {
+    pub nonce: String,
+    pub old: String,
+    pub new: String,
+    pub scope: String,
+    pub members: Vec<Value>,
+    pub removed: BTreeSet<usize>,
+    pub selection: Selection,
+    pub filter: String,
+    pub selected: Option<usize>,
+    pub error: String,
+}
+impl CombinedForm {
+    pub fn new(data: Value) -> Self {
+        let members = list(&data, "members");
+        let selected = members
+            .first()
+            .map(|member| count(member, "index") as usize);
+        let mut selection = Selection::default();
+        if let Some(index) = selected {
+            selection.click(index, false, false);
+        }
+        Self {
+            nonce: text(&data, "nonce"),
+            old: text(&data, "old"),
+            new: text(&data, "new"),
+            scope: data["tables"].to_string(),
+            members,
+            removed: BTreeSet::new(),
+            selection,
+            filter: String::new(),
+            selected,
+            error: String::new(),
+        }
+    }
+    pub fn payload(&self) -> Value {
+        json!({"nonce":self.nonce,"old":self.old,"new":self.new,"tables":serde_json::from_str::<Value>(&self.scope).unwrap_or_else(|_|json!([self.scope])),"removed":self.removed})
+    }
+}
+
 #[derive(Default)]
 pub struct SearchInput {
     composing: bool,
@@ -100,6 +208,27 @@ pub struct Selection {
     pub anchor: Option<usize>,
 }
 impl Selection {
+    pub fn click_visible(&mut self, index: usize, visible: &[usize], ctrl: bool, shift: bool) {
+        if shift {
+            let Some(to) = visible.iter().position(|&value| value == index) else {
+                return;
+            };
+            let anchor_position = self
+                .anchor
+                .and_then(|anchor| visible.iter().position(|&value| value == anchor));
+            let from = anchor_position.unwrap_or(to);
+            if !ctrl {
+                self.rows.clear();
+            }
+            self.rows
+                .extend(visible[from.min(to)..=from.max(to)].iter().copied());
+            if anchor_position.is_none() {
+                self.anchor = Some(index);
+            }
+        } else {
+            self.click(index, ctrl, false);
+        }
+    }
     pub fn click(&mut self, index: usize, ctrl: bool, shift: bool) {
         if shift {
             if !ctrl {
@@ -251,10 +380,33 @@ pub struct TextForm {
     pub label: String,
     pub original: String,
     pub value: String,
-    pub has_batch: bool,
-    pub show_original: bool,
+    pub initial: String,
+    pub batch: Option<(String, String)>,
     pub error: String,
-    pub notice: String,
+}
+impl TextForm {
+    pub fn new(data: Value) -> Self {
+        let value = text(&data, "text");
+        Self {
+            nonce: text(&data, "nonce"),
+            label: text(&data, "label"),
+            original: text(&data, "original"),
+            initial: value.clone(),
+            value,
+            batch: data
+                .get("batch_operation")
+                .filter(|operation| operation.is_object())
+                .map(|operation| (text(operation, "old"), text(operation, "new"))),
+            error: String::new(),
+        }
+    }
+    pub fn final_text(&self) -> String {
+        let value = self.value.replace("\r\n", "\n").replace('\r', "\n");
+        match &self.batch {
+            Some((old, new)) => value.replace(old, new),
+            None => value,
+        }
+    }
 }
 pub struct BatchForm {
     pub group_id: String,
@@ -298,6 +450,31 @@ pub struct TemplateForm {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn combined_rows_only_join_current_literal_substrings_with_the_same_pair() {
+        let mut state = json!({"version":"current","rules":[
+            {"rule":{"old":"任务","new":"委托","mode":"sub","table":"A"}},
+            {"rule":{"old":"任务","new":"委托","mode":"sub","table":"B"}},
+            {"rule":{"old":"任务","new":"委托","mode":"exact","table":"C"}},
+            {"rule":{"old":"任务","new":"委托","mode":"re","table":"D"}},
+            {"rule":{"old":"任务","new":"其他","mode":"sub","table":"E"}}
+        ],"batches":[
+            {"id":"current","old":"任务","new":"委托","version":"current","active":true},
+            {"id":"old","old":"任务","new":"委托","version":"old","active":false},
+            {"index":7,"old":"任务","new":"委托","active":true}
+        ]});
+        let rows = replacement_rows(&state);
+        assert_eq!(rows.len(), 6);
+        assert!(
+            matches!(&rows[0],ReplacementRow::Combined{rules,batches} if rules==&vec![0,1] && batches==&vec![0])
+        );
+        assert!(matches!(rows[1], ReplacementRow::Rule(2)));
+        assert!(matches!(rows[4], ReplacementRow::Batch(1)));
+        assert!(matches!(rows[5], ReplacementRow::Batch(2)));
+        state["version"] = Value::Null;
+        assert_eq!(replacement_rows(&state).len(), 8);
+    }
     #[test]
     fn search_enter_respects_focus_busy_and_ime_composition() {
         use eframe::egui::{Event, ImeEvent, Key, Modifiers};
@@ -388,6 +565,21 @@ mod tests {
         assert_eq!(s.rows, BTreeSet::from([3, 4, 5]));
         s.clear();
         assert!(s.anchor.is_none());
+    }
+    #[test]
+    fn visible_range_selection_skips_missing_and_filtered_record_indices() {
+        let mut selection = Selection::default();
+        let visible = [2, 7, 20, 40];
+        selection.click_visible(2, &visible, false, false);
+        selection.click_visible(20, &visible, true, false);
+        assert_eq!(selection.rows, BTreeSet::from([2, 20]));
+        selection.click_visible(40, &visible, false, true);
+        assert_eq!(selection.rows, BTreeSet::from([20, 40]));
+        selection.click_visible(7, &visible, true, true);
+        assert_eq!(selection.rows, BTreeSet::from([7, 20, 40]));
+        selection.click_visible(40, &[7, 40], false, true);
+        assert_eq!(selection.rows, BTreeSet::from([40]));
+        assert_eq!(selection.anchor, Some(40));
     }
     #[test]
     fn source_selection_requires_explicit_tables() {

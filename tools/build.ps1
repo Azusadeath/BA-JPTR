@@ -149,7 +149,7 @@ try {
     [IO.File]::WriteAllText($pending, ($manifest | ConvertTo-Json), [Text.UTF8Encoding]::new($false))
     Move-Item -LiteralPath $pending -Destination $manifestPath -Force
     $launcherSource = Join-Path $projectRoot "target/$profile/bajptr-launcher.exe"
-    Copy-Item -LiteralPath $launcherSource -Destination (Join-Path $projectRoot 'bajptr.exe') -Force
+    Copy-Item -LiteralPath $launcherSource -Destination (Join-Path $projectRoot 'BA-JPTR.exe') -Force
     Write-Host "Published: $manifestPath"
     $manifests = @($manifest)
     if (Test-Path -LiteralPath $previousPath) { $manifests += (Get-Content -LiteralPath $previousPath -Raw -Encoding UTF8 | ConvertFrom-Json) }

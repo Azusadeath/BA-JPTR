@@ -43,6 +43,12 @@ pub fn cancellable(action: &str) -> bool {
                 | "migration_start"
                 | "restore"
                 | "apply"
+                | "combined_save"
+                | "combined_remove"
+                | "promotion_commit"
+                | "promotion_start"
+                | "backup_create"
+                | "backup_restore"
         )
 }
 pub fn read_only(action: &str) -> bool {
@@ -58,6 +64,9 @@ pub fn read_only(action: &str) -> bool {
             | "scope_sources"
             | "baseline"
             | "batch_open"
+            | "combined_open"
+            | "promotion_preview"
+            | "backup_read"
             | "migration_preview"
             | "text_open"
             | "batch_preview"
