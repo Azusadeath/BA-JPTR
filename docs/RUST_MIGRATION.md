@@ -39,7 +39,7 @@ Windows 原子替换使用扩展长度路径，支持中文与深层目录。
 
 ## 开发
 
-使用 tools/build.ps1、tools/package.ps1 和 tools/smoke.ps1。
+开发工具也已迁移到 Rust：使用 `cargo xtask build`、`cargo xtask package` 和 `cargo xtask smoke`，另提供源码打包、许可整理与空白便携验证。完整命令与环境要求见 [开发说明](DEVELOPMENT.md)。
 构建自动选择隔离或系统工具链，默认锁定依赖；按二进制摘要发布，再更新清单。
 发行包只包含启动器、清单引用的程序与运行库、文档及示例，不包含个人数据和开发环境。
 

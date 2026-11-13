@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/bajptr-core", "crates/bajptr-cli", "crates/bajptr-desktop", "crates/bajptr-project", "crates/bajptr-launcher", "crates/bajptr-brand"]
+members = ["crates/bajptr-core", "crates/bajptr-cli", "crates/bajptr-desktop", "crates/bajptr-project", "crates/bajptr-launcher", "crates/bajptr-brand", "xtask"]
 default-members = ["crates/bajptr-core", "crates/bajptr-project", "crates/bajptr-cli", "crates/bajptr-desktop", "crates/bajptr-launcher"]
 resolver = "2"
 

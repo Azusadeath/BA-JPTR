@@ -123,32 +123,35 @@ GUI 和 `--desktop-stdio` 的 `--data-dir <目录>` 指定数据根目录，程�
 开发时先执行受影响的包或测试，最终验收再完整运行一次测试、Lint 和构建。测试沿用 release 配置，避免切换配置导致重复编译；测试通过且代码未变时无需重复跑全套。
 
 ```powershell
-powershell -NoProfile -File tools/build.ps1 -Test -Package bajptr-project -TestTarget workflow -TestFilter source_filter
-powershell -NoProfile -File tools/build.ps1 -Test -Package bajptr-desktop -DebugBuild
+cargo xtask test --package bajptr-project --test workflow --filter source_filter
+cargo xtask test --package bajptr-desktop --debug
 ```
 
-`-Package` 选择包，`-TestTarget` 选择集成测试文件，`-TestFilter` 按名称筛选测试（后两项要求 `-Test`）。来源筛选等同一场景优先复用既有夹具；不为窗口宽度、文案或私有实现常量增加镜像测试。写入、撤销、取消、损坏资源与恢复等行为回归保留。
+`--package` 选择包，`test --test` 选择集成测试文件，`test --filter` 按名称筛选测试。来源筛选等同一场景优先复用既有夹具；不为窗口宽度、文案或私有实现常量增加镜像测试。写入、撤销、取消、损坏资源与恢复等行为回归保留。
 无渲染器桌面 UI 测试使用 Debug 配置检查 egui 的资源生命周期断言；每帧 `run_ui` 的纹理更新在丢弃输出前显式 `clear`，图形与交互断言照常执行。Release 配置不会触发这类 debug 断言。
 
 需要 Rust 1.95+，以及所选 Windows 目标对应的 C 工具链和资源编译器（GNU：MinGW/GCC、windres；MSVC：C++ Build Tools、Windows SDK）。
-本轮使用 x86_64-pc-windows-gnu 构建。存在 `.toolchain/` 时自动使用项目工具链，否则使用系统 Cargo；首次构建需下载锁定依赖。SQLite 随项目编译。
+本轮使用 x86_64-pc-windows-gnu 构建。开发流程由独立 Rust 工具 `xtask` 执行，不依赖 PowerShell 脚本。先配置可用的 Cargo 和对应 C 工具链，再在仓库根目录执行 `cargo xtask`；首次运行会编译开发工具。仅有本地 `.toolchain/` 时，先把其 Cargo、Rust 运行库、MinGW 工具目录加入终端 PATH，并配置 CARGO_HOME、RUSTUP_HOME、链接器及 dlltool。xtask 启动后，调用子 Cargo 时会自动选择项目 `.toolchain/`，否则使用系统 Cargo。SQLite 随项目编译。
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/build.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/build.ps1 -Test
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/build.ps1 -Lint
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/build.ps1 -FormatCheck
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/package.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/package-source.ps1 -Destination D:\BA-JPTR-source
+cargo xtask build
+cargo xtask test
+cargo xtask lint
+cargo xtask fmt --check
+cargo xtask package
+cargo xtask package-source --destination D:\BA-JPTR-source
+cargo xtask metadata --output work/cargo-metadata.json
+cargo xtask licenses --metadata work/cargo-metadata.json
 ```
 
-默认锁定 Cargo.lock，只有有意更新依赖时使用 `-UpdateLock`。
+默认锁定 Cargo.lock。只有有意更新依赖时使用 `cargo run --package xtask -- build --update-lock`（常用别名自身也带 `--locked`）。`build/check/test --debug` 使用 Debug；`build --no-publish` 仅编译，不更新本地启动器和引擎清单。单包构建需同时指定 `--no-publish`。`fmt` 执行格式化，`lint --fix` 自动修正可处理的检查项。
+xtask 不属于应用默认构建成员，也不进入发行包。应用构建排除正在运行的 xtask，避免 Windows 无法覆盖自身；完整测试和 Lint 包含该工具。许可收集只沿桌面、CLI、启动器的正常与构建依赖遍历，排除开发工具及仅供测试的依赖。`licenses` 不指定 `--metadata` 时自行读取 Cargo 元数据，可用 `--destination` 写入其他目录。
 二进制按摘要发布，再原子更新 `native/engine.json`，不覆盖运行中的版本。
 成功构建后清理旧摘要目录：保留当前清单、`native/previous-engine.json` 的上一组版本，以及运行中的程序所在目录。只处理文件名及摘要验证通过的普通目录；无法核对进程路径时跳过清理。设置 `BAJPTR_TRASH_DIR` 时优先移入该目录，否则使用系统回收站；清理失败保留原目录并提示。
 便携包不包含个人词表、底稿、工具链或 Python。
-默认打包目录为 `dist/BA-JPTR/`，同时生成 `dist/BA-JPTR.zip`，压缩包顶层目录为 `BA-JPTR`。已有输出需要先归档；指定 `-Destination` 时以该目录名生成同级 ZIP。
-`tools/verify-portable.ps1 -Portable <便携目录> -WorkDir <新测试目录>` 检查空白项目首次启动、保存和导出。
-`tools/smoke.ps1 -Portable <便携目录> -WorkDir <新测试目录>` 完整检查模拟游戏。两者都清空子进程环境变量，仅保留必要 Windows 变量，并使用独立用户目录。
+默认打包目录为 `dist/BA-JPTR/`，同时生成 `dist/BA-JPTR.zip`，压缩包顶层目录固定为 `BA-JPTR`。已有输出需要先归档；指定 `--destination` 时以该目录名生成同级 ZIP。源码包使用明确白名单，包含 xtask、Cargo 别名和未提交源码，不包含用户数据、运行程序或工具链。
+`cargo xtask verify-portable --portable <便携目录> --work-dir <新测试目录>` 检查空白项目首次启动、保存、导出和实际加载模块。
+`cargo xtask smoke --portable <便携目录> --work-dir <新测试目录>` 完整检查模拟游戏，包括目录占用时保留已验证补丁、重试应用、逐字节恢复及保留修改记录。两者都清空子进程环境变量，仅保留必要 Windows 变量，并使用独立用户目录。验证有超时限制，失败时结束本次启动的测试进程；报告分别写入测试目录的 portable-report.json 和 report.json。宿主注入模块会记录警告，隔离进程验证仍不等于全新 Windows 镜像测试。
 
 ## 命令行
 
